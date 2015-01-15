@@ -117,6 +117,7 @@ inline bool Simulation::ReadEvent<HeadersEvent>(CAutoFile &input, HeadersEvent *
         for (size_t i=0; i<numHeaders; ++i) {
             input >> event->obj[i];
         }
+        event->valid = true;
     } catch (std::ios_base::failure) {
         event->reset();
         return false;
