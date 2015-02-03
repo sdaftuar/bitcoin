@@ -6,7 +6,6 @@
 #include "miner.h"
 
 #include "amount.h"
-#include "primitives/block.h"
 #include "primitives/transaction.h"
 #include "hash.h"
 #include "main.h"
@@ -481,7 +480,7 @@ void static BitcoinMiner(CWallet *pwallet)
             // Search
             //
             int64_t nStart = GetTime();
-            uint256 hashTarget = uint256().SetCompact(pblock->nBits);
+            arith_uint256 hashTarget = arith_uint256().SetCompact(pblock->nBits);
             uint256 hash;
             uint32_t nNonce = 0;
             uint32_t nOldNonce = 0;
@@ -493,7 +492,7 @@ void static BitcoinMiner(CWallet *pwallet)
                 // Check if something found
                 if (fFound)
                 {
-                    if (hash <= hashTarget)
+                    if (UintToArith256(hash) <= hashTarget)
                     {
                         // Found a solution
                         pblock->nNonce = nNonce;
