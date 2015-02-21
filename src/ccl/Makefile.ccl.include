@@ -1,0 +1,67 @@
+
+BITCOIN_INCLUDES += -I$(srcdir)/ccl
+
+# transaction and block logging
+
+CCL_BITCOIND_SRC = \
+  ccl/datalogger.cpp \
+  ccl/cclutil.cpp \
+  ccl/cclglobals.cpp \
+  ccl/simulation.cpp
+
+CCL_BITCOIND_HDR = \
+  ccl/datalogger.h \
+  ccl/cclutil.h \
+  ccl/cclglobals.h \
+  ccl/simulation.h 
+
+libbitcoin_server_a_SOURCES += $(CCL_BITCOIND_SRC) $(CCL_BITCOIND_HDR)
+
+# dataprinter binary 
+# 
+
+dataprinter_SOURCES = ccl/dataprinter.cpp
+dataprinter_CPPFLAGS = $(BITCOIN_INCLUDES)
+
+dataprinter_LDADD = \
+   $(LIBBITCOIN_SERVER) \
+   $(LIBBITCOIN_COMMON) \
+   $(LIBBITCOIN_UNIVALUE) \
+   $(LIBBITCOIN_UTIL) \
+   $(LIBBITCOIN_CRYPTO) \
+   $(LIBLEVELDB) \
+   $(LIBMEMENV) \
+   $(LIBBITCOIN_WALLET) \
+   $(BOOST_LIBS) \
+   $(BDB_LIBS) \
+   $(SSL_LIBS) \
+   $(CRYPTO_LIBS) \
+   $(LIBSECP256K1) \
+   $(MINIUPNPC_LIBS)
+
+bin_PROGRAMS += dataprinter
+
+# printdb binary 
+# 
+
+printdb_SOURCES = ccl/printdb.cpp
+printdb_CPPFLAGS = $(BITCOIN_INCLUDES)
+
+printdb_LDADD = \
+   $(LIBBITCOIN_SERVER) \
+   $(LIBBITCOIN_COMMON) \
+   $(LIBBITCOIN_UNIVALUE) \
+   $(LIBBITCOIN_UTIL) \
+   $(LIBBITCOIN_CRYPTO) \
+   $(LIBLEVELDB) \
+   $(LIBMEMENV) \
+   $(LIBBITCOIN_WALLET) \
+   $(BOOST_LIBS) \
+   $(BDB_LIBS) \
+   $(SSL_LIBS) \
+   $(CRYPTO_LIBS) \
+   $(LIBSECP256K1) \
+   $(MINIUPNPC_LIBS)
+
+bin_PROGRAMS += printdb
+

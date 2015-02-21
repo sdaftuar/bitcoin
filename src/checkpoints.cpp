@@ -7,6 +7,7 @@
 #include "chainparams.h"
 #include "main.h"
 #include "uint256.h"
+#include "utiltime.h"
 
 #include <stdint.h>
 
@@ -42,7 +43,7 @@ namespace Checkpoints {
         if (pindex==NULL)
             return 0.0;
 
-        int64_t nNow = time(NULL);
+        int64_t nNow = GetTime();
 
         double fSigcheckVerificationFactor = fSigchecks ? SIGCHECK_VERIFICATION_FACTOR : 1.0;
         double fWorkBefore = 0.0; // Amount of work done before pindex

@@ -20,6 +20,8 @@
 #include "util.h"
 #include "utilmoneystr.h"
 
+#include "ccl/cclglobals.h"
+
 #include <sstream>
 
 #include <boost/algorithm/string/replace.hpp>
@@ -607,6 +609,9 @@ unsigned int LimitOrphanTxSize(unsigned int nMaxOrphans)
     {
         // Evict a random orphan:
         uint256 randomhash = GetRandHash();
+        if (cclGlobals->simulation.get() != NULL) {
+            randomhash = cclGlobals->GetDetRandHash(); // deterministic random
+        }
         map<uint256, COrphanTx>::iterator it = mapOrphanTransactions.lower_bound(randomhash);
         if (it == mapOrphanTransactions.end())
             it = mapOrphanTransactions.begin();
@@ -2742,6 +2747,73 @@ bool ProcessNewBlock(CValidationState &state, CNode* pfrom, CBlock* pblock, CDis
     return true;
 }
 
+// For simulations -- replicate the transaction processing done
+// in the message processing off the network.
+void ProcessTransaction(CTransaction &tx)
+{
+    vector<uint256> vWorkQueue;
+    vector<uint256> vEraseQueue;
+
+    CInv inv(MSG_TX, tx.GetHash());
+    LOCK(cs_main);
+
+    bool fMissingInputs = false;
+    CValidationState state;
+    if (AcceptToMemoryPool(mempool, state, tx, true, &fMissingInputs)) {
+        mempool.check(pcoinsTip);
+        vWorkQueue.push_back(inv.hash);
+        vEraseQueue.push_back(inv.hash);
+
+        LogPrint("processtx", "AcceptToMemoryPool: accepted %s (poolsz %u)\n",
+                tx.GetHash().ToString(),
+                mempool.mapTx.size());
+        
+        // Recursively process any orphan transactions that depended on this one
+        for (unsigned int i = 0; i < vWorkQueue.size(); i++)
+        {
+            map<uint256, set<uint256> >::iterator itByPrev = mapOrphanTransactionsByPrev.find(vWorkQueue[i]);
+            if (itByPrev == mapOrphanTransactionsByPrev.end())
+                continue;
+            for (set<uint256>::iterator mi = itByPrev->second.begin();
+                    mi != itByPrev->second.end(); ++mi)
+            {
+                const uint256& orphanHash = *mi;
+                const CTransaction& orphanTx = mapOrphanTransactions[orphanHash].tx;
+                bool fMissingInputs2 = false;
+                // Use a dummy CValidationState so someone can't setup nodes to counter-DoS based on orphan
+                // resolution (that is, feeding people an invalid transaction based on LegitTxX in order to get
+                // anyone relaying LegitTxX banned)
+                CValidationState stateDummy;
+
+                if (AcceptToMemoryPool(mempool, stateDummy, orphanTx, true, &fMissingInputs2))
+                {
+                    LogPrint("processtx", "   accepted orphan tx %s\n", orphanHash.ToString());
+                    mapAlreadyAskedFor.erase(CInv(MSG_TX, orphanHash));
+                    vWorkQueue.push_back(orphanHash);
+                    vEraseQueue.push_back(orphanHash);
+                }
+                else if (!fMissingInputs2)
+                {
+                    // invalid or too-little-fee orphan
+                    vEraseQueue.push_back(orphanHash);
+                    LogPrint("processtx", "   removed orphan tx %s\n",
+                        orphanHash.ToString());
+                }
+                mempool.check(pcoinsTip);
+            }
+        }
+        BOOST_FOREACH(uint256 hash, vEraseQueue)
+            EraseOrphanTx(hash);
+    } else if (fMissingInputs) {
+        AddOrphanTx(tx, 1234321); // hopefully a random unique value for the simulator to use
+                                  // (note: there shouldn't be any CNode's in use in sim)
+        unsigned int nMaxOrphanTx = (unsigned int)std::max((int64_t)0, GetArg("-maxorphantx", DEFAULT_MAX_ORPHAN_TRANSACTIONS));
+        unsigned int nEvicted = LimitOrphanTxSize(nMaxOrphanTx);
+        if (nEvicted > 0)
+            LogPrint("processtx", "mapOrphan overflow, removed %u tx\n", nEvicted);
+    }
+}
+
 bool TestBlockValidity(CValidationState &state, const CBlock& block, CBlockIndex * const pindexPrev, bool fCheckPOW, bool fCheckMerkleRoot)
 {
     AssertLockHeld(cs_main);
@@ -3800,6 +3872,8 @@ bool static ProcessMessage(CNode* pfrom, string strCommand, CDataStream& vRecv, 
         CTransaction tx;
         vRecv >> tx;
 
+        if (cclGlobals->dlog.get() != NULL) cclGlobals->dlog->OnNewTransaction(tx);
+
         CInv inv(MSG_TX, tx.GetHash());
         pfrom->AddInventoryKnown(inv);
 
@@ -3917,6 +3991,8 @@ bool static ProcessMessage(CNode* pfrom, string strCommand, CDataStream& vRecv, 
             ReadCompactSize(vRecv); // ignore tx count; assume it is 0.
         }
 
+        if (cclGlobals->dlog.get() != NULL) cclGlobals->dlog->OnNewHeaders(headers);
+
         LOCK(cs_main);
 
         if (nCount == 0) {
@@ -3957,6 +4033,8 @@ bool static ProcessMessage(CNode* pfrom, string strCommand, CDataStream& vRecv, 
     {
         CBlock block;
         vRecv >> block;
+
+        if (cclGlobals->dlog.get() != NULL) cclGlobals->dlog->OnNewBlock(block);
 
         CInv inv(MSG_BLOCK, block.GetHash());
         LogPrint("net", "received block %s peer=%d\n", inv.hash.ToString(), pfrom->id);

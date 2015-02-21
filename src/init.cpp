@@ -23,6 +23,9 @@
 #include "ui_interface.h"
 #include "util.h"
 #include "utilmoneystr.h"
+
+#include "ccl/cclglobals.h" // CCLGlobal * cclGlobal
+
 #ifdef ENABLE_WALLET
 #include "db.h"
 #include "wallet.h"
@@ -168,6 +171,8 @@ void Shutdown()
             LogPrintf("%s: Failed to write fee estimates to %s\n", __func__, est_path.string());
         fFeeEstimatesInitialized = false;
     }
+
+    cclGlobals->Shutdown();
 
     {
         LOCK(cs_main);
@@ -388,6 +393,8 @@ std::string HelpMessage(HelpMessageMode mode)
     strUsage += "  -rpcsslcertificatechainfile=<file.cert>  " + strprintf(_("Server certificate file (default: %s)"), "server.cert") + "\n";
     strUsage += "  -rpcsslprivatekeyfile=<file.pem>         " + strprintf(_("Server private key (default: %s)"), "server.pem") + "\n";
     strUsage += "  -rpcsslciphers=<ciphers>                 " + strprintf(_("Acceptable ciphers (default: %s)"), "TLSv1.2+HIGH:TLSv1+HIGH:!SSLv2:!aNULL:!eNULL:!3DES:@STRENGTH") + "\n";
+
+    cclGlobals->UpdateUsage(strUsage);
 
     return strUsage;
 }
@@ -1094,6 +1101,10 @@ bool AppInit2(boost::thread_group& threadGroup)
         mempool.ReadFeeEstimates(est_filein);
     fFeeEstimatesInitialized = true;
 
+    if (!cclGlobals->Init(&mempool)) {
+        return false;
+    }
+
     // ********************************************************* Step 8: load wallet
 #ifdef ENABLE_WALLET
     if (fDisableWallet) {
@@ -1273,7 +1284,9 @@ bool AppInit2(boost::thread_group& threadGroup)
     LogPrintf("mapAddressBook.size() = %u\n",  pwalletMain ? pwalletMain->mapAddressBook.size() : 0);
 #endif
 
-    StartNode(threadGroup);
+    if (!cclGlobals->Run(threadGroup)) {
+        StartNode(threadGroup);
+    } 
 
 #ifdef ENABLE_WALLET
     // Generate coins in the background
