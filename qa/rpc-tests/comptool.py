@@ -325,4 +325,6 @@ class TestManager(object):
             print "Test %d: PASS" % test_number, [ c.rpc.getblockcount() for c in self.connections ]
             test_number += 1
 
+        self.block_store.close()
+        self.tx_store.close()
         [ c.disconnect_node() for c in self.connections ]

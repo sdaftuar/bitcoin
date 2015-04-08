@@ -4,17 +4,20 @@
 #
 
 from mininode import *
-import leveldb
+import dbm
 
 class BlockStore(object):
     def __init__(self, datadir):
-        self.blockDB = leveldb.LevelDB(datadir + "/leveldb.blocks")
+        self.blockDB = dbm.open(datadir + "/blocks", 'c')
         self.currentBlock = 0L
     
+    def close(self):
+        self.blockDB.close()
+
     def get(self, blockhash):
         serialized_block = None
         try:
-            serialized_block = self.blockDB.Get("%s" % repr(blockhash))
+            serialized_block = self.blockDB[repr(blockhash)]
         except KeyError:
             return None
         f = cStringIO.StringIO(serialized_block)
@@ -54,7 +57,7 @@ class BlockStore(object):
     def add_block(self, block):
         block.calc_sha256()
         try:
-            self.blockDB.Put("%s" % repr(block.sha256), block.serialize())
+            self.blockDB[repr(block.sha256)] = bytes(block.serialize())
         except TypeError as e:
             print "Unexpected error: ", sys.exc_info()[0], e.args
         self.currentBlock = block.sha256
@@ -90,12 +93,15 @@ class BlockStore(object):
 
 class TxStore(object):
     def __init__(self, datadir):
-        self.txDB = leveldb.LevelDB(datadir + "/leveldb.transactions")
+        self.txDB = dbm.open(datadir + "/transactions", 'c')
+
+    def close(self):
+        self.txDB.close()
 
     def get(self, txhash):
         serialized_tx = None
         try:
-            serialized_tx = self.txDB.Get("%s" % repr(txhash))
+            serialized_tx = self.txDB[repr(txhash)]
         except KeyError:
             return None
         f = cStringIO.StringIO(serialized_tx)
@@ -107,7 +113,7 @@ class TxStore(object):
     def add_transaction(self, tx):
         tx.calc_sha256()
         try:
-            self.txDB.Put("%s" % repr(tx.sha256), tx.serialize())
+            self.txDB[repr(tx.sha256)] = bytes(tx.serialize())
         except TypeError as e:
             print "Unexpected error: ", sys.exc_info()[0], e.args
 
