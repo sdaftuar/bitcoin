@@ -9,7 +9,6 @@ from util import *
 from comptool import TestManager, TestInstance
 from mininode import *
 from blocktools import *
-from blockstore import BlockStore
 import logging
 import copy
 import time

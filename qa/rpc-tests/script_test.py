@@ -24,7 +24,6 @@ from util import *
 from comptool import TestInstance, TestManager
 from mininode import *
 from blocktools import *
-from blockstore import BlockStore, TxStore
 from script import *
 import logging
 import copy
