@@ -46,7 +46,7 @@ class TestManager(NodeConnCB):
             fail = False
             self.connection.rpc.generate(1) # Leave IBD
 
-            numBlocksToGenerate = [ 8, 16, 128, 512, 1024, 4096, 8192, 40000, 80000 ]
+            numBlocksToGenerate = [ 8, 16, 128, 1024 ]
             for count in range(len(numBlocksToGenerate)):
                 current_invs = []
                 for i in range(numBlocksToGenerate[count]):
