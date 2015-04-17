@@ -74,7 +74,7 @@ class BIP66Test(ComparisonTestFramework):
 
     def get_tests(self):
 
-        self.coinbase_blocks = self.nodes[0].setgenerate(True, 2)
+        self.coinbase_blocks = self.nodes[0].generate(2)
         self.tip = int ("0x" + self.nodes[0].getbestblockhash() + "L", 0)
         self.nodeaddress = self.nodes[0].getnewaddress()
         self.last_block_time = time.time()

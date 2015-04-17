@@ -44,7 +44,7 @@ class TestManager(NodeConnCB):
     def run(self):
         try:
             fail = False
-            self.connection.rpc.setgenerate(True, 1) # Leave IBD
+            self.connection.rpc.generate(1) # Leave IBD
 
             numBlocksToGenerate = [ 8, 16, 128, 512, 1024, 4096, 8192, 40000, 80000 ]
             for count in range(len(numBlocksToGenerate)):
