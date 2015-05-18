@@ -8,6 +8,7 @@
 #include "boost/date_time/gregorian/gregorian.hpp" //include all types plus i/o
 #include "boost/filesystem.hpp"
 
+#include <limits>
 #include <string>
 #include <serialize.h>
 
@@ -24,7 +25,7 @@ using namespace std;
 
 struct CCLEvent {
     CCLEvent() { reset(); }
-    virtual void reset() { timeMicros = INT64_MAX; valid = false; }
+    virtual void reset() { timeMicros = std::numeric_limits<int64_t>::max(); valid = false; }
     int64_t timeMicros;
     bool valid;
 
@@ -111,12 +112,7 @@ inline bool Simulation::ReadEvent<HeadersEvent>(CAutoFile &input, HeadersEvent *
 {
     try {
         input >> event->timeMicros;
-        size_t numHeaders;
-        input >> numHeaders;
-        event->obj.resize(numHeaders);
-        for (size_t i=0; i<numHeaders; ++i) {
-            input >> event->obj[i];
-        }
+        input >> event->obj;
         event->valid = true;
     } catch (std::ios_base::failure) {
         event->reset();

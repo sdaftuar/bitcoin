@@ -126,9 +126,6 @@ void DataLogger::OnNewHeaders(vector<CBlockHeader> &headers)
             RollDate();
         }
         *headersLog << GetTimeMicros();
-        *headersLog << headers.size();
-        for (size_t i=0; i<headers.size(); ++i) {
-            *headersLog << headers[i];
-        }
+        *headersLog << headers;
     }
 }
