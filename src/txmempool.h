@@ -65,7 +65,10 @@ private:
     int64_t nTime; //! Local time when entering the mempool
     double entryPriority; //! Priority when entering the mempool
     unsigned int entryHeight; //! Chain height when entering the mempool
+    double cachedPriority; //! Last calculated priority
+    unsigned int cachedHeight; //! Height at which priority was last calculated
     bool hadNoDependencies; //! Not dependent on any other txs when it entered the mempool
+    CAmount inChainInputValue; //! Sum of all txin values that are already in blockchain
 
     // Information about descendants of this transaction that are in the
     // mempool; if we remove this transaction we must remove all of these
@@ -78,11 +81,22 @@ private:
 
 public:
     CTxMemPoolEntry(const CTransaction& _tx, const CAmount& _nFee,
-                    int64_t _nTime, double _entryPriority, unsigned int _entryHeight, bool poolHasNoInputsOf = false);
+                    int64_t _nTime, double _entryPriority, unsigned int _entryHeight,
+                    bool poolHasNoInputsOf = false, CAmount inChainInputValue = 0);
     CTxMemPoolEntry(const CTxMemPoolEntry& other);
 
     const CTransaction& GetTx() const { return this->tx; }
+    double GetStartingPriority() const {return entryPriority; }
+    /**
+     * Fast calculation of priority as update from cached value, but only valid if
+     * currentHeight is greater than last height it was recalculated.
+     */
     double GetPriority(unsigned int currentHeight) const;
+    /**
+     * Recalculate the cached priority as of currentHeight and adjust inChainInputValue by
+     * valueInCurrentBlock which represents input that was just added to or removed from the blockchain.
+     */
+    void UpdateCachedPriority(unsigned int currentHeight, CAmount valueInCurrentBlock);
     const CAmount& GetFee() const { return nFee; }
     size_t GetTxSize() const { return nTxSize; }
     int64_t GetTime() const { return nTime; }
@@ -125,6 +139,20 @@ struct set_dirty
 {
     void operator() (CTxMemPoolEntry &e)
         { e.SetDirty(); }
+};
+
+struct update_priority
+{
+    update_priority(unsigned int _height, CAmount _value) :
+        height(_height), value(_value)
+    {}
+
+    void operator() (CTxMemPoolEntry &e)
+    { e.UpdateCachedPriority(height, value); }
+
+    private:
+        unsigned int height;
+        CAmount value;
 };
 
 // extracts a TxMemPoolEntry's transaction hash
@@ -385,6 +413,12 @@ public:
      * the tx is not dependent on other mempool transactions to be included in a block.
      */
     bool HasNoInputsOf(const CTransaction& tx) const;
+    /**
+     * Update all transactions in the mempool which depend on tx to recalculate their priority
+     * and adjust the input value that will age to reflect that the inputs from this transaction have
+     * either just been added to the chain or just been removed.
+     */
+    void UpdateDependentPriorities(const CTransaction &tx, unsigned int nBlockHeight, bool addToChain);
 
     /** Affect CreateNewBlock prioritisation of transactions */
     void PrioritiseTransaction(const uint256 hash, const std::string strHash, double dPriorityDelta, const CAmount& nFeeDelta);
