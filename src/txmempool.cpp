@@ -301,6 +301,8 @@ void CTxMemPoolEntry::UpdateState(int64_t modifySize, CAmount modifyFee, int64_t
 CTxMemPool::CTxMemPool(const CFeeRate& _minRelayFee) :
     nTransactionsUpdated(0)
 {
+    clear();
+
     // Sanity checks off by default for performance, because otherwise
     // accepting transactions becomes O(N^2) where N is the number
     // of transactions in the pool
@@ -773,6 +775,102 @@ size_t CTxMemPool::DynamicMemoryUsage() const {
     LOCK(cs);
     // Estimate the overhead of mapTx to be 9 pointers + an allocation, as no exact formula for boost::multi_index_contained is implemented.
     return memusage::MallocUsage(sizeof(CTxMemPoolEntry) + 9 * sizeof(void*)) * mapTx.size() + memusage::DynamicUsage(mapNextTx) + memusage::DynamicUsage(mapDeltas) + memusage::DynamicUsage(mapLinks) + cachedInnerUsage;
+}
+
+size_t CTxMemPool::GuessDynamicMemoryUsage(const CTxMemPoolEntry& entry) const {
+    setEntries s;
+    return memusage::MallocUsage(sizeof(CTxMemPoolEntry) + 9 * sizeof(void*)) + entry.DynamicMemoryUsage() + (memusage::IncrementalDynamicUsage(mapNextTx) + memusage::IncrementalDynamicUsage(s)) * entry.GetTx().vin.size() + memusage::IncrementalDynamicUsage(mapLinks);
+}
+
+bool CTxMemPool::StageTrimToSize(size_t sizelimit, const CTxMemPoolEntry& toadd, std::set<uint256>& stage, CAmount& nFeesRemoved) {
+    size_t nSizeRemoved = 0;
+    std::set<uint256> protect;
+    BOOST_FOREACH(const CTxIn& in, toadd.GetTx().vin) {
+        protect.insert(in.prevout.hash);
+    }
+
+    size_t expsize = DynamicMemoryUsage() + GuessDynamicMemoryUsage(toadd); // Track the expected resulting memory usage of the mempool.
+    indexed_transaction_set::nth_index<1>::type::reverse_iterator it = mapTx.get<1>().rbegin();
+    int fails = 0; // Number of mempool transactions iterated over that were not included in the stage.
+    // Iterate from lowest feerate to highest feerate in the mempool:
+    while (expsize > sizelimit && it != mapTx.get<1>().rend()) {
+        const uint256& hash = it->GetTx().GetHash();
+        if (stage.count(hash)) {
+            // If the transaction is already staged for deletion, we know its descendants are already processed, so skip it.
+            it++;
+            continue;
+        }
+        if (GetRand(10)) {
+            // Only try 1/10 of the transactions, in order to have some chance to avoid very big chains.
+            it++;
+            continue;
+        }
+        if (CompareTxMemPoolEntryByFeeRate()(*it, toadd)) {
+            // If the transaction's feerate is worse than what we're looking for, we have processed everything in the mempool
+            // that could improve the staged set. If we don't have an acceptable solution by now, bail out.
+            return false;
+        }
+        std::deque<uint256> todo; // List of hashes that we still need to process (descendants of 'hash').
+        std::set<uint256> now; // Set of hashes that will need to be added to stage if 'hash' is included.
+        CAmount nowfee = 0; // Sum of the fees in 'now'.
+        size_t nowsize = 0; // Sum of the tx sizes in 'now'.
+        size_t nowusage = 0; // Sum of the memory usages of transactions in 'now'.
+        int iternow = 0; // Transactions we've inspected so far while determining whether 'hash' is acceptable.
+        todo.push_back(it->GetTx().GetHash()); // Add 'hash' to the todo list, to initiate processing its children.
+        bool good = true; // Whether including 'hash' (and all its descendants) is a good idea.
+        // Iterate breadth-first over all descendants of transaction with hash 'hash'.
+        while (!todo.empty()) {
+            uint256 hashnow = todo.front();
+            if (protect.count(hashnow)) {
+                // If this transaction is in the protected set, we're done with 'hash'.
+                good = false;
+                break;
+            }
+            iternow++; // We only count transactions we actually had to go find in the mempool.
+            if (iternow + fails > 20) {
+                return false;
+            }
+            const CTxMemPoolEntry* origTx = &*mapTx.find(hashnow);
+            nowfee += origTx->GetFee();
+            if (nFeesRemoved + nowfee > toadd.GetFee()) {
+                // If this pushes up to the total fees deleted too high, we're done with 'hash'.
+                good = false;
+                break;
+            }
+            todo.pop_front();
+            // Add 'hashnow' to the 'now' set, and update its statistics.
+            now.insert(hashnow);
+            nowusage += GuessDynamicMemoryUsage(*origTx);
+            nowsize += origTx->GetTxSize();
+            // Find dependencies of 'hashnow' and them to todo.
+            std::map<COutPoint, CInPoint>::iterator iter = mapNextTx.lower_bound(COutPoint(hashnow, 0));
+            while (iter != mapNextTx.end() && iter->first.hash == hashnow) {
+                const uint256& nexthash = iter->second.ptx->GetHash();
+                if (!(stage.count(nexthash) || now.count(nexthash))) {
+                    todo.push_back(nexthash);
+                }
+                iter++;
+            }
+        }
+        if (good && (double)nowfee * toadd.GetTxSize() > (double)toadd.GetFee() * nowsize) {
+            // The new transaction's feerate is below that of the set we're removing.
+            good = false;
+        }
+        if (good) {
+            stage.insert(now.begin(), now.end());
+            nFeesRemoved += nowfee;
+            nSizeRemoved += nowsize;
+            expsize -= nowusage;
+        } else {
+            fails += iternow;
+            if (fails > 10) {
+                // Bail out after traversing 32 transactions that are not acceptable.
+                return false;
+            }
+        }
+        it++;
+    }
+    return true;
 }
 
 void CTxMemPool::RemoveStaged(std::set<uint256>& stage) {

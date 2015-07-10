@@ -49,7 +49,6 @@ private:
     size_t nTxSize; //! ... and avoid recomputing tx size
     size_t nModSize; //! ... and modified size for priority
     size_t nUsageSize; //! ... and total memory usage
-    CFeeRate feeRate; //! ... and fee per kB
     int64_t nTime; //! Local time when entering the mempool
     double dPriority; //! Priority when entering the mempool
     unsigned int nHeight; //! Chain height when entering the mempool
@@ -72,8 +71,7 @@ public:
 
     const CTransaction& GetTx() const { return this->tx; }
     double GetPriority(unsigned int currentHeight) const;
-    CAmount GetFee() const { return nFee; }
-    CFeeRate GetFeeRate() const { return feeRate; }
+    const CAmount& GetFee() const { return nFee; }
     size_t GetTxSize() const { return nTxSize; }
     int64_t GetTime() const { return nTime; }
     unsigned int GetHeight() const { return nHeight; }
@@ -127,7 +125,7 @@ struct mempoolentry_txid
     }
 };
 
-class CompareTxMemPoolEntryByFee
+class CompareTxMemPoolEntryByFeeRate
 {
 public:
     bool operator()(const CTxMemPoolEntry& a, const CTxMemPoolEntry& b)
@@ -215,7 +213,7 @@ public:
             // sorted by fee rate
             boost::multi_index::ordered_non_unique<
                 boost::multi_index::identity<CTxMemPoolEntry>,
-                CompareTxMemPoolEntryByFee
+                CompareTxMemPoolEntryByFeeRate
             >
         >
     > indexed_transaction_set;
@@ -308,6 +306,14 @@ public:
      *  errString = populated with error reason if any limits are hit
      */
     bool CalculateMemPoolAncestors(const CTxMemPoolEntry &entry, setEntries &setAncestors, uint64_t limitAncestorCount, uint64_t limitAncestorSize, uint64_t limitDescendantCount, uint64_t limitDescendantSize, std::string &errString);
+    /** Build a list of transaction (hashes) to remove such that:
+     *  - The list is consistent (if a parent is included, all its dependencies are included as well).
+     *  - No dependencies of toadd are removed.
+     *  - The total fees removed are not more than the fees added by toadd.
+     *  - The feerate of what is removed is not better than the feerate of toadd.
+     *  - Removing said list will reduce the DynamicMemoryUsage after adding toadd, below sizelimit.
+     */
+    bool StageTrimToSize(size_t sizelimit, const CTxMemPoolEntry& toadd, std::set<uint256>& stage, CAmount& nFeeRemoved);
 
     unsigned long size()
     {
@@ -382,6 +388,7 @@ private:
      *  removal.
      */
     void removeUnchecked(const uint256& hash);
+    size_t GuessDynamicMemoryUsage(const CTxMemPoolEntry& entry) const;
 };
 
 /** 
