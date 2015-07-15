@@ -2972,7 +2972,7 @@ void ProcessTransaction(CTransaction &tx)
         vWorkQueue.push_back(inv.hash);
         vEraseQueue.push_back(inv.hash);
 
-        LogPrint("processtx", "AcceptToMemoryPool: accepted %s (poolsz %u)\n",
+        LogPrint("mempool", "AcceptToMemoryPool: accepted %s (poolsz %u)\n",
                 tx.GetHash().ToString(),
                 mempool.mapTx.size());
         
@@ -3018,7 +3018,10 @@ void ProcessTransaction(CTransaction &tx)
         unsigned int nMaxOrphanTx = (unsigned int)std::max((int64_t)0, GetArg("-maxorphantx", DEFAULT_MAX_ORPHAN_TRANSACTIONS));
         unsigned int nEvicted = LimitOrphanTxSize(nMaxOrphanTx);
         if (nEvicted > 0)
-            LogPrint("processtx", "mapOrphan overflow, removed %u tx\n", nEvicted);
+            LogPrint("orphan", "mapOrphan overflow, removed %u tx\n", nEvicted);
+    } else {
+        LogPrint("mempool", "%s was not accepted into the memory pool: %s\n", tx.GetHash().ToString(),
+                state.GetRejectReason());
     }
 }
 
