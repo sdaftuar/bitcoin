@@ -163,6 +163,5 @@ uint256 CCLGlobals::GetDetRandHash()
         arith_uint256 val = rnd.Uniform(1<<16);
         ret |= (val << i*16);
     }
-    LogPrintf("random hash requested: %s\n", ret.GetHex());
     return ArithToUint256(ret);
 }
