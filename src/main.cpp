@@ -988,6 +988,17 @@ bool AcceptToMemoryPool(CTxMemPool& pool, CValidationState &state, const CTransa
                 REJECT_HIGHFEE, "absurdly-high-fee",
                 strprintf("%d > %d", nFees, ::minRelayTxFee.GetFee(nSize) * 10000));
 
+        // Calculate in-mempool ancestors, up to a limit.
+        std::set<uint256> setAncestors;
+        size_t nLimitAncestors = GetArg("-limitancestorcount", DEFAULT_ANCESTOR_LIMIT);
+        size_t nLimitAncestorSize = GetArg("-limitancestorsize", DEFAULT_ANCESTOR_SIZE_LIMIT)*1000;
+        size_t nLimitDescendants = GetArg("-limitdescendantcount", DEFAULT_DESCENDANT_LIMIT);
+        size_t defaultDescendantSize = GetArg("-maxmempool", DEFAULT_MAX_MEMPOOL_SIZE)*1000 / 200;
+        size_t nLimitDescendantSize = GetArg("-limitdescendantsize", defaultDescendantSize)*1000;
+        if (!pool.CalculateMemPoolAncestors(entry, setAncestors, nLimitAncestors, nLimitAncestorSize, nLimitDescendants, nLimitDescendantSize, state)) {
+            return false;
+        }
+
         // Check against previous transactions
         // This is done last to help prevent CPU exhaustion denial-of-service attacks.
         if (!CheckInputs(tx, state, view, true, STANDARD_SCRIPT_VERIFY_FLAGS, true))
@@ -1013,9 +1024,9 @@ bool AcceptToMemoryPool(CTxMemPool& pool, CValidationState &state, const CTransa
             LogPrint("mempool", "Removing %u transactions (%d fees) from the mempool to make space for %s\n", stagedelete.size(), nFeesDeleted, tx.GetHash().ToString());
             pool.RemoveStaged(stagedelete);
         }
-        }
         // Store transaction in memory
-        pool.addUnchecked(hash, entry, !IsInitialBlockDownload());
+        pool.addUnchecked(hash, entry, setAncestors, !IsInitialBlockDownload());
+        }
 
         // Try to use excess relay fees paid by txs above the soft cap to trim in aggregate
         int64_t timeNow = GetTime();
@@ -2125,13 +2136,23 @@ bool static DisconnectTip(CValidationState &state) {
     if (!FlushStateToDisk(state, FLUSH_STATE_IF_NEEDED))
         return false;
     // Resurrect mempool transactions from the disconnected block.
+    std::vector<uint256> vHashUpdate;
     BOOST_FOREACH(const CTransaction &tx, block.vtx) {
         // ignore validation errors in resurrected transactions
         list<CTransaction> removed;
         CValidationState stateDummy;
-        if (tx.IsCoinBase() || !AcceptToMemoryPool(mempool, stateDummy, tx, false, NULL, false, false))
+        if (tx.IsCoinBase() || !AcceptToMemoryPool(mempool, stateDummy, tx, false, NULL, false, false)) {
             mempool.remove(tx, removed, true);
+        } else if (mempool.mapTx.count(tx.GetHash())) {
+            vHashUpdate.push_back(tx.GetHash());
+        }
     }
+    // AcceptToMemoryPool/addUnchecked all assume that new mempool entries have
+    // no in-mempool children, which is generally not true when adding
+    // previously-confirmed transactions back to the mempool.
+    // UpdateTransactionsFromBlock finds descendants of any transactions in this
+    // block that were added back and cleans up the mempool state.
+    mempool.UpdateTransactionsFromBlock(vHashUpdate);
     mempool.removeCoinbaseSpends(pcoinsTip, pindexDelete->nHeight);
     mempool.check(pcoinsTip);
     // Update chainActive and related variables.
