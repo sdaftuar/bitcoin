@@ -318,7 +318,7 @@ public:
      *  - The feerate of what is removed is not better than the feerate of toadd.
      *  - Removing said list will reduce the DynamicMemoryUsage after adding toadd, below sizelimit.
      */
-    bool StageTrimToSize(size_t sizelimit, const CTxMemPoolEntry& toadd, std::set<uint256>& stage, CAmount& nFeeRemoved);
+    bool StageTrimToSize(size_t sizelimit, const CTxMemPoolEntry& toadd, CAmount nFeesReserved, std::set<uint256>& stage, CAmount& nFeesRemoved);
 
     /** Expire all transaction (and their dependencies) in the mempool older than time. Return the number of removed transactions. */
     int Expire(int64_t time);
@@ -354,6 +354,7 @@ public:
     bool ReadFeeEstimates(CAutoFile& filein);
 
     size_t DynamicMemoryUsage() const;
+    size_t GuessDynamicMemoryUsage(const CTxMemPoolEntry& entry) const;
 
 private:
     /** UpdateForDescendants is used by UpdateTransactionsFromBlock to update
@@ -396,7 +397,6 @@ private:
      *  removal.
      */
     void removeUnchecked(const uint256& hash);
-    size_t GuessDynamicMemoryUsage(const CTxMemPoolEntry& entry) const;
 };
 
 /** 
