@@ -880,6 +880,21 @@ void CTxMemPool::RemoveStaged(std::set<uint256>& stage) {
     }
 }
 
+int CTxMemPool::Expire(int64_t time) {
+    indexed_transaction_set::nth_index<2>::type::iterator it = mapTx.get<2>().begin();
+    std::set<uint256> toremove;
+    while (it != mapTx.get<2>().end() && it->GetTime() < time) {
+        toremove.insert(it->GetTx().GetHash());
+        it++;
+    }
+    std::set<uint256> stage;
+    BOOST_FOREACH(const uint256 &hash, toremove) {
+        CalculateDescendants(hash, stage);
+    }
+    RemoveStaged(stage);
+    return stage.size();
+}
+
 bool CTxMemPool::addUnchecked(const uint256&hash, const CTxMemPoolEntry &entry, bool fCurrentEstimate)
 {
     setEntries setAncestors;

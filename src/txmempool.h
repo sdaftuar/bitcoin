@@ -214,6 +214,11 @@ public:
             boost::multi_index::ordered_non_unique<
                 boost::multi_index::identity<CTxMemPoolEntry>,
                 CompareTxMemPoolEntryByFeeRate
+            >,
+            // sorted by entry time
+            boost::multi_index::ordered_non_unique<
+                boost::multi_index::identity<CTxMemPoolEntry>,
+                CompareTxMemPoolEntryByEntryTime
             >
         >
     > indexed_transaction_set;
@@ -314,6 +319,9 @@ public:
      *  - Removing said list will reduce the DynamicMemoryUsage after adding toadd, below sizelimit.
      */
     bool StageTrimToSize(size_t sizelimit, const CTxMemPoolEntry& toadd, std::set<uint256>& stage, CAmount& nFeeRemoved);
+
+    /** Expire all transaction (and their dependencies) in the mempool older than time. Return the number of removed transactions. */
+    int Expire(int64_t time);
 
     unsigned long size()
     {
