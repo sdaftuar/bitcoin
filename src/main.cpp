@@ -889,10 +889,27 @@ bool AcceptToMemoryPool(CTxMemPool& pool, CValidationState &state, const CTransa
         unsigned int nSize = entry.GetTxSize();
 
         // Try to make space in mempool
+        size_t softcap = GetArg("-maxmempool", DEFAULT_MAX_MEMPOOL_SIZE) * 700000;
+        size_t hardcap = GetArg("-maxmempool", DEFAULT_MAX_MEMPOOL_SIZE) * 1000000;
+        size_t capstep = (hardcap - softcap) / 10;
         std::set<uint256> stagedelete;
         CAmount nFeesDeleted = 0;
-        if (!mempool.StageTrimToSize(GetArg("-maxmempool", DEFAULT_MAX_MEMPOOL_SIZE) * 1000000, entry, stagedelete, nFeesDeleted)) {
-            return state.DoS(0, false, REJECT_INSUFFICIENTFEE, "mempool full");
+        if (!mempool.StageTrimToSize(softcap, entry, stagedelete, nFeesDeleted)) {
+            size_t expsize = mempool.DynamicMemoryUsage() + mempool.GuessDynamicMemoryUsage(entry);
+            if (expsize > hardcap)
+                return state.DoS(0, false, REJECT_INSUFFICIENTFEE, "mempool full hard cap");
+            else {
+                int relayMult = 1;
+                while (expsize > softcap) {
+                    relayMult *= 2;
+                    assert(expsize > capstep);
+                    expsize -= capstep;
+                }
+                if (nFees < relayMult * ::minRelayTxFee.GetFee(nSize))
+                    return state.DoS(0, false, REJECT_INSUFFICIENTFEE, "mempool full soft cap");
+                else
+                    LogPrint("mempool", "Tx %s entering reserve space size/fee %ld %ld at usage of %5.2f and mult of %d\n",tx.GetHash().ToString().substr(0,10).c_str(),nSize,nFees, mempool.DynamicMemoryUsage() + mempool.GuessDynamicMemoryUsage(entry), relayMult);
+            }
         }
 
         // Don't accept it if it can't get into a block
