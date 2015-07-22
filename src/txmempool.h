@@ -203,8 +203,9 @@ public:
      *  - Removing said list will reduce the DynamicMemoryUsage after adding toadd, below sizelimit.
      */
     bool StageTrimToSize(size_t sizelimit, const CTxMemPoolEntry& toadd, std::set<uint256>& stage, CAmount& nFeesReserved, CAmount& nFeesRemoved);
+    bool SurplusTrim(int mutliplier, CFeeRate minRelayRate, std::set<uint256> &stage, size_t usageToTrim);
     bool TrimMempool(size_t sizeToTrim, std::set<uint256> &protect, CAmount nFeesReserved, size_t sizeToUse, CAmount feeToUse,
-		     std::set<uint256>& stage, CAmount &nfeesRemoved);
+		     std::set<uint256>& stage, CAmount &nfeesRemoved, bool mustTrimAllSize);
     void RemoveStaged(std::set<uint256>& stage);
 
     /** Expire all transaction (and their dependencies) in the mempool older than time. Return the number of removed transactions. */
