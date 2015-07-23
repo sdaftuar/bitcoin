@@ -476,6 +476,15 @@ bool CTxMemPool::TrimMempool(size_t sizeToTrim, std::set<uint256> &protect, CAmo
     size_t usageRemoved = 0;
     indexed_transaction_set::nth_index<1>::type::reverse_iterator it = mapTx.get<1>().rbegin();
     int fails = 0; // Number of mempool transactions iterated over that were not included in the stage.
+    int itertotal = 0;
+    int iterextra = 50;
+    int iterperfail = 10;
+    int failmax = 5;
+    if (mustTrimAllSize) {
+        iterextra = 10;
+        iterperfail = 2;
+        failmax = 10;
+    }
     // Iterate from lowest feerate to highest feerate in the mempool:
     while (usageRemoved < sizeToTrim && it != mapTx.get<1>().rend()) {
         const uint256& hash = it->GetTx().GetHash();
@@ -499,7 +508,6 @@ bool CTxMemPool::TrimMempool(size_t sizeToTrim, std::set<uint256> &protect, CAmo
         CAmount nowfee = 0; // Sum of the fees in 'now'.
         size_t nowsize = 0; // Sum of the tx sizes in 'now'.
         size_t nowusage = 0; // Sum of the memory usages of transactions in 'now'.
-        int iternow = 0; // Transactions we've inspected so far while determining whether 'hash' is acceptable.
         todo.push_back(it->GetTx().GetHash()); // Add 'hash' to the todo list, to initiate processing its children.
         bool good = true; // Whether including 'hash' (and all its descendants) is a good idea.
         // Iterate breadth-first over all descendants of transaction with hash 'hash'.
@@ -510,8 +518,8 @@ bool CTxMemPool::TrimMempool(size_t sizeToTrim, std::set<uint256> &protect, CAmo
                 good = false;
                 break;
             }
-            iternow++; // We only count transactions we actually had to go find in the mempool.
-            if (iternow + fails > 20) {
+            itertotal++; // We only count transactions we actually had to go find in the mempool.
+            if (itertotal > iterextra + iterperfail*fails) { //won't iterate more than 60 total transactions, and save at least 2 for each fail attempt
                 good = false;
                 break;
             }
@@ -546,8 +554,8 @@ bool CTxMemPool::TrimMempool(size_t sizeToTrim, std::set<uint256> &protect, CAmo
             nFeesRemoved += nowfee;
             usageRemoved += nowusage;
         } else {
-            fails += iternow;
-            if (fails > 10) {
+            fails++;
+            if (fails > failmax) {
                 // Bail out after traversing 32 transactions that are not acceptable.
                 break;
             }
