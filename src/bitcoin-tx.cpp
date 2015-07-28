@@ -478,8 +478,14 @@ static void MutateTxSign(CMutableTransaction& tx, const string& flagStr)
 class Secp256k1Init
 {
 public:
-    Secp256k1Init() { ECC_Start(); }
-    ~Secp256k1Init() { ECC_Stop(); }
+    Secp256k1Init() {
+        ECC_Start();
+        ECC_Verify_Start();
+    }
+    ~Secp256k1Init() {
+        ECC_Verify_Stop();
+        ECC_Stop();
+    }
 };
 
 static void MutateTx(CMutableTransaction& tx, const string& command,

@@ -12,6 +12,8 @@
  * This just configures logging and chain parameters.
  */
 struct BasicTestingSetup {
+    bool ecc_verify_initialized;
+
     BasicTestingSetup(const std::string& chainName = CBaseChainParams::MAIN);
     ~BasicTestingSetup();
 };
