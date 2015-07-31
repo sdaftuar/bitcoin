@@ -390,8 +390,9 @@ void CBlockPolicyEstimator::processTransaction(const CTxMemPoolEntry& entry, boo
         mapMemPoolTxs[hash].bucketIndex = feeStats.NewTx(txHeight, (double)feeRate.GetFeePerK());
     }
     else {
-        LogPrint("estimatefee", "not adding\n");
+        LogPrint("estimatefee", "not adding");
     }
+    LogPrint("estimatefee", "\n");
 }
 
 void CBlockPolicyEstimator::processBlockTx(unsigned int nBlockHeight, const CTxMemPoolEntry& entry)
