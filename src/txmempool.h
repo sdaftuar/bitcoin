@@ -38,9 +38,32 @@ static const unsigned int MEMPOOL_HEIGHT = 0x7FFFFFFF;
 
 class CTxMemPool;
 
-/**
- * CTxMemPool stores these:
+/** \class CTxMemPoolEntry
+ *
+ * CTxMemPoolEntry stores data about the correponding transaction, as well
+ * as data about all in-mempool transactions that depend on the transaction
+ * ("descendant" transactions).  We track state for descendant transactions
+ * in order to make limiting the size of the mempool work better (see below).
+ *
+ * When a new entry is added to the mempool, we update setMemPoolParents to
+ * contain all the unconfirmed (ie, in-mempool) parents of the transaction.
+ * This is used when walking back to look at ancestors of a transactions.
+ * We also update setMemPoolChildren for the direct parents of a transaction,
+ * and we update the descendant state (nCountWithDescendants,
+ * nSizeWithDescendants, and nFeesWithDescendants) for all ancestors of the
+ * newly added transaction.
+ *
+ * If updating the descendant state is skipped, we can mark the entry as
+ * "dirty", and set nSizeWithDescendants/nFeesWithDescendants to equal nTxSize/
+ * nTxFee. (This can potentially happen during a reorg, where we limit the
+ * amount of work we're willing to do to avoid consuming too much CPU.)
+ *
+ * Generally, setMemPoolChildren and setMemPoolParents should match the exact
+ * set of in-mempool children/parents (this is enforced by CTxMemPool).  But
+ * this will temporarily not be the case when transactions are added back to
+ * the mempool after a block is disconnected.  See discussion below.
  */
+
 class CTxMemPoolEntry
 {
 private:
@@ -161,6 +184,10 @@ struct mempoolentry_txid
     }
 };
 
+/** \class CompareTxMemPoolEntryByFeeRate
+ *
+ *  Sort an entry by max(feerate of entry's tx, feerate with all descendants).
+ */
 class CompareTxMemPoolEntryByFeeRate
 {
 public:
@@ -185,8 +212,7 @@ public:
         return f1 > f2;
     }
 
-    // Sort an entry based on max(fee_rate by itself, fee_rate with all
-    // descendants).  Avoid division as above.
+    // Calculate which feerate to use for an entry (avoiding division).
     bool UseDescendantFeeRate(const CTxMemPoolEntry &a)
     {
         double f1 = (double)a.GetFee() * a.GetSizeWithDescendants();
@@ -229,6 +255,116 @@ public:
  * are added to the pool: if a new transaction double-spends
  * an input of a transaction in the pool, it is dropped,
  * as are non-standard transactions.
+ *
+ * Mempool limiting:
+ *
+ * The mempool's max memory usage can be specified with -maxmempool.
+ * This value is the "hardcap", a threshold we try to never exceed.
+ * We set the "softcap" equal to 70% of this value.  As long as we're
+ * below the softcap, new transactions are accepted as long as they are valid
+ * and meet the base relay requirements.
+ *
+ * Once the mempool usage is above the softcap, new transactions can try to
+ * enter the mempool by evicting existing transactions. In order for
+ * transaction A to evict a transaction B, it must also evict all of the
+ * in-mempool descendants of B.
+ * Let S be the set containing B and those descendant transactions; then we
+ * require:
+ * - feerate(A) > feerate(S).
+ *   We try to keep the highest fee rate transactions.
+ * - fees(A) > fees(S)
+ *   We can't allow total fees in the mempool to decrease without risking a DoS
+ *   vulnerability.  We use the minrelayfee to ensure that using relay
+ *   bandwidth incurs a cost, and allowing the fees in the mempool to decrease
+ *   could allow an attacker to relay transactions for free.
+ * - (fees(A) - fees(S)) > feerequired(A)
+ *   Any transaction must pay for its own relay, after accounting for the fees
+ *   of transactions being removed.
+ *
+ * This eviction code is run when calling StageTrimToSize.
+ *
+ * If a new transaction arrives when usage is above the softcap but is unable
+ * to enter by evicting existing transactions, then it has another chance to enter
+ * the mempool if its feerate is sufficiently high.  We take the usage between the
+ * softcap and the hardcap, and divide it up into 10 bands (1,...,10).  Within
+ * a band, we accept transactions without evicting existing transactions if the
+ * feerate is above minrelayfee * 2^(n), where n is the band number.
+ *
+ * Once we're above the softcap, we can use the existince of higher fee rate
+ * transactions in the aggregate to try to evict transactions as well.  The idea
+ * is that the eviction algorithm described above generally makes it difficult
+ * for small transactions, even with a high fee rate, to evict long low-fee
+ * rate chains, because the total fee is hard to exceed. Using the knowledge
+ * that we have known high-fee-rate transactions in the reserve space, we can
+ * use them in the aggregate to try to evict large packages of transactions.
+ * This eviction strategy is run when calling SurplusTrim.
+ *
+ * Finally, there is also functionality for removing old transactions from
+ * the mempool, via the Expire() function.
+ *
+ * CTxMemPool::mapTx, and CTxMemPoolEntry bookkeeping:
+ *
+ * mapTx is a boost::multi_index that sorts the mempool on 3 criteria:
+ * - transaction hash
+ * - feerate [we use max(feerate of tx, feerate of tx with all descendants)]
+ * - time in mempool
+ *
+ * In order for the feerate sort to remain correct, we must update transactions
+ * in the mempool when new descendants arrive.  To facilitate this, we track
+ * in each transaction's CTxMemPoolEntry the set of in-mempool direct parents
+ * and direct children, along with the size and fees of all descendants.
+ *
+ * Usually when a new transaction is added to the mempool, it has no in-mempool
+ * children (because any such children would be an orphan).  So in addUnchecked,
+ * we:
+ * - update a new entry's setMemPoolParents to include all in-mempool parents
+ * - update the new entry's direct parents to include the new tx as a child
+ * - update all ancestors of the transaction to include the new tx's size/fee
+ *
+ * When a transaction is removed from the mempool, we must:
+ * - update all in-mempool parents to not track the tx in setMemPoolChildren
+ * - update all ancestors to not include the tx's size/fees in descendant state
+ * - update all in-mempool children to not include it as a parent
+ *
+ * These happen in UpdateForRemoveFromMempool.  (Note that when removing a
+ * transaction along with its descendants, we must calculate that set of
+ * transactions to be removed before doing the removal, or else the mempool can
+ * be in an inconsistent state where it's impossible to walk the ancestors of
+ * a transaction.)
+ *
+ * In the event of a reorg, the assumption that a newly added tx has no
+ * in-mempool children is false.  In particular, the mempool is in an
+ * inconsistent state while new transactions are being added, because there may
+ * be descendant transactions of a tx coming from a disconnected block that are
+ * unreachable from just looking at transactions in the mempool (the linking
+ * transactions may also be in the disconnected block, waiting to be added).
+ * Because of this, there's not much benefit in trying to search for in-mempool
+ * children in addUnchecked.  Instead, in the special case of transactions
+ * being added from a disconnected block, we require the caller to clean up the
+ * state, to account for in-mempool, out-of-block descendants for all the
+ * in-block transactions by calling UpdateTransactionsFromBlock.  Note that
+ * until this is called, the mempool state is not consistent, and in particular
+ * setMemPoolChildren and setMemPoolParents may not be correct (and therefore
+ * functions like CalculateMemPoolAncestors and CalculateDescendants that rely
+ * on them to walk the mempool are not generally safe to use).
+ *
+ * Computational limits:
+ *
+ * Updating all in-mempool ancestors of a newly added transaction can be slow,
+ * if no bound exists on how many in-mempool ancestors there may be.
+ * CalculateMemPoolAncestors() takes configurable limits that are designed to
+ * prevent these calculations from being too CPU intensive, and for ensuring
+ * that transaction packages can't be too large for the eviction code to be
+ * able to properly function.  See comments below.
+ *
+ * Adding transactions from a disconnected block can be very time consuming,
+ * because we don't have a way to limit the number of in-mempool descendants.
+ * To bound CPU processing, we limit the amount of work we're willing to do
+ * to properly update the descendant information for a tx being added from
+ * a disconnected block.  If we would exceed the limit, then we instead mark
+ * the entry as "dirty", and set the feerate for sorting purposes to be equal
+ * the feerate of the transaction without any descendants.
+ *
  */
 class CTxMemPool
 {
