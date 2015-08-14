@@ -124,6 +124,9 @@ public:
     int64_t GetCountWithDescendants() const { return nCountWithDescendants; }
     int64_t GetSizeWithDescendants() const { return nSizeWithDescendants; }
     CAmount GetFeesWithDescendants() const { return nFeesWithDescendants; }
+
+    // Calculate which feerate to use for an entry (avoiding division).
+    bool UseDescendantFeeRate() const { return (double)GetFeesWithDescendants() * GetTxSize() > (double)GetFee() * GetSizeWithDescendants(); }
 };
 
 // Helpers for modifying CTxMemPool::mapTx, which is a boost multi_index.
@@ -193,8 +196,8 @@ class CompareTxMemPoolEntryByFeeRate
 public:
     bool operator()(const CTxMemPoolEntry& a, const CTxMemPoolEntry& b)
     {
-        bool fUseADescendants = UseDescendantFeeRate(a);
-        bool fUseBDescendants = UseDescendantFeeRate(b);
+        bool fUseADescendants = a.UseDescendantFeeRate();
+        bool fUseBDescendants = b.UseDescendantFeeRate();
 
         double aFees = fUseADescendants ? a.GetFeesWithDescendants() : a.GetFee();
         double aSize = fUseADescendants ? a.GetSizeWithDescendants() : a.GetTxSize();
@@ -210,14 +213,6 @@ public:
             return a.GetTime() < b.GetTime();
         }
         return f1 > f2;
-    }
-
-    // Calculate which feerate to use for an entry (avoiding division).
-    bool UseDescendantFeeRate(const CTxMemPoolEntry &a)
-    {
-        double f1 = (double)a.GetFee() * a.GetSizeWithDescendants();
-        double f2 = (double)a.GetFeesWithDescendants() * a.GetTxSize();
-        return f2 > f1;
     }
 };
 
@@ -448,7 +443,7 @@ public:
     // StageTrimToSize will call TrimMempool for any mempool usage over the size limit up to the size of toadd.
     bool StageTrimToSize(size_t sizelimit, const CTxMemPoolEntry& toadd, CAmount nFeesReserved, std::set<uint256>& stage, CAmount& nFeesRemoved);
     // SurplusTrim will call TrimMempool for usageToTrim with synthetic fees and size based on multiplier*minRelayRate.
-    void SurplusTrim(int mutliplier, CFeeRate minRelayRate, size_t usageToTrim);
+    void SurplusTrim(int mutliplier, CFeeRate minRelayRate, size_t usageToTrim, int maxIterations);
 private:
     /** TrimMempool will build a list of transactions (hashes) to remove until it reaches sizeToTrim:
      *  - No txs in protect are removed.

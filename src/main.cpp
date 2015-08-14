@@ -909,9 +909,10 @@ bool AcceptToMemoryPool(CTxMemPool& pool, CValidationState &state, const CTransa
         size_t softcap = GetArg("-maxmempool", DEFAULT_MAX_MEMPOOL_SIZE) * 700000;
         size_t hardcap = GetArg("-maxmempool", DEFAULT_MAX_MEMPOOL_SIZE) * 1000000;
         size_t capstep = (hardcap - softcap) / 10;
+        int nLimitDescendants = GetArg("-limitdescendantcount", DEFAULT_DESCENDANT_LIMIT);
 
         {
-        LOCK(pool.cs); // Keep holding this lock from when we populate stagedelete, until they are deleted.
+        LOCK(pool.cs); // Keep holding this lock for both stagedelete and setAncestors from calculation to use.
         size_t curUsage = pool.DynamicMemoryUsage();
 
         // During a reorg, it doesn't make sense to be evicting anything from the mempool to make
@@ -925,7 +926,7 @@ bool AcceptToMemoryPool(CTxMemPool& pool, CValidationState &state, const CTransa
                 size_t trimGoal = std::min(pool.bypassedSize, curUsage - softcap);
                 int rateZone = (curUsage - softcap)/capstep + 1;
                 int rateMultForTrim = 1 << rateZone;
-                pool.SurplusTrim(rateMultForTrim, ::minRelayTxFee, trimGoal);
+                pool.SurplusTrim(rateMultForTrim, ::minRelayTxFee, trimGoal, nLimitDescendants);
             }
             pool.bypassedSize = 0;
         }
@@ -992,7 +993,6 @@ bool AcceptToMemoryPool(CTxMemPool& pool, CValidationState &state, const CTransa
         std::set<uint256> setAncestors;
         size_t nLimitAncestors = GetArg("-limitancestorcount", DEFAULT_ANCESTOR_LIMIT);
         size_t nLimitAncestorSize = GetArg("-limitancestorsize", DEFAULT_ANCESTOR_SIZE_LIMIT)*1000;
-        size_t nLimitDescendants = GetArg("-limitdescendantcount", DEFAULT_DESCENDANT_LIMIT);
         size_t defaultDescendantSize = GetArg("-maxmempool", DEFAULT_MAX_MEMPOOL_SIZE)*1000 / 200;
         size_t nLimitDescendantSize = GetArg("-limitdescendantsize", defaultDescendantSize)*1000;
         if (!pool.CalculateMemPoolAncestors(entry, setAncestors, nLimitAncestors, nLimitAncestorSize, nLimitDescendants, nLimitDescendantSize, state)) {
@@ -1043,7 +1043,7 @@ bool AcceptToMemoryPool(CTxMemPool& pool, CValidationState &state, const CTransa
                 lastSurplusTrimTime = timeNow;
                 int rateZone = (curUsage - softcap - trimGoal)/capstep + 1;
                 int rateMultForTrim = 1 << rateZone;
-                pool.SurplusTrim(rateMultForTrim - 1, ::minRelayTxFee, trimGoal);
+                pool.SurplusTrim(rateMultForTrim - 1, ::minRelayTxFee, trimGoal, nLimitDescendants);
             }
         }
     }

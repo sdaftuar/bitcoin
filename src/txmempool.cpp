@@ -807,16 +807,17 @@ bool CTxMemPool::StageTrimToSize(size_t sizelimit, const CTxMemPoolEntry& toadd,
         return true;
     }
     size_t sizeToTrim = std::min(expsize - sizelimit, incUsage);
-    return TrimMempool(sizeToTrim, protect, nFeesReserved, toadd.GetTxSize(), toadd.GetFee(), true, 10, stage, nFeesRemoved);
+    int maxIterations = 10 + toadd.GetTxSize()/200;  // Be willing to explore longer chains for bigger replacement txs
+    return TrimMempool(sizeToTrim, protect, nFeesReserved, toadd.GetTxSize(), toadd.GetFee(), true, maxIterations, stage, nFeesRemoved);
 }
 
-void CTxMemPool::SurplusTrim(int multiplier, CFeeRate minRelayRate, size_t usageToTrim) {
+void CTxMemPool::SurplusTrim(int multiplier, CFeeRate minRelayRate, size_t usageToTrim, int maxIterations) {
     CFeeRate excessRate(multiplier * minRelayRate.GetFeePerK());
     std::set<uint256> noprotect;
     CAmount nFeesRemoved = 0;
     std::set<uint256> stageTrimDelete;
     size_t sizeToTrim = usageToTrim / 4;  //Conservatively assume we have transactions at least 1/4 the size of the mempool space they've taken
-    if (TrimMempool(usageToTrim, noprotect, 0, sizeToTrim, excessRate.GetFee(sizeToTrim), false, 100, stageTrimDelete, nFeesRemoved)) {
+    if (TrimMempool(usageToTrim, noprotect, 0, sizeToTrim, excessRate.GetFee(sizeToTrim), false, maxIterations, stageTrimDelete, nFeesRemoved)) {
         size_t oldUsage = DynamicMemoryUsage();
         size_t txsToDelete = stageTrimDelete.size();
         RemoveStaged(stageTrimDelete);
@@ -836,8 +837,8 @@ bool CTxMemPool::TrimMempool(size_t sizeToTrim, std::set<uint256> &protect, CAmo
     seed_insecure_rand();
     // Iterate from lowest feerate to highest feerate in the mempool:
     while (usageRemoved < sizeToTrim && it != mapTx.get<1>().rend()) {
-        if (insecure_rand()%10) {
-            // Only try 1/10 of the transactions so we don't get stuck on the same long chains
+        if (insecure_rand()%4) {
+            // Only try 1/4 of the transactions so we don't get stuck on the same long chains
             it++;
             continue;
         }
@@ -847,10 +848,26 @@ bool CTxMemPool::TrimMempool(size_t sizeToTrim, std::set<uint256> &protect, CAmo
             it++;
             continue;
         }
-        if ((double)it->GetFee() * sizeToUse > (double)feeToUse * it->GetTxSize()) {
-            // If the transaction's feerate is worse than what we're looking for, nothing else we will iterate over
-            // could improve the staged set. If we don't have an acceptable solution by now, bail out.
+        CAmount sortedFee = it->UseDescendantFeeRate() ? it->GetFeesWithDescendants() : it->GetFee();
+        size_t sortedSize = it->UseDescendantFeeRate() ? it->GetSizeWithDescendants() : it->GetTxSize();
+        if ((double)sortedFee * sizeToUse > (double)feeToUse * sortedSize) {
+            // If we've already iterated past all transactions with lower feeRate and lower package feeRate
+            // then we can't add anything else to evict.  Bail out.
             break;
+        }
+        if (nFeesReserved + it->GetFeesWithDescendants() > feeToUse) {
+            // We know that even using our original available fees we couldn't evict this tx and its descendents
+            // so we can shortcut following the descendant trail.
+            // We can only test using our starting available fees, because although we may have already used
+            // some fees up evicting other tx's, its possible those are also counted in the descendants of the tx
+            // being considered.  (i.e. on a previous pass we picked up the same chain at a descendant)
+            fails++;
+            if (fails > failmax) {
+                // Bail out after trying failmax starting transactions that are not acceptable.
+                break;
+            }
+            it++;
+            continue;
         }
         std::deque<uint256> todo; // List of hashes that we still need to process (descendants of 'hash').
         std::set<uint256> now; // Set of hashes that will need to be added to stage if 'hash' is included.
@@ -896,6 +913,9 @@ bool CTxMemPool::TrimMempool(size_t sizeToTrim, std::set<uint256> &protect, CAmo
         }
         if (good && (double)nowfee * sizeToUse > (double)feeToUse * nowsize) {
             // The new transaction's feerate is below that of the set we're removing.
+            // This can still happen even though we we're iterating a mempool sorted by full package feerate
+            // If we're trying to evict A-B-C-D, then C-D, might already be staged, and so what we are
+            // considering now is A-B, which might have too high a fee rate.
             good = false;
         }
         if (good) {
@@ -905,7 +925,7 @@ bool CTxMemPool::TrimMempool(size_t sizeToTrim, std::set<uint256> &protect, CAmo
         } else {
             fails++;
             if (fails > failmax) {
-                // Bail out after traversing failmax transactions that are not acceptable.
+                // Bail out after trying failmax starting transactions that are not acceptable.
                 break;
             }
         }
