@@ -19,7 +19,6 @@
 #include "boost/multi_index/ordered_index.hpp"
 
 class CAutoFile;
-class CValidationState;
 
 inline double AllowFreeThreshold()
 {
@@ -324,8 +323,9 @@ public:
      *  limitAncestorSize = max size of ancestors
      *  limitDescendantCount = max number of descendants any ancestor can have
      *  limitDescendantSize = max size of descendants any ancestor can have
+     *  errString = populated with error reason if any limits are hit
      */
-    bool CalculateMemPoolAncestors(const CTxMemPoolEntry &entry, std::set<uint256> &setAncestors, uint64_t limitAncestorCount, uint64_t limitAncestorSize, uint64_t limitDescendantCount, uint64_t limitDescendantSize, CValidationState &state);
+    bool CalculateMemPoolAncestors(const CTxMemPoolEntry &entry, std::set<uint256> &setAncestors, uint64_t limitAncestorCount, uint64_t limitAncestorSize, uint64_t limitDescendantCount, uint64_t limitDescendantSize, std::string &errString);
 
     unsigned long size()
     {
