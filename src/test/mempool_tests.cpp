@@ -4,7 +4,6 @@
 
 #include "txmempool.h"
 #include "util.h"
-#include "consensus/validation.h"
 
 #include "test/test_bitcoin.h"
 
@@ -201,7 +200,7 @@ BOOST_AUTO_TEST_CASE(MempoolIndexingTest)
     tx7.vout[1].nValue = 1 * COIN;
 
     std::set<uint256> setAncestorsCalculated;
-    CValidationState dummy;
+    std::string dummy;
     CTxMemPoolEntry entry7(tx7, 2000000LL, 1, 10.0, 1, true);
     BOOST_CHECK_EQUAL(pool.CalculateMemPoolAncestors(entry7, setAncestorsCalculated, 100, 1000000, 1000, 1000000, dummy), true);
     BOOST_CHECK(CompareSet<uint256>(setAncestorsCalculated, setAncestors));

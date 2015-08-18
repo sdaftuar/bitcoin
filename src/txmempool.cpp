@@ -167,7 +167,7 @@ void CTxMemPool::UpdateTransactionsFromBlock(const std::vector<uint256> &vHashes
     }
 }
 
-bool CTxMemPool::CalculateMemPoolAncestors(const CTxMemPoolEntry &entry, std::set<uint256> &setAncestors, uint64_t limitAncestorCount, uint64_t limitAncestorSize, uint64_t limitDescendantCount, uint64_t limitDescendantSize, CValidationState &state)
+bool CTxMemPool::CalculateMemPoolAncestors(const CTxMemPoolEntry &entry, std::set<uint256> &setAncestors, uint64_t limitAncestorCount, uint64_t limitAncestorSize, uint64_t limitDescendantCount, uint64_t limitDescendantSize, std::string &errString)
 {
     std::set<uint256> parentHashes;
     const CTransaction &tx = entry.GetTx();
@@ -181,7 +181,8 @@ bool CTxMemPool::CalculateMemPoolAncestors(const CTxMemPoolEntry &entry, std::se
         if (mapTx.find(tx.vin[i].prevout.hash) != mapTx.end()) {
             parentHashes.insert(tx.vin[i].prevout.hash);
             if (parentHashes.size() + 1 > limitAncestorCount) {
-                return state.DoS(0, false, REJECT_LONGCHAIN, strprintf("too many unconfirmed parents [limit: %u]", limitAncestorCount));
+                errString = strprintf("too many unconfirmed parents [limit: %u]", limitAncestorCount);
+                return false;
             }
         }
     }
@@ -197,11 +198,14 @@ bool CTxMemPool::CalculateMemPoolAncestors(const CTxMemPoolEntry &entry, std::se
 
             totalSizeWithAncestors += stageit->GetTxSize();
             if (stageit->GetSizeWithDescendants() + entry.GetTxSize() > limitDescendantSize) {
-                return state.DoS(0, false, REJECT_LONGCHAIN, strprintf("exceeds descendant size limit for tx %s [limit: %u]", stageHash.ToString().substr(0,10), limitDescendantSize));
+                errString = strprintf("exceeds descendant size limit for tx %s [limit: %u]", stageHash.ToString().substr(0,10), limitDescendantSize);
+                return false;
             } else if (uint64_t(stageit->GetCountWithDescendants() + 1) > limitDescendantCount) {
-                return state.DoS(0, false, REJECT_LONGCHAIN, strprintf("too many descendants for tx %s [limit: %u]", stageHash.ToString().substr(0,10), limitDescendantCount));
+                errString = strprintf("too many descendants for tx %s [limit: %u]", stageHash.ToString().substr(0,10), limitDescendantCount);
+                return false;
             } else if (totalSizeWithAncestors > limitAncestorSize) {
-                return state.DoS(0, false, REJECT_LONGCHAIN, strprintf("exceeds ancestor size limit [limit: %u]", limitAncestorSize));
+                errString = strprintf("exceeds ancestor size limit [limit: %u]", limitAncestorSize);
+                return false;
             }
 
             const std::set<uint256> & setMemPoolParents = stageit->GetMemPoolParents();
@@ -211,7 +215,8 @@ bool CTxMemPool::CalculateMemPoolAncestors(const CTxMemPoolEntry &entry, std::se
                     stageParentSet.insert(phash);
                 }
                 if (stageParentSet.size() + setAncestors.size() + 1 > limitAncestorCount) {
-                    return state.DoS(0, false, REJECT_LONGCHAIN, strprintf("too-many-ancestors [limit: %u]", limitAncestorCount));
+                    errString = strprintf("too many unconfirmed ancestors [limit: %u]", limitAncestorCount);
+                    return false;
                 }
             }    
         }
@@ -258,8 +263,8 @@ void CTxMemPool::UpdateForRemoveFromMempool(const std::set<uint256> &hashesToRem
     uint64_t nNoLimit = std::numeric_limits<uint64_t>::max();
     BOOST_FOREACH(const uint256& removeHash, hashesToRemove) {
         std::set<uint256> setAncestors;
-        CValidationState dummy;
         const CTxMemPoolEntry &entry = *mapTx.find(removeHash);
+        std::string dummy;
         CalculateMemPoolAncestors(entry, setAncestors, nNoLimit, nNoLimit, nNoLimit, nNoLimit, dummy);
         // Note that UpdateAncestorsOf severs the child links that point to
         // removeHash in the entries for the parents of removeHash.  This is
@@ -966,7 +971,7 @@ bool CTxMemPool::addUnchecked(const uint256&hash, const CTxMemPoolEntry &entry, 
 {
     std::set<uint256> setAncestors;
     uint64_t nNoLimit = std::numeric_limits<uint64_t>::max();
-    CValidationState dummy;
+    std::string dummy;
     CalculateMemPoolAncestors(entry, setAncestors, nNoLimit, nNoLimit, nNoLimit, nNoLimit, dummy);
     return addUnchecked(hash, entry, setAncestors, fCurrentEstimate);
 }
