@@ -17,6 +17,7 @@
 #undef foreach
 #include "boost/multi_index_container.hpp"
 #include "boost/multi_index/ordered_index.hpp"
+#include "boost/unordered_map.hpp"
 
 class CAutoFile;
 
@@ -54,9 +55,6 @@ private:
     unsigned int nHeight; //! Chain height when entering the mempool
     bool hadNoDependencies; //! Not dependent on any other txs when it entered the mempool
 
-    std::set<uint256> setMemPoolParents;  //! Track in-mempool parents 
-    std::set<uint256> setMemPoolChildren; //! ... and in-mempool children
-
     // Information about descendants of this transaction that are in the
     // mempool; if we remove this transaction we must remove all of these
     // descendants as well.  if nCountWithDescendants is 0, treat this entry as
@@ -85,10 +83,6 @@ public:
     // Adjusts the descendant state, if this entry is not dirty.
     void UpdateState(int64_t modifySize, CAmount modifyFee, int64_t modifyCount);
 
-    // Returns estimated memory allocated/released
-    size_t UpdateParent(bool add, uint256 hash);
-    size_t UpdateChildren(bool add, uint256 hash);
-
     /** We can set the entry to be dirty if doing the full calculation of in-
      *  mempool descendants will be too expensive, which can potentially happen
      *  when re-adding transactions from a block back to the mempool.
@@ -96,41 +90,12 @@ public:
     void SetDirty();
     bool IsDirty() const { return nCountWithDescendants == 0; }
 
-    const std::set<uint256> & GetMemPoolParents() const { return setMemPoolParents; }
-    const std::set<uint256> & GetMemPoolChildren() const { return setMemPoolChildren; }
-
     int64_t GetCountWithDescendants() const { return nCountWithDescendants; }
     int64_t GetSizeWithDescendants() const { return nSizeWithDescendants; }
     CAmount GetFeesWithDescendants() const { return nFeesWithDescendants; }
 };
 
 // Helpers for modifying CTxMemPool::mapTx, which is a boost multi_index.
-struct update_parent
-{
-    update_parent(CTxMemPool &_pool, bool _add, uint256 _hash): pool(_pool), add(_add), hash(_hash) 
-    {}
-
-    void operator() (CTxMemPoolEntry &e);
-
-    private:
-        CTxMemPool &pool;
-        bool add;
-        uint256 hash;
-};
-
-struct update_children
-{
-    update_children(CTxMemPool &_pool, bool _add, uint256 _hash): pool(_pool), add(_add), hash(_hash) 
-    {}
-
-    void operator() (CTxMemPoolEntry &e);
-
-    private:
-        CTxMemPool &pool;
-        bool add;
-        uint256 hash;
-};
-
 struct update_descendant_state
 {
     update_descendant_state(int64_t _modifySize, CAmount _modifyFee, int64_t _modifyCount) :
@@ -257,6 +222,27 @@ public:
 
     mutable CCriticalSection cs;
     indexed_transaction_set mapTx;
+    typedef indexed_transaction_set::iterator txiter;
+    struct CompareIteratorByHash {
+        bool operator()(const txiter &a, const txiter &b) const {
+            return a->GetTx().GetHash() < b->GetTx().GetHash();
+        }
+    };
+    typedef std::set<txiter, CompareIteratorByHash> setEntries;
+    typedef std::map<txiter, setEntries, CompareIteratorByHash> cacheMap;
+
+    struct TxLinks {
+        setEntries parents;
+        setEntries children;
+    };
+
+    std::map<txiter, TxLinks, CompareIteratorByHash> mapLinks;
+
+    const setEntries & GetMemPoolParents(txiter entry) const;
+    const setEntries & GetMemPoolChildren(txiter entry) const;
+    void UpdateParent(txiter entry, txiter parent, bool add);
+    void UpdateChild(txiter entry, txiter child, bool add);
+
     std::map<COutPoint, CInPoint> mapNextTx;
     std::map<uint256, std::pair<double, CAmount> > mapDeltas;
 
@@ -277,11 +263,7 @@ public:
     // addUnchecked can be used to have it call CalculateMemPoolAncestors, and
     // then invoke the second version.
     bool addUnchecked(const uint256& hash, const CTxMemPoolEntry &entry, bool fCurrentEstimate = true);
-    bool addUnchecked(const uint256& hash, const CTxMemPoolEntry &entry, const std::set<uint256> &setAncestors, bool fCurrentEstimate = true);
-
-    // When mempool entries gain/lose mempool children/parents, update the
-    // cached inner usage as well.
-    void UpdateInnerUsage(int64_t sizeAdjustment);
+    bool addUnchecked(const uint256& hash, const CTxMemPoolEntry &entry, setEntries &setAncestors, bool fCurrentEstimate = true);
 
     void remove(const CTransaction &tx, std::list<CTransaction>& removed, bool fRecursive = false);
     void removeCoinbaseSpends(const CCoinsViewCache *pcoins, unsigned int nMemPoolHeight);
@@ -325,7 +307,7 @@ public:
      *  limitDescendantSize = max size of descendants any ancestor can have
      *  errString = populated with error reason if any limits are hit
      */
-    bool CalculateMemPoolAncestors(const CTxMemPoolEntry &entry, std::set<uint256> &setAncestors, uint64_t limitAncestorCount, uint64_t limitAncestorSize, uint64_t limitDescendantCount, uint64_t limitDescendantSize, std::string &errString);
+    bool CalculateMemPoolAncestors(const CTxMemPoolEntry &entry, setEntries &setAncestors, uint64_t limitAncestorCount, uint64_t limitAncestorSize, uint64_t limitDescendantCount, uint64_t limitDescendantSize, std::string &errString);
 
     unsigned long size()
     {
@@ -376,12 +358,12 @@ private:
      *  being updated, so that future invocations don't need to walk the
      *  same transaction again, if encountered in another transaction chain.
      */
-    bool UpdateForDescendants(indexed_transaction_set::iterator it,
+    bool UpdateForDescendants(txiter updateIt,
             int maxDescendantsToVisit,
-            std::map<uint256, std::set<uint256> > &cachedDescendants,
+            cacheMap &cachedDescendants,
             const std::set<uint256> &setExclude);
     /** Update ancestors of hash to add/remove it as a descendant transaction. */
-    void UpdateAncestorsOf(bool add, const uint256 &hash, const std::set<uint256> &setAncestors);
+    void UpdateAncestorsOf(bool add, const uint256 &hash, setEntries &setAncestors);
     /** For each transaction being removed, update ancestors and any direct children. */
     void UpdateForRemoveFromMempool(const std::set<uint256> &hashesToRemove);
     /** Sever link between specified transaction and direct children. */
