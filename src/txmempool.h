@@ -36,6 +36,28 @@ inline bool AllowFree(double dPriority)
 static const unsigned int MEMPOOL_HEIGHT = 0x7FFFFFFF;
 
 class CTxMemPool;
+class CTxMemPoolEntry;
+class CompareTxMemPoolEntryByFeeRate;
+class CompareTxMemPoolEntryByEntryTime;
+struct mempoolentry_txid;
+
+typedef boost::multi_index_container<
+    CTxMemPoolEntry,
+    boost::multi_index::indexed_by<
+        // sorted by txid
+        boost::multi_index::ordered_unique<mempoolentry_txid>,
+        // sorted by fee rate
+        boost::multi_index::ordered_non_unique<
+            boost::multi_index::identity<CTxMemPoolEntry>,
+            CompareTxMemPoolEntryByFeeRate
+        >,
+        // sorted by entry time
+        boost::multi_index::ordered_non_unique<
+            boost::multi_index::identity<CTxMemPoolEntry>,
+            CompareTxMemPoolEntryByEntryTime
+        >
+    >
+> indexed_transaction_set;
 
 /** \class CTxMemPoolEntry
  *
@@ -76,8 +98,8 @@ private:
     unsigned int nHeight; //! Chain height when entering the mempool
     bool hadNoDependencies; //! Not dependent on any other txs when it entered the mempool
 
-    std::set<uint256> setMemPoolParents;  //! Track in-mempool parents 
-    std::set<uint256> setMemPoolChildren; //! ... and in-mempool children
+    std::set<indexed_transaction_set::iterator> setMemPoolParents;  //! Track in-mempool parents 
+    std::set<indexed_transaction_set::iterator> setMemPoolChildren; //! ... and in-mempool children
 
     // Information about descendants of this transaction that are in the
     // mempool; if we remove this transaction we must remove all of these
@@ -107,8 +129,8 @@ public:
     void UpdateState(int64_t modifySize, CAmount modifyFee, int64_t modifyCount);
 
     // Returns estimated memory allocated/released
-    size_t UpdateParent(bool add, uint256 hash);
-    size_t UpdateChildren(bool add, uint256 hash);
+    size_t UpdateParent(bool add, indexed_transaction_set::iterator hash);
+    size_t UpdateChildren(bool add, indexed_transaction_set::iterator hash);
 
     /** We can set the entry to be dirty if doing the full calculation of in-
      *  mempool descendants will be too expensive, which can potentially happen
@@ -117,8 +139,8 @@ public:
     void SetDirty();
     bool IsDirty() const { return nCountWithDescendants == 0; }
 
-    const std::set<uint256> & GetMemPoolParents() const { return setMemPoolParents; }
-    const std::set<uint256> & GetMemPoolChildren() const { return setMemPoolChildren; }
+    const std::set<indexed_transaction_set::iterator> & GetMemPoolParents() const { return setMemPoolParents; }
+    const std::set<indexed_transaction_set::iterator> & GetMemPoolChildren() const { return setMemPoolChildren; }
 
     int64_t GetCountWithDescendants() const { return nCountWithDescendants; }
     int64_t GetSizeWithDescendants() const { return nSizeWithDescendants; }
@@ -131,7 +153,7 @@ public:
 // Helpers for modifying CTxMemPool::mapTx, which is a boost multi_index.
 struct update_parent
 {
-    update_parent(CTxMemPool &_pool, bool _add, uint256 _hash): pool(_pool), add(_add), hash(_hash) 
+    update_parent(CTxMemPool &_pool, bool _add, indexed_transaction_set::iterator _iter): pool(_pool), add(_add), iter(_iter) 
     {}
 
     void operator() (CTxMemPoolEntry &e);
@@ -139,12 +161,12 @@ struct update_parent
     private:
         CTxMemPool &pool;
         bool add;
-        uint256 hash;
+        indexed_transaction_set::iterator hash;
 };
 
 struct update_children
 {
-    update_children(CTxMemPool &_pool, bool _add, uint256 _hash): pool(_pool), add(_add), hash(_hash) 
+    update_children(CTxMemPool &_pool, bool _add, indexed_transaction_set::iterator _iter): pool(_pool), add(_add), iter(_iter) 
     {}
 
     void operator() (CTxMemPoolEntry &e);
@@ -152,7 +174,7 @@ struct update_children
     private:
         CTxMemPool &pool;
         bool add;
-        uint256 hash;
+        indexed_transaction_set::iterator iter;
 };
 
 struct update_descendant_state
@@ -371,24 +393,6 @@ private:
     uint64_t cachedInnerUsage; //! sum of dynamic memory usage of all the map elements (NOT the maps themselves)
 
 public:
-    typedef boost::multi_index_container<
-        CTxMemPoolEntry,
-        boost::multi_index::indexed_by<
-            // sorted by txid
-            boost::multi_index::ordered_unique<mempoolentry_txid>,
-            // sorted by fee rate
-            boost::multi_index::ordered_non_unique<
-                boost::multi_index::identity<CTxMemPoolEntry>,
-                CompareTxMemPoolEntryByFeeRate
-            >,
-            // sorted by entry time
-            boost::multi_index::ordered_non_unique<
-                boost::multi_index::identity<CTxMemPoolEntry>,
-                CompareTxMemPoolEntryByEntryTime
-            >
-        >
-    > indexed_transaction_set;
-
     mutable CCriticalSection cs;
     indexed_transaction_set mapTx;
     std::map<COutPoint, CInPoint> mapNextTx;
@@ -412,7 +416,7 @@ public:
     // addUnchecked can be used to have it call CalculateMemPoolAncestors, and
     // then invoke the second version.
     bool addUnchecked(const uint256& hash, const CTxMemPoolEntry &entry, bool fCurrentEstimate = true);
-    bool addUnchecked(const uint256& hash, const CTxMemPoolEntry &entry, const std::set<uint256> &setAncestors, bool fCurrentEstimate = true);
+    bool addUnchecked(const uint256& hash, const CTxMemPoolEntry &entry, const std::set<txiter> &setAncestors, bool fCurrentEstimate = true);
 
     // When mempool entries gain/lose mempool children/parents, update the
     // cached inner usage as well.
@@ -476,7 +480,7 @@ public:
      *  limitDescendantSize = max size of descendants any ancestor can have
      *  errString = populated with error reason if any limits are hit
      */
-    bool CalculateMemPoolAncestors(const CTxMemPoolEntry &entry, std::set<uint256> &setAncestors, uint64_t limitAncestorCount, uint64_t limitAncestorSize, uint64_t limitDescendantCount, uint64_t limitDescendantSize, std::string &errString);
+    bool CalculateMemPoolAncestors(const CTxMemPoolEntry &entry, std::set<indexed_transaction_set::iterator> &setAncestors, uint64_t limitAncestorCount, uint64_t limitAncestorSize, uint64_t limitDescendantCount, uint64_t limitDescendantSize, std::string &errString);
 
     /** Expire all transaction (and their dependencies) in the mempool older than time. Return the number of removed transactions. */
     int Expire(int64_t time);
@@ -533,10 +537,10 @@ private:
      */
     bool UpdateForDescendants(indexed_transaction_set::iterator it,
             int maxDescendantsToVisit,
-            std::map<uint256, std::set<uint256> > &cachedDescendants,
+            std::map<txiter, std::set<txiter> > &cachedDescendants,
             const std::set<uint256> &setExclude);
     /** Update ancestors of hash to add/remove it as a descendant transaction. */
-    void UpdateAncestorsOf(bool add, const uint256 &hash, const std::set<uint256> &setAncestors);
+    void UpdateAncestorsOf(bool add, const uint256 &hash, std::set<txiter> &setAncestors);
     /** For each transaction being removed, update ancestors and any direct children. */
     void UpdateForRemoveFromMempool(const std::set<uint256> &hashesToRemove);
     /** Sever link between specified transaction and direct children. */
