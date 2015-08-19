@@ -158,8 +158,8 @@ void CTxMemPool::UpdateTransactionsFromBlock(const std::vector<uint256> &vHashes
             // We can skip updating entries we've encountered before or that
             // are in the block (which are already accounted for).
             if (stageHashes.insert(childIter).second && !setAlreadyIncluded.count(childHash)) {
-                mapTx.modify(it, update_children(*this, true, childIter));
-                mapTx.modify(childIter, update_parent(*this, true, it));
+                UpdateChild(it, childIter, true);
+                UpdateParent(childIter, it, true);
             }
         }
         if (!UpdateForDescendants(it, 100, mapMemPoolDescendantsToUpdate, setAlreadyIncluded)) {
@@ -236,7 +236,7 @@ void CTxMemPool::UpdateAncestorsOf(bool add, const uint256 &hash, std::set<txite
         // add or remove hash as a child of phash
         indexed_transaction_set::iterator pit = phash;
         assert (pit != mapTx.end());
-        mapTx.modify(pit, update_children(*this, add, it));
+        UpdateChildren(pit, it, add);
     }
     int64_t updateCount = (add ? 1 : -1);
     int64_t updateSize = updateCount * it->GetTxSize();
@@ -255,7 +255,7 @@ void CTxMemPool::UpdateChildrenForRemoval(const uint256 &hash)
     const std::set<txiter> &setMemPoolChildren = it->GetMemPoolChildren();
     BOOST_FOREACH(txiter &updateIt, setMemPoolChildren) {
         assert(updateIt != mapTx.end());
-        mapTx.modify(updateIt, update_parent(*this, false, it));
+        UpdateParent(updateIt, it, false);
     }
 }
 
@@ -399,7 +399,7 @@ bool CTxMemPool::addUnchecked(const uint256& hash, const CTxMemPoolEntry &entry,
     BOOST_FOREACH (const uint256 &phash, setParentTransactions) {
         txiter pit = mapTx.find(phash);
         if (pit != mapTx.end()) {
-            mapTx.modify(newit, update_parent(*this, true, pit));
+            UpdateParent(newit, pit, true);
         }
     }
     UpdateAncestorsOf(true, hash, setAncestors);
@@ -988,6 +988,18 @@ void update_parent::operator() (CTxMemPoolEntry &e)
     if (!add)
         updateSize *= -1;
     pool.UpdateInnerUsage(updateSize);
+}
+
+void CTxMemPool::UpdateChild(txiter entry, txiter child, bool add)
+{
+    size_t ret=0;
+    if (add && childMap[entry].insert(child).second) {
+        cachedInnerUsage += memusage::IncrementalDynamicUsage(setEntry);
+    } else if (!add && setMemPoolChildren.erase(hash)) { 
+        cachedInnerUsage -= memusage::IncrementalDynamicUsage(setEntry);
+    }
+    return ret;
+
 }
 
 void update_children::operator() (CTxMemPoolEntry &e)

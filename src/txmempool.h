@@ -36,28 +36,7 @@ inline bool AllowFree(double dPriority)
 static const unsigned int MEMPOOL_HEIGHT = 0x7FFFFFFF;
 
 class CTxMemPool;
-class CTxMemPoolEntry;
-class CompareTxMemPoolEntryByFeeRate;
-class CompareTxMemPoolEntryByEntryTime;
-struct mempoolentry_txid;
 
-typedef boost::multi_index_container<
-    CTxMemPoolEntry,
-    boost::multi_index::indexed_by<
-        // sorted by txid
-        boost::multi_index::ordered_unique<mempoolentry_txid>,
-        // sorted by fee rate
-        boost::multi_index::ordered_non_unique<
-            boost::multi_index::identity<CTxMemPoolEntry>,
-            CompareTxMemPoolEntryByFeeRate
-        >,
-        // sorted by entry time
-        boost::multi_index::ordered_non_unique<
-            boost::multi_index::identity<CTxMemPoolEntry>,
-            CompareTxMemPoolEntryByEntryTime
-        >
-    >
-> indexed_transaction_set;
 
 /** \class CTxMemPoolEntry
  *
@@ -138,9 +117,6 @@ public:
      */
     void SetDirty();
     bool IsDirty() const { return nCountWithDescendants == 0; }
-
-    const std::set<indexed_transaction_set::iterator> & GetMemPoolParents() const { return setMemPoolParents; }
-    const std::set<indexed_transaction_set::iterator> & GetMemPoolChildren() const { return setMemPoolChildren; }
 
     int64_t GetCountWithDescendants() const { return nCountWithDescendants; }
     int64_t GetSizeWithDescendants() const { return nSizeWithDescendants; }
@@ -393,8 +369,37 @@ private:
     uint64_t cachedInnerUsage; //! sum of dynamic memory usage of all the map elements (NOT the maps themselves)
 
 public:
+    typedef boost::multi_index_container<
+        CTxMemPoolEntry,
+        boost::multi_index::indexed_by<
+            // sorted by txid
+            boost::multi_index::ordered_unique<mempoolentry_txid>,
+            // sorted by fee rate
+            boost::multi_index::ordered_non_unique<
+                boost::multi_index::identity<CTxMemPoolEntry>,
+                CompareTxMemPoolEntryByFeeRate
+            >,
+            // sorted by entry time
+            boost::multi_index::ordered_non_unique<
+                boost::multi_index::identity<CTxMemPoolEntry>,
+                CompareTxMemPoolEntryByEntryTime
+            >
+        >
+    > indexed_transaction_set;
+
     mutable CCriticalSection cs;
     indexed_transaction_set mapTx;
+    typedef indexed_transaction_set::iterator txiter;
+    typedef std::set<txiter> setEntries;
+
+    std::unordered_map<txiter, setEntries> parentMap;
+    std::unordered_map<txiter, setEntries> childMap;
+
+    const setEntries & GetMemPoolParents(txiter txentry) const { return parentMap[txentry]; }
+    const setEntries & GetMemPoolChildren(txiter txentry) const { return childMap[txentry]; }
+    void UpdateParent(txiter entry, txiter parent, bool add);
+    void UpdateChild(txiter entry, txiter child, bool add);
+
     std::map<COutPoint, CInPoint> mapNextTx;
     std::map<uint256, std::pair<double, CAmount> > mapDeltas;
     size_t bypassedSize;
