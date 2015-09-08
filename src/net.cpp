@@ -2093,13 +2093,11 @@ void CNode::RecordBytesSent(uint64_t bytes)
 void CNode::SetMaxOutboundTarget(uint64_t limit)
 {
     LOCK(cs_totalBytesSent);
-    if (limit < (nMaxOutboundTimeframe / 600) * MAX_BLOCK_SIZE)
-    {
-        nMaxOutboundLimit = nMaxOutboundTimeframe / 600 * MAX_BLOCK_SIZE;
-        LogPrintf("Max outbound target too small, using %s\n", nMaxOutboundLimit);
-    }
-    else
-        nMaxOutboundLimit = limit;
+    uint64_t recommendedMinimum = (nMaxOutboundTimeframe / 600) * MAX_BLOCK_SIZE;
+    nMaxOutboundLimit = limit;
+
+    if (limit < recommendedMinimum)
+        LogPrintf("Max outbound target very small (%s) and are very unlikely to be reached, recommended minimum is %s\n", nMaxOutboundLimit, recommendedMinimum);
 }
 
 uint64_t CNode::GetMaxOutboundTarget()
