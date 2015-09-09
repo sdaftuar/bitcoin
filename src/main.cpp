@@ -2011,11 +2011,10 @@ void static UpdateTip(CBlockIndex *pindexNew) {
     }
 }
 
-/** Disconnect chainActive's tip. */
+/** Disconnect chainActive's tip. You probably want to call mempool.removeForReorg after this, with cs_main held. */
 bool static DisconnectTip(CValidationState &state) {
     CBlockIndex *pindexDelete = chainActive.Tip();
     assert(pindexDelete);
-    mempool.check(pcoinsTip);
     // Read block from disk.
     CBlock block;
     if (!ReadBlockFromDisk(block, pindexDelete))
@@ -2040,8 +2039,6 @@ bool static DisconnectTip(CValidationState &state) {
         if (tx.IsCoinBase() || !AcceptToMemoryPool(mempool, stateDummy, tx, false, NULL))
             mempool.remove(tx, removed, true);
     }
-    mempool.removeForReorg(pcoinsTip, pindexDelete->nHeight);
-    mempool.check(pcoinsTip);
     // Update chainActive and related variables.
     UpdateTip(pindexDelete->pprev);
     // Let wallets know transactions went from 1-confirmed to
@@ -2064,7 +2061,6 @@ static int64_t nTimePostConnect = 0;
  */
 bool static ConnectTip(CValidationState &state, CBlockIndex *pindexNew, const CBlock *pblock) {
     assert(pindexNew->pprev == chainActive.Tip());
-    mempool.check(pcoinsTip);
     // Read block from disk.
     int64_t nTime1 = GetTimeMicros();
     CBlock block;
@@ -2101,7 +2097,6 @@ bool static ConnectTip(CValidationState &state, CBlockIndex *pindexNew, const CB
     // Remove conflicting transactions from the mempool.
     list<CTransaction> txConflicted;
     mempool.removeForBlock(pblock->vtx, pindexNew->nHeight, txConflicted, !IsInitialBlockDownload());
-    mempool.check(pcoinsTip);
     // Update chainActive & related variables.
     UpdateTip(pindexNew);
     // Tell wallet about transactions that went from mempool
@@ -2194,7 +2189,7 @@ static void PruneBlockIndexCandidates() {
  * Try to make some progress towards making pindexMostWork the active block.
  * pblock is either NULL or a pointer to a CBlock corresponding to pindexMostWork.
  */
-static bool ActivateBestChainStep(CValidationState &state, CBlockIndex *pindexMostWork, const CBlock *pblock) {
+static bool ActivateBestChainStep(CValidationState &state, CBlockIndex *pindexMostWork, const CBlock *pblock, bool &blocksDisconnected) {
     AssertLockHeld(cs_main);
     bool fInvalidFound = false;
     const CBlockIndex *pindexOldTip = chainActive.Tip();
@@ -2202,6 +2197,7 @@ static bool ActivateBestChainStep(CValidationState &state, CBlockIndex *pindexMo
 
     // Disconnect active blocks which are no longer in the best chain.
     while (chainActive.Tip() && chainActive.Tip() != pindexFork) {
+        blocksDisconnected = true;
         if (!DisconnectTip(state))
             return false;
     }
@@ -2249,6 +2245,8 @@ static bool ActivateBestChainStep(CValidationState &state, CBlockIndex *pindexMo
         }
     }
 
+    mempool.check(pcoinsTip);
+
     // Callbacks/notifications for a new best chain.
     if (fInvalidFound)
         CheckForkWarningConditionsOnNewFork(vpindexToConnect.back());
@@ -2279,7 +2277,11 @@ bool ActivateBestChain(CValidationState &state, const CBlock *pblock) {
             if (pindexMostWork == NULL || pindexMostWork == chainActive.Tip())
                 return true;
 
-            if (!ActivateBestChainStep(state, pindexMostWork, pblock && pblock->GetHash() == pindexMostWork->GetBlockHash() ? pblock : NULL))
+            bool blocksDisconnected = false;
+            bool fContinue = ActivateBestChainStep(state, pindexMostWork, pblock && pblock->GetHash() == pindexMostWork->GetBlockHash() ? pblock : NULL, blocksDisconnected);
+            if (blocksDisconnected)
+                mempool.removeForReorg(pcoinsTip, chainActive.Height() + 1);
+            if (!fContinue)
                 return false;
 
             pindexNewTip = chainActive.Tip();
@@ -2332,6 +2334,7 @@ bool InvalidateBlock(CValidationState& state, CBlockIndex *pindex) {
         // ActivateBestChain considers blocks already in chainActive
         // unconditionally valid already, so force disconnect away from it.
         if (!DisconnectTip(state)) {
+            mempool.removeForReorg(pcoinsTip, chainActive.Tip()->nHeight + 1);
             return false;
         }
     }
@@ -2347,6 +2350,7 @@ bool InvalidateBlock(CValidationState& state, CBlockIndex *pindex) {
     }
 
     InvalidChainFound(pindex);
+    mempool.removeForReorg(pcoinsTip, chainActive.Tip()->nHeight + 1);
     return true;
 }
 
