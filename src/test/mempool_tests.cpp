@@ -284,8 +284,8 @@ BOOST_AUTO_TEST_CASE(MempoolIndexingTest)
     pool.removeRecursive(pool.mapTx.find(tx10.GetHash())->GetTx(), removed);
     CheckSort<1>(pool, snapshotOrder);
 
-    pool.remove(pool.mapTx.find(tx9.GetHash())->GetTx(), removed, true);
-    pool.remove(pool.mapTx.find(tx8.GetHash())->GetTx(), removed, true);
+    pool.removeRecursive(pool.mapTx.find(tx9.GetHash())->GetTx(), removed);
+    pool.removeRecursive(pool.mapTx.find(tx8.GetHash())->GetTx(), removed);
     /* Now check the sort on the mining score index.
      * Final order should be:
      *
