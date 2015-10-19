@@ -254,6 +254,29 @@ public:
     }
 };
 
+class CompareTxMemPoolEntryByAncestorFee
+{
+public:
+    bool operator()(const CTxMemPoolEntry& a, const CTxMemPoolEntry& b)
+    {
+        double aFees = a.GetFeesWithAncestors();
+        double aSize = a.GetSizeWithAncestors();
+
+        double bFees = b.GetFeesWithAncestors();
+        double bSize = b.GetSizeWithAncestors();
+
+        // Avoid division by rewriting (a/b > c/d) as (a*d > c*b).
+        double f1 = aFees * bSize;
+        double f2 = aSize * bFees;
+
+        if (f1 == f2) {
+            return a.GetTime() < b.GetTime();
+        }
+
+        return f1 > f2;
+    }
+};
+
 class CBlockPolicyEstimator;
 
 /** An inpoint - a combination of a transaction and an index n into its vin */
@@ -383,11 +406,16 @@ public:
             boost::multi_index::ordered_non_unique<
                 boost::multi_index::identity<CTxMemPoolEntry>,
                 CompareTxMemPoolEntryByEntryTime
-                >,
+            >,
             // sorted by score (for mining prioritization)
             boost::multi_index::ordered_unique<
                 boost::multi_index::identity<CTxMemPoolEntry>,
                 CompareTxMemPoolEntryByScore
+            >,
+            // sorted by fee rate with ancestors
+            boost::multi_index::ordered_non_unique<
+                boost::multi_index::identity<CTxMemPoolEntry>,
+                CompareTxMemPoolEntryByAncestorFee
             >
         >
     > indexed_transaction_set;
