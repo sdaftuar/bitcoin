@@ -68,21 +68,13 @@ void CTxMemPoolEntry::UpdateFeeDelta(int64_t newFeeDelta)
 // Update the given tx for any in-mempool descendants.
 // Assumes that setMemPoolChildren is correct for the given tx and all
 // descendants.
-bool CTxMemPool::UpdateForDescendants(txiter updateIt, int maxDescendantsToVisit, cacheMap &cachedDescendants, const std::set<uint256> &setExclude)
+void CTxMemPool::UpdateForDescendants(txiter updateIt, cacheMap &cachedDescendants, const std::set<uint256> &setExclude)
 {
-    // Track the number of entries (outside setExclude) that we'd need to visit
-    // (will bail out if it exceeds maxDescendantsToVisit)
-    int nChildrenToVisit = 0;
-
     setEntries stageEntries, setAllDescendants;
     stageEntries = GetMemPoolChildren(updateIt);
 
     while (!stageEntries.empty()) {
         const txiter cit = *stageEntries.begin();
-        if (cit->IsDirty()) {
-            // Don't consider any more children if any descendant is dirty
-            return false;
-        }
         setAllDescendants.insert(cit);
         stageEntries.erase(cit);
         const setEntries &setChildren = GetMemPoolChildren(cit);
@@ -92,22 +84,11 @@ bool CTxMemPool::UpdateForDescendants(txiter updateIt, int maxDescendantsToVisit
                 // We've already calculated this one, just add the entries for this set
                 // but don't traverse again.
                 BOOST_FOREACH(const txiter cacheEntry, cacheIt->second) {
-                    // update visit count only for new child transactions
-                    // (outside of setExclude and stageEntries)
-                    if (setAllDescendants.insert(cacheEntry).second &&
-                            !setExclude.count(cacheEntry->GetTx().GetHash()) &&
-                            !stageEntries.count(cacheEntry)) {
-                        nChildrenToVisit++;
-                    }
+                    setAllDescendants.insert(cacheEntry);
                 }
             } else if (!setAllDescendants.count(childEntry)) {
-                // Schedule for later processing and update our visit count
-                if (stageEntries.insert(childEntry).second && !setExclude.count(childEntry->GetTx().GetHash())) {
-                        nChildrenToVisit++;
-                }
-            }
-            if (nChildrenToVisit > maxDescendantsToVisit) {
-                return false;
+                // Schedule for later processing
+                stageEntries.insert(childEntry);
             }
         }
     }
@@ -127,7 +108,6 @@ bool CTxMemPool::UpdateForDescendants(txiter updateIt, int maxDescendantsToVisit
         }
     }
     mapTx.modify(updateIt, update_descendant_state(modifySize, modifyFee, modifyCount));
-    return true;
 }
 
 // vHashesToUpdate is the set of transaction hashes from a disconnected block
@@ -174,10 +154,7 @@ void CTxMemPool::UpdateTransactionsFromBlock(const std::vector<uint256> &vHashes
                 UpdateParent(childIter, it, true);
             }
         }
-        if (!UpdateForDescendants(it, 100, mapMemPoolDescendantsToUpdate, setAlreadyIncluded)) {
-            // Mark as dirty if we can't do the calculation.
-            mapTx.modify(it, set_dirty());
-        }
+        UpdateForDescendants(it, mapMemPoolDescendantsToUpdate, setAlreadyIncluded);
     }
 }
 
@@ -335,22 +312,13 @@ void CTxMemPool::UpdateForRemoveFromMempool(const setEntries &entriesToRemove, b
     }
 }
 
-void CTxMemPoolEntry::SetDirty()
-{
-    nCountWithDescendants = 0;
-    nSizeWithDescendants = nTxSize;
-    nModFeesWithDescendants = GetModifiedFee();
-}
-
 void CTxMemPoolEntry::UpdateDescendantState(int64_t modifySize, CAmount modifyFee, int64_t modifyCount)
 {
-    if (!IsDirty()) {
-        nSizeWithDescendants += modifySize;
-        assert(int64_t(nSizeWithDescendants) > 0);
-        nModFeesWithDescendants += modifyFee;
-        nCountWithDescendants += modifyCount;
-        assert(int64_t(nCountWithDescendants) > 0);
-    }
+    nSizeWithDescendants += modifySize;
+    assert(int64_t(nSizeWithDescendants) > 0);
+    nModFeesWithDescendants += modifyFee;
+    nCountWithDescendants += modifyCount;
+    assert(int64_t(nCountWithDescendants) > 0);
 }
 
 void CTxMemPoolEntry::UpdateAncestorState(int64_t modifySize, CAmount modifyFee, int64_t modifyCount)
@@ -713,12 +681,7 @@ void CTxMemPool::check(const CCoinsViewCache *pcoins) const
         assert(setChildrenCheck == GetMemPoolChildren(it));
         // Also check to make sure size is greater than sum with immediate children.
         // just a sanity check, not definitive that this calc is correct...
-        if (!it->IsDirty()) {
-            assert(it->GetSizeWithDescendants() >= childSizes + it->GetTxSize());
-        } else {
-            assert(it->GetSizeWithDescendants() == it->GetTxSize());
-            assert(it->GetModFeesWithDescendants() == it->GetModifiedFee());
-        }
+        assert(it->GetSizeWithDescendants() >= childSizes + it->GetTxSize());
 
         if (fDependsWait)
             waitingOnDependants.push_back(&(*it));
