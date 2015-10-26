@@ -33,6 +33,8 @@ CTxMemPoolEntry::CTxMemPoolEntry(const CTransaction& _tx, const CAmount& _nFee,
     nFeesWithDescendants = nFee;
     cachedHeight = entryHeight;
     cachedPriority = entryPriority;
+
+    score = CFeeRate(nFee,nTxSize).GetFeePerK();
 }
 
 CTxMemPoolEntry::CTxMemPoolEntry(const CTxMemPoolEntry& other)
@@ -52,6 +54,11 @@ CTxMemPoolEntry::GetPriority(unsigned int currentHeight) const
     if (dResult < 0) // This should only happen if it was called with an invalid height
         dResult = 0;
     return dResult;
+}
+
+void CTxMemPoolEntry::UpdateScore(int64_t newScore)
+{
+    score = newScore;
 }
 
 // Update the given tx for any in-mempool descendants.
@@ -789,6 +796,10 @@ void CTxMemPool::PrioritiseTransaction(const uint256 hash, const string strHash,
         std::pair<double, CAmount> &deltas = mapDeltas[hash];
         deltas.first += dPriorityDelta;
         deltas.second += nFeeDelta;
+        txiter it = mapTx.find(hash);
+        if (it != mapTx.end()) {
+            mapTx.modify(it, update_score(it->GetScore() + nFeeDelta));
+        }
     }
     LogPrintf("PrioritiseTransaction: %s priority += %f, fee += %d\n", strHash, dPriorityDelta, FormatMoney(nFeeDelta));
 }

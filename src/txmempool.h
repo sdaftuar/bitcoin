@@ -70,7 +70,8 @@ private:
     bool hadNoDependencies; //! Not dependent on any other txs when it entered the mempool
     CAmount inChainInputValue; //! Sum of all txin values that are already in blockchain
     unsigned int sigOpCount; //! Legacy sig ops plus P2SH sig op count
-    
+    int64_t score; //! Used for determining the priority of the transaction for mining in a block
+
     // Information about descendants of this transaction that are in the
     // mempool; if we remove this transaction we must remove all of these
     // descendants as well.  if nCountWithDescendants is 0, treat this entry as
@@ -104,10 +105,13 @@ public:
     unsigned int GetHeight() const { return entryHeight; }
     bool WasClearAtEntry() const { return hadNoDependencies; }
     unsigned int GetSigOpCount() const { return sigOpCount; }
+    int64_t GetScore() const { return score; }
     size_t DynamicMemoryUsage() const { return nUsageSize; }
 
     // Adjusts the descendant state, if this entry is not dirty.
     void UpdateState(int64_t modifySize, CAmount modifyFee, int64_t modifyCount);
+    // Updates the mining priority score
+    void UpdateScore(int64_t newScore);
 
     /** We can set the entry to be dirty if doing the full calculation of in-
      *  mempool descendants will be too expensive, which can potentially happen
@@ -157,6 +161,18 @@ struct update_priority
         CAmount value;
 };
 
+struct update_score
+{
+    update_score(int64_t _newScore) : newScore(_newScore)
+    {}
+
+    void operator() (CTxMemPoolEntry &e)
+    { e.UpdateScore(newScore); }
+
+private:
+    int64_t newScore;
+};
+
 // extracts a TxMemPoolEntry's transaction hash
 struct mempoolentry_txid
 {
@@ -201,6 +217,22 @@ public:
         double f1 = (double)a.GetFee() * a.GetSizeWithDescendants();
         double f2 = (double)a.GetFeesWithDescendants() * a.GetTxSize();
         return f2 > f1;
+    }
+};
+
+/** \class CompareTxMemPoolEntryByScore
+ *
+ *  Sort by score of entry in descending order
+ */
+class CompareTxMemPoolEntryByScore
+{
+public:
+    bool operator()(const CTxMemPoolEntry& a, const CTxMemPoolEntry& b)
+    {
+        if (a.GetScore() == b.GetScore()) {
+            return b.GetTx().GetHash() < a.GetTx().GetHash();
+        }
+        return a.GetScore() > b.GetScore();
     }
 };
 
@@ -341,6 +373,11 @@ public:
             boost::multi_index::ordered_non_unique<
                 boost::multi_index::identity<CTxMemPoolEntry>,
                 CompareTxMemPoolEntryByEntryTime
+                >,
+            // sorted by fee rate
+            boost::multi_index::ordered_non_unique<
+                boost::multi_index::identity<CTxMemPoolEntry>,
+                CompareTxMemPoolEntryByScore
             >
         >
     > indexed_transaction_set;
