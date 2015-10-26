@@ -69,7 +69,8 @@ private:
     unsigned int cachedHeight; //! Height at which priority was last calculated
     bool hadNoDependencies; //! Not dependent on any other txs when it entered the mempool
     CAmount inChainInputValue; //! Sum of all txin values that are already in blockchain
-
+    unsigned int sigOpCount; //! Legacy sig ops plus P2SH sig op count
+    
     // Information about descendants of this transaction that are in the
     // mempool; if we remove this transaction we must remove all of these
     // descendants as well.  if nCountWithDescendants is 0, treat this entry as
@@ -82,7 +83,7 @@ private:
 public:
     CTxMemPoolEntry(const CTransaction& _tx, const CAmount& _nFee,
                     int64_t _nTime, double _entryPriority, unsigned int _entryHeight,
-                    bool poolHasNoInputsOf = false, CAmount inChainInputValue = 0);
+                    bool poolHasNoInputsOf = false, CAmount inChainInputValue = 0, unsigned int nSigOps = 0);
     CTxMemPoolEntry(const CTxMemPoolEntry& other);
 
     const CTransaction& GetTx() const { return this->tx; }
@@ -102,6 +103,7 @@ public:
     int64_t GetTime() const { return nTime; }
     unsigned int GetHeight() const { return entryHeight; }
     bool WasClearAtEntry() const { return hadNoDependencies; }
+    unsigned int GetSigOpCount() const { return sigOpCount; }
     size_t DynamicMemoryUsage() const { return nUsageSize; }
 
     // Adjusts the descendant state, if this entry is not dirty.
