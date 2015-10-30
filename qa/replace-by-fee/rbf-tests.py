@@ -39,7 +39,7 @@ class Test_ReplaceByFee(unittest.TestCase):
         # Make sure mining works
         mempool_size = 1
         while mempool_size:
-            cls.proxy.generate(1)
+            cls.proxy.call('generate',1)
             new_mempool_size = len(cls.proxy.getrawmempool())
 
             # It's possible to get stuck in a loop here if the mempool has
@@ -54,7 +54,7 @@ class Test_ReplaceByFee(unittest.TestCase):
         """
         fee = 1*COIN
         while self.proxy.getbalance() < amount + fee:
-            self.proxy.generate(100)
+            self.proxy.call('generate', 100)
 
         addr = P2SHBitcoinAddress.from_redeemScript(CScript([]))
         txid = self.proxy.sendtoaddress(addr, amount + fee)
