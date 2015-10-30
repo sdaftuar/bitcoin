@@ -983,11 +983,10 @@ bool AcceptToMemoryPool(CTxMemPool& pool, CValidationState &state, const CTransa
         {
             LOCK(pool.cs);
 
-            // Check if it's economically rational to mine this transaction
-            // rather than the ones it replaces. For efficiency we simply sum
-            // up the pre-calculated fees/size-with-descendants values from the
-            // mempool package tracking; this does mean the pathological case
-            // of diamond tx graphs will be overcounted.
+            // For efficiency we simply sum up the pre-calculated
+            // fees/size-with-descendants values from the mempool package
+            // tracking; this does mean the pathological case of diamond tx
+            // graphs will be overcounted.
             BOOST_FOREACH(const uint256 hashConflicting, setConflicts)
             {
                 CTxMemPool::txiter mi = pool.mapTx.find(hashConflicting);
@@ -997,8 +996,6 @@ bool AcceptToMemoryPool(CTxMemPool& pool, CValidationState &state, const CTransa
                 nConflictingSize += mi->GetSizeWithDescendants();
             }
 
-            // Replace?
-            //
             // First of all we can't allow a replacement unless it pays greater
             // fees than the transactions it conflicts with - if we did the
             // bandwidth used by those conflicting transactions would not be
