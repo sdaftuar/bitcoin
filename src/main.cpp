@@ -809,7 +809,7 @@ bool AcceptToMemoryPool(CTxMemPool& pool, CValidationState &state, const CTransa
     set<uint256> setConflicts;
     {
     LOCK(pool.cs); // protect pool.mapNextTx
-    BOOST_FOREACH(const CTxIn txin, tx.vin)
+    BOOST_FOREACH(const CTxIn &txin, tx.vin)
     {
         if (pool.mapNextTx.count(txin.prevout))
         {
@@ -829,7 +829,7 @@ bool AcceptToMemoryPool(CTxMemPool& pool, CValidationState &state, const CTransa
                 // unconfirmed ancestors anyway; doing otherwise is hopelessly
                 // insecure.
                 bool fReplacementOptOut = true;
-                BOOST_FOREACH(const CTxIn txin, ptxConflicting->vin)
+                BOOST_FOREACH(const CTxIn &txin, ptxConflicting->vin)
                 {
                     if (txin.nSequence < std::numeric_limits<unsigned int>::max()-1)
                     {
@@ -965,7 +965,7 @@ bool AcceptToMemoryPool(CTxMemPool& pool, CValidationState &state, const CTransa
         // intersect.
         BOOST_FOREACH(CTxMemPool::txiter ancestorIt, setAncestors)
         {
-            const uint256 hashAncestor = ancestorIt->GetTx().GetHash();
+            const uint256 &hashAncestor = ancestorIt->GetTx().GetHash();
             if (setConflicts.count(hashAncestor))
             {
                 return state.DoS(10, error("AcceptToMemoryPool: %s spends conflicting transaction %s",
