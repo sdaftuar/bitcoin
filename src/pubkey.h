@@ -177,6 +177,11 @@ public:
      */
     bool Verify(const uint256& hash, const std::vector<unsigned char>& vchSig) const;
 
+    /**
+     * Check whether a signature is normalized (lower-S).
+     */
+    static bool CheckLowS(const std::vector<unsigned char>& vchSig);
+
     //! Recover a public key from a compact signature.
     bool RecoverCompact(const uint256& hash, const std::vector<unsigned char>& vchSig);
 
@@ -204,5 +209,11 @@ struct CExtPubKey {
     void Decode(const unsigned char code[74]);
     bool Derive(CExtPubKey& out, unsigned int nChild) const;
 };
+
+/** Initialize the elliptic curve support. Will fail if already initialized. */
+bool ECC_Verify_Start(void);
+
+/** Deinitialize the elliptic curve support. No-op if ECC_Start wasn't called first. */
+void ECC_Verify_Stop(void);
 
 #endif // BITCOIN_PUBKEY_H
