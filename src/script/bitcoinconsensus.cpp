@@ -6,6 +6,7 @@
 #include "bitcoinconsensus.h"
 
 #include "primitives/transaction.h"
+#include "pubkey.h"
 #include "script/interpreter.h"
 #include "version.h"
 
@@ -60,7 +61,21 @@ inline int set_error(bitcoinconsensus_error* ret, bitcoinconsensus_error serror)
     return 0;
 }
 
-} // anon namespace
+struct ECCryptoClosure
+{
+    ECCryptoClosure()
+    {
+        assert(ECC_Verify_Start());
+    }
+
+    ~ECCryptoClosure()
+    {
+        ECC_Verify_Stop();
+    }
+};
+
+ECCryptoClosure instance_of_eccryptoclosure;
+}
 
 int bitcoinconsensus_verify_script(const unsigned char *scriptPubKey, unsigned int scriptPubKeyLen,
                                     const unsigned char *txTo        , unsigned int txToLen,

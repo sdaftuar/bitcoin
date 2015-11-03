@@ -34,6 +34,7 @@ extern void noui_connect();
 
 BasicTestingSetup::BasicTestingSetup(const std::string& chainName)
 {
+        ecc_verify_initialized = ECC_Verify_Start(); // this may fail if libbitcoinconsensus already initialized it
         ECC_Start();
         SetupEnvironment();
         SetupNetworking();
@@ -46,6 +47,7 @@ BasicTestingSetup::BasicTestingSetup(const std::string& chainName)
 BasicTestingSetup::~BasicTestingSetup()
 {
         ECC_Stop();
+        if (ecc_verify_initialized) ECC_Verify_Stop();
 }
 
 TestingSetup::TestingSetup(const std::string& chainName) : BasicTestingSetup(chainName)
