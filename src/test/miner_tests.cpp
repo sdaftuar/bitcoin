@@ -112,7 +112,21 @@ BOOST_AUTO_TEST_CASE(CreateNewBlock_validity)
     {
         tx.vout[0].nValue -= 1000000;
         hash = tx.GetHash();
+        // If we don't set the # of sig ops in the CTxMemPoolEntry, template creation fails
         mempool.addUnchecked(hash, CTxMemPoolEntry(tx, 11, GetTime(), 111.0, 11));
+        tx.vin[0].prevout.hash = hash;
+    }
+    BOOST_CHECK(CreateNewBlock(scriptPubKey) == NULL);
+    mempool.clear();
+
+    tx.vin[0].prevout.hash = txFirst[0]->GetHash();
+    tx.vout[0].nValue = 5000000000LL;
+    for (unsigned int i = 0; i < 1001; ++i)
+    {
+        tx.vout[0].nValue -= 1000000;
+        hash = tx.GetHash();
+        // If we do set the # of sig ops in the CTxMemPoolEntry, template creation passes
+        mempool.addUnchecked(hash, CTxMemPoolEntry(tx, 11, GetTime(), 111.0, 11, false, 0, 20));
         tx.vin[0].prevout.hash = hash;
     }
     BOOST_CHECK(pblocktemplate = CreateNewBlock(scriptPubKey));
@@ -139,11 +153,10 @@ BOOST_AUTO_TEST_CASE(CreateNewBlock_validity)
     delete pblocktemplate;
     mempool.clear();
 
-    // orphan in mempool
+    //orphan in mempool, template creation fails
     hash = tx.GetHash();
     mempool.addUnchecked(hash, CTxMemPoolEntry(tx, 11, GetTime(), 111.0, 11));
-    BOOST_CHECK(pblocktemplate = CreateNewBlock(scriptPubKey));
-    delete pblocktemplate;
+    BOOST_CHECK(CreateNewBlock(scriptPubKey) == NULL);
     mempool.clear();
 
     // child with higher priority than parent
@@ -164,18 +177,17 @@ BOOST_AUTO_TEST_CASE(CreateNewBlock_validity)
     delete pblocktemplate;
     mempool.clear();
 
-    // coinbase in mempool
+    // coinbase in mempool, template creation fails
     tx.vin.resize(1);
     tx.vin[0].prevout.SetNull();
     tx.vin[0].scriptSig = CScript() << OP_0 << OP_1;
     tx.vout[0].nValue = 0;
     hash = tx.GetHash();
     mempool.addUnchecked(hash, CTxMemPoolEntry(tx, 11, GetTime(), 111.0, 11));
-    BOOST_CHECK(pblocktemplate = CreateNewBlock(scriptPubKey));
-    delete pblocktemplate;
+    BOOST_CHECK(CreateNewBlock(scriptPubKey) == NULL);
     mempool.clear();
 
-    // invalid (pre-p2sh) txn in mempool
+    // invalid (pre-p2sh) txn in mempool, template creation fails
     tx.vin[0].prevout.hash = txFirst[0]->GetHash();
     tx.vin[0].prevout.n = 0;
     tx.vin[0].scriptSig = CScript() << OP_1;
@@ -189,11 +201,10 @@ BOOST_AUTO_TEST_CASE(CreateNewBlock_validity)
     tx.vout[0].nValue -= 1000000;
     hash = tx.GetHash();
     mempool.addUnchecked(hash, CTxMemPoolEntry(tx, 11, GetTime(), 111.0, 11));
-    BOOST_CHECK(pblocktemplate = CreateNewBlock(scriptPubKey));
-    delete pblocktemplate;
+    BOOST_CHECK(CreateNewBlock(scriptPubKey) == NULL);
     mempool.clear();
 
-    // double spend txn pair in mempool
+    // double spend txn pair in mempool, template creation fails
     tx.vin[0].prevout.hash = txFirst[0]->GetHash();
     tx.vin[0].scriptSig = CScript() << OP_1;
     tx.vout[0].nValue = 4900000000LL;
@@ -203,8 +214,7 @@ BOOST_AUTO_TEST_CASE(CreateNewBlock_validity)
     tx.vout[0].scriptPubKey = CScript() << OP_2;
     hash = tx.GetHash();
     mempool.addUnchecked(hash, CTxMemPoolEntry(tx, 11, GetTime(), 111.0, 11));
-    BOOST_CHECK(pblocktemplate = CreateNewBlock(scriptPubKey));
-    delete pblocktemplate;
+    BOOST_CHECK(CreateNewBlock(scriptPubKey) == NULL);
     mempool.clear();
 
     // subsidy changing
