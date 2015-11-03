@@ -2935,7 +2935,7 @@ void ProcessTransaction(CTransaction &tx)
     bool fMissingInputs = false;
     CValidationState state;
     if (AcceptToMemoryPool(mempool, state, tx, true, &fMissingInputs)) {
-        mempool.check(pcoinsTip);
+        mempool.check(pcoinsTip, chainActive.Height());
         vWorkQueue.push_back(inv.hash);
         vEraseQueue.push_back(inv.hash);
 
@@ -2974,7 +2974,7 @@ void ProcessTransaction(CTransaction &tx)
                     LogPrint("processtx", "   removed orphan tx %s\n",
                         orphanHash.ToString());
                 }
-                mempool.check(pcoinsTip);
+                mempool.check(pcoinsTip, chainActive.Height());
             }
         }
         BOOST_FOREACH(uint256 hash, vEraseQueue)
