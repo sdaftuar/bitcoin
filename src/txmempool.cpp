@@ -984,10 +984,15 @@ void CTxMemPool::TrimToSize(size_t sizelimit) {
 
 void CTxMemPool::FindHotHashes(size_t prioritySize, size_t scoreSize, std::set<uint256> &hotHashes, unsigned int chainHeight) {
     LOCK(cs);
+    int64_t start = GetTimeMicros();
     vector<TxCoinAgePriority> vecPriority;
     TxCoinAgePriorityCompare pricomparer;
     size_t scoreBytesCovered = 0;
     size_t priBytesCovered = 0;
+    int64_t txs = 0; //temp
+    int64_t ins = 0; //temp
+    int64_t ptxs = 0; //temp
+    int64_t pins = 0; //temp
     vecPriority.reserve(mapTx.size());
     CTxMemPool::indexed_transaction_set::nth_index<3>::type::iterator mi = mapTx.get<3>().begin();
     while (mi != mapTx.get<3>().end())
@@ -996,7 +1001,9 @@ void CTxMemPool::FindHotHashes(size_t prioritySize, size_t scoreSize, std::set<u
             BOOST_FOREACH(const CTxIn& txin, mi->GetTx().vin)
             {
                 hotHashes.insert(txin.prevout.hash);
+                ins++; //temp
             }
+            txs++; //temp
             scoreBytesCovered += mi->GetTxSize();
         }
         double dPriority = mi->GetPriority(chainHeight);
@@ -1013,9 +1020,12 @@ void CTxMemPool::FindHotHashes(size_t prioritySize, size_t scoreSize, std::set<u
         BOOST_FOREACH(const CTxIn& txin, iter->GetTx().vin)
         {
             hotHashes.insert(txin.prevout.hash);
+            pins++; //temp
         }
+        ptxs++; //temp
         priBytesCovered += iter->GetTxSize();
     }
+    LogPrintf("Hot Hashes walked %ld fee txs %ld fee txins over %lu bytes and %ld pri txs and %ld pri txins over %lu bytes in %ld micros\n",txs,ins,scoreBytesCovered,ptxs,pins,priBytesCovered, GetTimeMicros()-start); //temp
     return;
 
 }
