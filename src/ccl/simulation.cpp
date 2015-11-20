@@ -1,6 +1,7 @@
 #include "simulation.h"
 #include "ccl/cclglobals.h"
 
+#include "chainparams.h"
 #include "init.h"
 #include "main.h"
 #include "consensus/validation.h"
@@ -113,7 +114,7 @@ void Simulation::operator()()
                 txEvent.reset();
             } else if (nextEvent == &blockEvent) {
                 CValidationState state;
-                ProcessNewBlock(state, NULL, &blockEvent.obj, true, NULL);
+                ProcessNewBlock(state, Params(), NULL, &blockEvent.obj, true, NULL);
                 blockEvent.reset();
             } else if (nextEvent == &headersEvent) {
                 CValidationState state;

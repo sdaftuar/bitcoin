@@ -1,6 +1,10 @@
-<TS language="id_ID" version="2.0">
+<TS language="id_ID" version="2.1">
 <context>
     <name>AddressBookPage</name>
+    <message>
+        <source>Right-click to edit address or label</source>
+        <translation>Klik-kanan untuk mengubah alamat atau label</translation>
+    </message>
     <message>
         <source>Create a new address</source>
         <translation>Buat alamat baru</translation>
@@ -196,6 +200,9 @@
         <translation>Kata kunci untuk dompet berubah berhasil.</translation>
     </message>
 </context>
+<context>
+    <name>BanTableModel</name>
+    </context>
 <context>
     <name>BitcoinGUI</name>
     <message>
@@ -451,6 +458,36 @@
         <translation>Menyusul...</translation>
     </message>
     <message>
+        <source>Date: %1
+</source>
+        <translation>Tanggal: %1
+</translation>
+    </message>
+    <message>
+        <source>Amount: %1
+</source>
+        <translation>Jumlah: %1
+</translation>
+    </message>
+    <message>
+        <source>Type: %1
+</source>
+        <translation>Tipe: %1
+</translation>
+    </message>
+    <message>
+        <source>Label: %1
+</source>
+        <translation>Label: %1
+</translation>
+    </message>
+    <message>
+        <source>Address: %1
+</source>
+        <translation>Alamat: %1
+</translation>
+    </message>
+    <message>
         <source>Sent transaction</source>
         <translation>Transaksi terkirim</translation>
     </message>
@@ -476,6 +513,10 @@
 </context>
 <context>
     <name>CoinControlDialog</name>
+    <message>
+        <source>Coin Selection</source>
+        <translation>Pemilihan Koin</translation>
+    </message>
     <message>
         <source>Quantity:</source>
         <translation>Kuantitas:</translation>
@@ -895,6 +936,18 @@
         <translation>Port proxy (cth. 9050)</translation>
     </message>
     <message>
+        <source>IPv4</source>
+        <translation>IPv4</translation>
+    </message>
+    <message>
+        <source>IPv6</source>
+        <translation>IPv6</translation>
+    </message>
+    <message>
+        <source>Tor</source>
+        <translation>Tor</translation>
+    </message>
+    <message>
         <source>&amp;Window</source>
         <translation>&amp;Jendela</translation>
     </message>
@@ -955,6 +1008,10 @@
         <translation>Restart klien diperlukan untuk mengaktifkan perubahan.</translation>
     </message>
     <message>
+        <source>Client will be shut down. Do you want to proceed?</source>
+        <translation>Klien akan dimatikan, apakah anda hendak melanjutkan?</translation>
+    </message>
+    <message>
         <source>This change would require a client restart.</source>
         <translation>Perubahan ini akan memerlukan restart klien</translation>
     </message>
@@ -998,6 +1055,10 @@
         <translation>Saldo ditambang yang masih terlalu muda</translation>
     </message>
     <message>
+        <source>Balances</source>
+        <translation>Saldo:</translation>
+    </message>
+    <message>
         <source>Total:</source>
         <translation>Jumlah:</translation>
     </message>
@@ -1017,12 +1078,20 @@
         <translation>Alamat pembayaran salah %1</translation>
     </message>
     <message>
+        <source>Payment request rejected</source>
+        <translation>Permintaan pembayaran ditolak</translation>
+    </message>
+    <message>
         <source>Requested payment amount of %1 is too small (considered dust).</source>
         <translation>Nilai pembayaran %1 yang diminta oleh Anda terlalu sedikit (dianggap debu).</translation>
     </message>
     <message>
         <source>Payment request error</source>
         <translation>Gagalan permintaan pembayaran</translation>
+    </message>
+    <message>
+        <source>Payment request expired.</source>
+        <translation>Permintaan pembayaran telah kadaluarsa</translation>
     </message>
     <message>
         <source>Refund from %1</source>
@@ -1047,12 +1116,20 @@
 </context>
 <context>
     <name>PeerTableModel</name>
+    <message>
+        <source>User Agent</source>
+        <translation>Agen Pengguna</translation>
+    </message>
     </context>
 <context>
     <name>QObject</name>
     <message>
         <source>Amount</source>
         <translation>Nilai</translation>
+    </message>
+    <message>
+        <source>Enter a Bitcoin address (e.g. %1)</source>
+        <translation>Masukkan alamat Bitcoin (contoh %1)</translation>
     </message>
     <message>
         <source>%1 h</source>
@@ -1141,6 +1218,24 @@
         <translation>Jumlah blok terkini</translation>
     </message>
     <message>
+        <source>Sent</source>
+        <translation>Terkirim</translation>
+    </message>
+    <message>
+        <source>Version</source>
+        <translation>Versi</translation>
+    </message>
+    <message>
+        <source>User Agent</source>
+        <translation>Agen Pengguna
+
+</translation>
+    </message>
+    <message>
+        <source>Services</source>
+        <translation>Layanan</translation>
+    </message>
+    <message>
         <source>Last block time</source>
         <translation>Waktu blok terakhir</translation>
     </message>
@@ -1185,6 +1280,26 @@
         <translation>Bersihkan konsol</translation>
     </message>
     <message>
+        <source>1 &amp;hour</source>
+        <translation>1 &amp;jam</translation>
+    </message>
+    <message>
+        <source>1 &amp;day</source>
+        <translation>1 &amp;hari</translation>
+    </message>
+    <message>
+        <source>1 &amp;week</source>
+        <translation>1 &amp;minggu</translation>
+    </message>
+    <message>
+        <source>1 &amp;year</source>
+        <translation>1 &amp;tahun</translation>
+    </message>
+    <message>
+        <source>Welcome to the Bitcoin Core RPC console.</source>
+        <translation>Selamat datang di konsol RPC Bitcoin.</translation>
+    </message>
+    <message>
         <source>Use up and down arrows to navigate history, and &lt;b&gt;Ctrl-L&lt;/b&gt; to clear screen.</source>
         <translation>Gunakan panah keatas dan kebawah untuk menampilkan sejarah, dan &lt;b&gt;Ctrl-L&lt;/b&gt; untuk bersihkan layar.</translation>
     </message>
@@ -1208,7 +1323,19 @@
         <source>%1 GB</source>
         <translation>%1 GB</translation>
     </message>
-    </context>
+    <message>
+        <source>Yes</source>
+        <translation>Ya</translation>
+    </message>
+    <message>
+        <source>No</source>
+        <translation>Tidak</translation>
+    </message>
+    <message>
+        <source>Unknown</source>
+        <translation>Tidak diketahui</translation>
+    </message>
+</context>
 <context>
     <name>ReceiveCoinsDialog</name>
     <message>
@@ -1429,6 +1556,22 @@
         <translation>Alamat uang kembali yang kustom</translation>
     </message>
     <message>
+        <source>Recommended:</source>
+        <translation>Disarankan</translation>
+    </message>
+    <message>
+        <source>Confirmation time:</source>
+        <translation>Waktu konfirmasi:</translation>
+    </message>
+    <message>
+        <source>normal</source>
+        <translation>normal</translation>
+    </message>
+    <message>
+        <source>fast</source>
+        <translation>cepat</translation>
+    </message>
+    <message>
         <source>Send to multiple recipients at once</source>
         <translation>Kirim ke beberapa penerima sekaligus</translation>
     </message>
@@ -1489,8 +1632,8 @@
         <translation>Salin uang kembali</translation>
     </message>
     <message>
-        <source>Total Amount %1 (= %2)</source>
-        <translation>Jumlah Nilai %1 (= %2)</translation>
+        <source>Total Amount %1</source>
+        <translation>Jumlah Total %1</translation>
     </message>
     <message>
         <source>or</source>
@@ -1515,6 +1658,14 @@
     <message>
         <source>The transaction was rejected! This might happen if some of the coins in your wallet were already spent, such as if you used a copy of wallet.dat and coins were spent in the copy but not marked as spent here.</source>
         <translation>Gagal: Transaksi ditolak. Ini mungkin terjadi jika beberapa dari koin dalam dompet Anda telah digunakan, seperti ketika Anda menggunakan salinan wallet.dat dan beberapa koin telah dibelanjakan dalam salinan tersebut tetapi disini tidak tertandai sebagai terpakai.</translation>
+    </message>
+    <message>
+        <source>A fee higher than %1 is considered an absurdly high fee.</source>
+        <translation>Biaya yang lebih tinggi dari %1 dianggap biaya tak masuk akal.</translation>
+    </message>
+    <message>
+        <source>Payment request expired.</source>
+        <translation>Permintaan pembayaran telah kadaluarsa</translation>
     </message>
     <message>
         <source>Warning: Invalid Bitcoin address</source>
@@ -2191,10 +2342,6 @@
         <translation>Berjalan dibelakang sebagai daemin dan menerima perintah</translation>
     </message>
     <message>
-        <source>Use the test network</source>
-        <translation>Gunakan jaringan uji</translation>
-    </message>
-    <message>
         <source>Accept connections from outside (default: 1 if no -proxy or -connect)</source>
         <translation>Terima hubungan dari luar (standar: 1 kalau -proxy atau -connect tidak dipilih)</translation>
     </message>
@@ -2207,10 +2354,6 @@
         <translation>Tidak bisa mengikat dengan %s di computer ini. Kemungkinan Bitcoin Core sudah mulai.</translation>
     </message>
     <message>
-        <source>Warning: -paytxfee is set very high! This is the transaction fee you will pay if you send a transaction.</source>
-        <translation>Peringatan: -paytxfee sangat besar! Ini adalah biaya pengiriman yang akan dibayar oleh Anda jika transaksi terkirim.</translation>
-    </message>
-    <message>
         <source>Warning: The network does not appear to fully agree! Some miners appear to be experiencing issues.</source>
         <translation>Peringatan: Jaringan tidak semua bersetuju! Beberapa penambang dapat persoalan.</translation>
     </message>
@@ -2219,16 +2362,8 @@
         <translation>Peringatan: Kami tidak bersetujuh dengan peer-peer kami! Kemungkinan Anda harus upgrade, atau node-node lain yang harus diupgrade.</translation>
     </message>
     <message>
-        <source>Warning: error reading wallet.dat! All keys read correctly, but transaction data or address book entries might be missing or incorrect.</source>
-        <translation>Awas: wallet.dat tidak bisa dibaca! Berhasil periksakan kunci-kunci dalam arsipnya, tetapi ada kemungkinan informasi tentang transaksi atau isi-isi buku alamat salah atau terhilang.</translation>
-    </message>
-    <message>
         <source>(default: 1)</source>
         <translation>(pengaturan awal: 1)</translation>
-    </message>
-    <message>
-        <source>Attempt to recover private keys from a corrupt wallet.dat</source>
-        <translation>Coba memulihkan kunci-kunci pribadi dari wallet.dat yang rusak</translation>
     </message>
     <message>
         <source>Block creation options:</source>
@@ -2319,12 +2454,12 @@
         <translation>Harus membangun ulang database menggunakan -reindex supaya mengubah -txindex</translation>
     </message>
     <message>
-        <source>Imports blocks from external blk000??.dat file</source>
-        <translation>Impor blok dari eksternal berkas blk000???.dat</translation>
-    </message>
-    <message>
         <source>Cannot obtain a lock on data directory %s. Bitcoin Core is probably already running.</source>
         <translation>Tidak bisa mengunci data directory %s. Kemungkinan Bitcoin Core sudah mulai.</translation>
+    </message>
+    <message>
+        <source>Connect through SOCKS5 proxy</source>
+        <translation>Hubungkan melalui proxy SOCKS5</translation>
     </message>
     <message>
         <source>Information</source>
@@ -2401,18 +2536,6 @@
     <message>
         <source>Execute command when the best block changes (%s in cmd is replaced by block hash)</source>
         <translation>Menjalankan perintah ketika perubahan blok terbaik (%s dalam cmd digantikan oleh hash blok)</translation>
-    </message>
-    <message>
-        <source>Upgrade wallet to latest format</source>
-        <translation>Perbarui dompet ke format terbaru</translation>
-    </message>
-    <message>
-        <source>Rescan the block chain for missing wallet transactions</source>
-        <translation>Pindai ulang rantai-blok untuk transaksi dompet yang hilang</translation>
-    </message>
-    <message>
-        <source>Use OpenSSL (https) for JSON-RPC connections</source>
-        <translation>Gunakan OpenSSL (https) untuk hubungan JSON-RPC</translation>
     </message>
     <message>
         <source>This help message</source>

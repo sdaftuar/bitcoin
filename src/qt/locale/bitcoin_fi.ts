@@ -1,4 +1,4 @@
-<TS language="fi" version="2.0">
+<TS language="fi" version="2.1">
 <context>
     <name>AddressBookPage</name>
     <message>
@@ -220,6 +220,9 @@
         <translation>Lompakon tunnuslause vaihdettiin onnistuneesti.</translation>
     </message>
 </context>
+<context>
+    <name>BanTableModel</name>
+    </context>
 <context>
     <name>BitcoinGUI</name>
     <message>
@@ -1279,10 +1282,6 @@
         <translation>Maksupyyntö %1 on liian suuri (%2 tavua, sallittu %3 tavua).</translation>
     </message>
     <message>
-        <source>Payment request DoS protection</source>
-        <translation>Maksupyynnön DoS-suojaus</translation>
-    </message>
-    <message>
         <source>Error communicating with %1: %2</source>
         <translation>Virhe kommunikoidessa %1n kanssa: %2</translation>
     </message>
@@ -1467,14 +1466,6 @@
         <translation>Palvelut</translation>
     </message>
     <message>
-        <source>Starting Height</source>
-        <translation>Aloituskorkeus</translation>
-    </message>
-    <message>
-        <source>Sync Height</source>
-        <translation>Synkronointikorkeus</translation>
-    </message>
-    <message>
         <source>Ban Score</source>
         <translation>Panna-pisteytys</translation>
     </message>
@@ -1489,14 +1480,6 @@
     <message>
         <source>Last Receive</source>
         <translation>Viimeisin vastaanotettu</translation>
-    </message>
-    <message>
-        <source>Bytes Sent</source>
-        <translation>Tavua lähetetty</translation>
-    </message>
-    <message>
-        <source>Bytes Received</source>
-        <translation>Tavua vastaanotettu</translation>
     </message>
     <message>
         <source>Ping Time</source>
@@ -1595,12 +1578,16 @@
         <translation>Ulosmenevä</translation>
     </message>
     <message>
-        <source>Unknown</source>
-        <translation>Tuntematon</translation>
+        <source>Yes</source>
+        <translation>Kyllä</translation>
     </message>
     <message>
-        <source>Fetching...</source>
-        <translation>Hankitaan...</translation>
+        <source>No</source>
+        <translation>Ei</translation>
+    </message>
+    <message>
+        <source>Unknown</source>
+        <translation>Tuntematon</translation>
     </message>
 </context>
 <context>
@@ -1955,10 +1942,6 @@
         <translation>Kopioi vaihtoraha</translation>
     </message>
     <message>
-        <source>Total Amount %1 (= %2)</source>
-        <translation>Yhteensä %1 (= %2)</translation>
-    </message>
-    <message>
         <source>or</source>
         <translation>tai</translation>
     </message>
@@ -1989,10 +1972,6 @@
     <message>
         <source>Payment request expired.</source>
         <translation>Maksupyyntö on vanhentunut.</translation>
-    </message>
-    <message>
-        <source>Pay only the minimum fee of %1</source>
-        <translation>Maksa vain vähimmäiskulu %1</translation>
     </message>
     <message>
         <source>The recipient address is not valid. Please recheck.</source>
@@ -2757,10 +2736,6 @@
         <translation>Aja taustalla daemonina ja hyväksy komennot</translation>
     </message>
     <message>
-        <source>Use the test network</source>
-        <translation>Käytä test -verkkoa</translation>
-    </message>
-    <message>
         <source>Accept connections from outside (default: 1 if no -proxy or -connect)</source>
         <translation>Hyväksy yhteyksiä ulkopuolelta (vakioasetus: 1 jos -proxy tai -connect ei määritelty)</translation>
     </message>
@@ -2785,20 +2760,12 @@
         <translation>Ei voida yhdistää %s tässä tietokoneessa. Bitcoin Core on luultavasti jo käynnissä.</translation>
     </message>
     <message>
-        <source>Warning: -paytxfee is set very high! This is the transaction fee you will pay if you send a transaction.</source>
-        <translation>Varoitus: -paytxfee on asetettu erittäin korkeaksi! Tämä on maksukulu jonka tulet maksamaan kun lähetät siirron.</translation>
-    </message>
-    <message>
         <source>Warning: The network does not appear to fully agree! Some miners appear to be experiencing issues.</source>
         <translation>Varoitus: Tietoverkko ei ole sovussa! Luohijat näyttävät kokevan virhetilanteita.</translation>
     </message>
     <message>
         <source>Warning: We do not appear to fully agree with our peers! You may need to upgrade, or other nodes may need to upgrade.</source>
         <translation>Varoitus: Olemme vertaisverkon kanssa ristiriidassa! Sinun tulee päivittää tai toisten solmujen tulee päivitää.</translation>
-    </message>
-    <message>
-        <source>Warning: error reading wallet.dat! All keys read correctly, but transaction data or address book entries might be missing or incorrect.</source>
-        <translation>Varoitus: virhe luettaessa wallet.dat-lompakkotiedostoa. Kaikki avaimet luettiin onnistuneesti, mutta siirtohistoria tai osoitekirja saattavat olla kadonneet tai virheellisiä.</translation>
     </message>
     <message>
         <source>Warning: wallet.dat corrupt, data salvaged! Original wallet.dat saved as wallet.{timestamp}.bak in %s; if your balance or transactions are incorrect you should restore from a backup.</source>
@@ -2811,10 +2778,6 @@
     <message>
         <source>&lt;category&gt; can be:</source>
         <translation>&lt;category&gt; voi olla:</translation>
-    </message>
-    <message>
-        <source>Attempt to recover private keys from a corrupt wallet.dat</source>
-        <translation>Yritetään palauttaa privaattiavaimia korruptoituneesta wallet.dat -lompakkotiedostosta</translation>
     </message>
     <message>
         <source>Block creation options:</source>
@@ -2861,20 +2824,12 @@
         <translation>Virhe avattaessa lohkoindeksiä</translation>
     </message>
     <message>
-        <source>Error: A fatal internal error occured, see debug.log for details</source>
-        <translation>Virhe: Sisäinen kriittinen virhe kohdattiin, katso debug.log:sta lisätietoja</translation>
-    </message>
-    <message>
         <source>Error: Disk space is low!</source>
         <translation>Varoitus: Levytila on vähissä!</translation>
     </message>
     <message>
         <source>Failed to listen on any port. Use -listen=0 if you want this.</source>
         <translation>Ei onnistuttu kuuntelemaan missään portissa. Käytä -listen=0 jos haluat tätä.</translation>
-    </message>
-    <message>
-        <source>If &lt;category&gt; is not supplied, output all debugging information.</source>
-        <translation>Jos &lt;kategoria&gt; ei annettu, tulosta kaikki debuggaustieto.</translation>
     </message>
     <message>
         <source>Importing...</source>
@@ -2941,10 +2896,6 @@
         <translation>Sinun tulee uudelleenrakentaa tietokanta käyttäen -reindex vaihtaen -txindex</translation>
     </message>
     <message>
-        <source>Imports blocks from external blk000??.dat file</source>
-        <translation>Tuodaan lohkoja ulkoisesta blk000??.dat tiedostosta</translation>
-    </message>
-    <message>
         <source>Cannot obtain a lock on data directory %s. Bitcoin Core is probably already running.</source>
         <translation>Ei voida lukita data-hakemistoa %s. Bitcoin Core on luultavasti jo käynnissä.</translation>
     </message>
@@ -2971,10 +2922,6 @@
     <message>
         <source>Activating best chain...</source>
         <translation>Aktivoidaan parhainta ketjua...</translation>
-    </message>
-    <message>
-        <source>Can't run with a wallet in prune mode.</source>
-        <translation>Lompakkoa ei voida ajaa karsitussa tilassa.</translation>
     </message>
     <message>
         <source>Cannot resolve -whitebind address: '%s'</source>
@@ -3017,16 +2964,8 @@
         <translation>Välityssolmukohdan asetukset:</translation>
     </message>
     <message>
-        <source>RPC SSL options: (see the Bitcoin Wiki for SSL setup instructions)</source>
-        <translation>RPC SSL valinnat: (katso Bitcoin Wikistä SSL-asennuksen ohjeet)</translation>
-    </message>
-    <message>
         <source>RPC server options:</source>
         <translation>RPC-palvelimen valinnat:</translation>
-    </message>
-    <message>
-        <source>RPC support for HTTP persistent connections (default: %d)</source>
-        <translation>RPC-tuki pysyville HTTP-yhteyksille (oletus: %d)</translation>
     </message>
     <message>
         <source>Receive and display P2P network alerts (default: %u)</source>
@@ -3085,10 +3024,6 @@
         <translation>Ulkoasun asetukset:</translation>
     </message>
     <message>
-        <source>Use UPnP to map the listening port (default: 1 when listening)</source>
-        <translation>Käytä UPnP:tä kuunneltavan portin avaamiseen (vakioasetus: 1 kun kuuntelemassa)</translation>
-    </message>
-    <message>
         <source>Username for JSON-RPC connections</source>
         <translation>Käyttäjätunnus JSON-RPC-yhteyksille</translation>
     </message>
@@ -3105,10 +3040,6 @@
         <translation>Tyhjennetään kaikki rahansiirrot lompakosta....</translation>
     </message>
     <message>
-        <source>on startup</source>
-        <translation>käynnistyksessä</translation>
-    </message>
-    <message>
         <source>wallet.dat corrupt, salvage failed</source>
         <translation>wallet.dat -lompakkotiedosto korruptoitunut, korjaaminen epäonnistui</translation>
     </message>
@@ -3119,18 +3050,6 @@
     <message>
         <source>Execute command when the best block changes (%s in cmd is replaced by block hash)</source>
         <translation>Suorita käsky kun paras lohko muuttuu (%s cmd on vaihdettu block hashin kanssa)</translation>
-    </message>
-    <message>
-        <source>Upgrade wallet to latest format</source>
-        <translation>Päivitä lompakko uusimpaan formaattiin</translation>
-    </message>
-    <message>
-        <source>Rescan the block chain for missing wallet transactions</source>
-        <translation>Skannaa uudelleen lohkoketju lompakon puuttuvien rahasiirtojen vuoksi</translation>
-    </message>
-    <message>
-        <source>Use OpenSSL (https) for JSON-RPC connections</source>
-        <translation>Käytä OpenSSL:ää (https) JSON-RPC-yhteyksille</translation>
     </message>
     <message>
         <source>This help message</source>
@@ -3155,10 +3074,6 @@
     <message>
         <source>(default: %s)</source>
         <translation>(oletus: %s)</translation>
-    </message>
-    <message>
-        <source>Acceptable ciphers (default: %s)</source>
-        <translation>Hyväksyttävät salaukset (oletus: %s)</translation>
     </message>
     <message>
         <source>Error loading wallet.dat</source>
@@ -3191,14 +3106,6 @@
     <message>
         <source>Relay non-P2SH multisig (default: %u)</source>
         <translation>Välitä ei-P2SH-multisig (oletus: %u)</translation>
-    </message>
-    <message>
-        <source>Server certificate file (default: %s)</source>
-        <translation>Palvelimen sertifikaattitiedosto (oletus: %s)</translation>
-    </message>
-    <message>
-        <source>Server private key (default: %s)</source>
-        <translation>Palvelimen private key (oletus: %s)</translation>
     </message>
     <message>
         <source>Set key pool size to &lt;n&gt; (default: %u)</source>

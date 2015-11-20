@@ -1,4 +1,4 @@
-<TS language="vi_VN" version="2.0">
+<TS language="vi_VN" version="2.1">
 <context>
     <name>AddressBookPage</name>
     <message>
@@ -135,6 +135,9 @@
         <source>Wallet encrypted</source>
         <translation>Ví đã được mã hóa</translation>
     </message>
+    </context>
+<context>
+    <name>BanTableModel</name>
     </context>
 <context>
     <name>BitcoinGUI</name>
@@ -681,10 +684,6 @@
     <message>
         <source>Warning</source>
         <translation>Chú ý</translation>
-    </message>
-    <message>
-        <source>on startup</source>
-        <translation>khi khởi động</translation>
     </message>
     <message>
         <source>This help message</source>

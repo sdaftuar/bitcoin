@@ -21,7 +21,9 @@ libbitcoin_server_a_SOURCES += $(CCL_BITCOIND_SRC) $(CCL_BITCOIND_HDR)
 # 
 
 dataprinter_SOURCES = ccl/dataprinter.cpp
-dataprinter_CPPFLAGS = $(BITCOIN_INCLUDES)
+dataprinter_CPPFLAGS = $(AM_CPPFLAGS) $(BITCOIN_INCLUDES)
+dataprinter_CXXFLAGS = $(AM_CXXFLAGS) $(PIE_FLAGS)
+dataprinter_LDFLAGS = $(RELDFLAGS) $(AM_LDFLAGS) $(LIBTOOL_APP_LDFLAGS)
 
 dataprinter_LDADD = \
    $(LIBBITCOIN_SERVER) \
@@ -43,14 +45,15 @@ dataprinter_LDADD = \
    $(EVENT_PTHREADS_LIBS) \
    $(EVENT_LIBS)
 
-dataprinter_LDFLAGS = $(RELDFLAGS) $(AM_LDFLAGS) $(LIBTOOL_APP_LDFLAGS)
 bin_PROGRAMS += dataprinter
 
 # printdb binary 
 # 
 
 printdb_SOURCES = ccl/printdb.cpp
-printdb_CPPFLAGS = $(BITCOIN_INCLUDES)
+printdb_CPPFLAGS = $(AM_CPPFLAGS) $(BITCOIN_INCLUDES)
+printdb_CXXFLAGS = $(AM_CXXFLAGS) $(PIE_FLAGS)
+printdb_LDFLAGS = $(RELDFLAGS) $(AM_LDFLAGS) $(LIBTOOL_APP_LDFLAGS)
 
 printdb_LDADD = \
    $(LIBBITCOIN_SERVER) \
