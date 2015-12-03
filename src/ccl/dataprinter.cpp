@@ -3,7 +3,6 @@
 #include "primitives/block.h"
 #include "primitives/transaction.h"
 #include "simulation.h"
-#include "txmempool.h"
 #include "clientversion.h"
 
 #include "boost/filesystem.hpp"
@@ -11,8 +10,17 @@
 
 using namespace std;
 
+// TODO: Update this to match txmempool entry
+struct MyCTxMemPoolEntry {
+    CTransaction *tx;
+    CAmount nFee;
+    int64_t nTime;
+    double dPriority;
+    unsigned int nHeight;
+};
+
 void print(BlockEvent &);
-void print(CTxMemPoolEntry &);
+void print(MyCTxMemPoolEntry &);
 void print(TxEvent &);
 void print(HeadersEvent &);
 
@@ -84,19 +92,16 @@ int main(int argc, char **argv)
                 }
             case MEMPOOL:
                 {
+                    MyCTxMemPoolEntry e;
                     CTransaction tx;
-                    int64_t nFee;
-                    int64_t nTime;
-                    double dPriority;
-                    unsigned int nHeight;
 
                     try {
                         filein >> tx;
-                        filein >> nFee;
-                        filein >> nTime;
-                        filein >> dPriority;
-                        filein >> nHeight;
-                        CTxMemPoolEntry e(tx, nFee, nTime, dPriority, nHeight);
+                        filein >> e.nFee;
+                        filein >> e.nTime;
+                        filein >> e.dPriority;
+                        filein >> e.nHeight;
+                        e.tx = &tx;
                         print(e);
                     } catch (std::ios_base::failure) {
                         eof = true;
@@ -155,10 +160,9 @@ void print(HeadersEvent &headersEvent)
     }
 }
 
-void print(CTxMemPoolEntry &entry)
+void print(MyCTxMemPoolEntry &entry)
 {
-    printf("%s\n", entry.GetTx().ToString().c_str());
-    printf("nFee= %lu nTxSize= %lu nTime= %ld dPriority= %g nHeight= %d\n", 
-            entry.GetFee(), entry.GetTxSize(), entry.GetTime(),
-            entry.GetPriority(entry.GetHeight()), entry.GetHeight());
+    printf("%s\n", entry.tx->ToString().c_str());
+    printf("nFee= %lu nTime= %ld dPriority= %g nHeight= %d\n", 
+            entry.nFee, entry.nTime, entry.dPriority, entry.nHeight);
 }

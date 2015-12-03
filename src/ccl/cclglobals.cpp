@@ -4,6 +4,7 @@
 #include "arith_uint256.h"
 #include "uint256.h"
 #include "util.h"
+#include "main.h"
 
 #include <string>
 
@@ -124,14 +125,18 @@ void CCLGlobals::InitMemPool(CAutoFile &filein)
             filein >> dPriority;
             filein >> nHeight;
 
-            CTxMemPoolEntry e(tx, nFee, nTime, dPriority, nHeight);
-            mempool->addUnchecked(tx.GetHash(), e);
+            // TODO: restore original values somehow.  For now restoring the
+            // mempool exactly doesn't work quite right, and not clear we use
+            // it much anyway.
+            ProcessTransaction(tx);
+            //CTxMemPoolEntry e(tx, nFee, nTime, dPriority, nHeight);
+            //mempool->addUnchecked(tx.GetHash(), e);
             ++counter;
         }
     } catch (std::ios_base::failure e) {
 
     }
-    LogPrintf("CCLGlobals: added %d entries to mempool\n", counter);
+    LogPrintf("CCLGlobals: added %u/%d entries to mempool\n", mempool->size(), counter);
 }
 
 void CCLGlobals::WriteMempool(CAutoFile &logfile)
