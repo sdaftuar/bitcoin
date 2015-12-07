@@ -661,9 +661,10 @@ unsigned int LimitOrphanTxSize(unsigned int nMaxOrphans) EXCLUSIVE_LOCKS_REQUIRE
     return nEvicted;
 }
 
-int64_t LockTime(const CTransaction &tx, int flags, const std::vector<int>* prevHeights, const CBlockIndex& block)
+int64_t LockTime(const CTransaction &tx, int flags, const std::vector<int>* prevHeights, const CBlockIndex& block, std::vector<bool> *fSequenceLocked)
 {
     assert(prevHeights == NULL || prevHeights->size() == tx.vin.size());
+    assert(fSequenceLocked == NULL || fSequenceLocked->size() == tx.vin.size());
     int64_t nBlockTime = (flags & LOCKTIME_MEDIAN_TIME_PAST)
                                     ? block.GetAncestor(std::max(block.nHeight-1, 0))->GetMedianTimePast()
                                     : block.GetBlockTime();
@@ -704,6 +705,9 @@ int64_t LockTime(const CTransaction &tx, int flags, const std::vector<int>* prev
 
         if (prevHeights == NULL)
             continue;
+
+        if (fSequenceLocked)
+            (*fSequenceLocked)[txinIndex] = true;
 
         int nCoinHeight = (*prevHeights)[txinIndex];
 
@@ -746,6 +750,12 @@ int64_t LockTime(const CTransaction &tx, int flags, const std::vector<int>* prev
 
 int64_t CheckLockTime(const CTransaction &tx, int flags)
 {
+    std::vector<int> prevHeights;
+    return CheckLockTime(tx, prevHeights, true, flags);
+}
+
+int64_t CheckLockTime(const CTransaction &tx, std::vector<int> &prevHeights, bool recalcHeights, int flags)
+{
     AssertLockHeld(cs_main);
 
     // By convention a negative value for flags indicates that the
@@ -755,7 +765,6 @@ int64_t CheckLockTime(const CTransaction &tx, int flags)
     // appropriate flags. At the present time no soft-forks are
     // scheduled, so no flags are set.
     flags = std::max(flags, 0);
-
 
     CBlockIndex* tip = chainActive.Tip();
     CBlockIndex index;
@@ -774,27 +783,58 @@ int64_t CheckLockTime(const CTransaction &tx, int flags)
     // However this changes once median past time-locks are enforced:
     index.nTime = GetAdjustedTime();
 
+    std::vector<bool> fSequenceLocked(tx.vin.size(), false);
+
     // pcoinsTip contains the UTXO set for chainActive.Tip()
-    CCoinsViewMemPool viewMemPool(pcoinsTip, mempool);
-    std::vector<int> prevheights;
-    prevheights.resize(tx.vin.size());
-    for (size_t txinIndex = 0; txinIndex < tx.vin.size(); txinIndex++) {
-        const CTxIn& txin = tx.vin[txinIndex];
-        CCoins coins;
-        if (!viewMemPool.GetCoins(txin.prevout.hash, coins)) {
-            // Input not found. This can only occur for wallet transactions
-            // that are already confirmed. Assume it's all fine.
-            return 0;
+    if (recalcHeights) {
+        LOCK(mempool.cs);
+
+        CCoinsViewMemPool viewMemPool(pcoinsTip, mempool);
+        prevHeights.clear();
+        prevHeights.resize(tx.vin.size());
+        for (size_t txinIndex = 0; txinIndex < tx.vin.size(); txinIndex++) {
+            const CTxIn& txin = tx.vin[txinIndex];
+            CCoins coins;
+            if (!viewMemPool.GetCoins(txin.prevout.hash, coins)) {
+                // Input not found. This can only occur for wallet transactions
+                // that are already confirmed. Assume it's all fine.
+                return 0;
+            }
+            if (coins.nHeight == MEMPOOL_HEIGHT) {
+                // Assume all mempool transaction confirm in the next block
+                prevHeights[txinIndex] = tip->nHeight + 1;
+            } else {
+                prevHeights[txinIndex] = coins.nHeight;
+            }
         }
-        if (coins.nHeight == MEMPOOL_HEIGHT) {
-            // Assume all mempool transaction confirm in the next block
-            prevheights[txinIndex] = tip->nHeight + 1;
-        } else {
-            prevheights[txinIndex] = coins.nHeight;
+    } else {
+        // Set any MEMPOOL_HEIGHT entries down to tip height + 1.
+        for (size_t i=0; i<prevHeights.size(); ++i) {
+            if (prevHeights[i] == MEMPOOL_HEIGHT) {
+                prevHeights[i] = tip->nHeight + 1;
+            }
         }
     }
 
-    return LockTime(tx, flags, &prevheights, index);
+    int64_t ret = LockTime(tx, flags, &prevHeights, index, &fSequenceLocked);
+
+    // Rewrite prevHeights entries to either be MEMPOOL_HEIGHT (if in mempool)
+    // or 0 (if not using sequence).
+    // Since the mempool doesn't allow entries that can't be mined in the next
+    // block, any mempool dependencies must not be using a relative-locktime
+    // greater than 0, so it should be fine if we cache an incorrect height on
+    // inputs that are in the mempool. In the future we might allow entries
+    // that will be mineable in the future, so storing MEMPOOL_HEIGHT might
+    // help prevent a future bug.
+    for (size_t i=0; i<fSequenceLocked.size(); ++i) {
+        if (!fSequenceLocked[i]) {
+            prevHeights[i] = 0;
+        } else if (prevHeights[i] > tip->nHeight) {
+            prevHeights[i] = MEMPOOL_HEIGHT;
+        }
+    }
+
+    return ret;
 }
 
 unsigned int GetLegacySigOpCount(const CTransaction& tx)
@@ -1037,10 +1077,13 @@ bool AcceptToMemoryPoolWorker(CTxMemPool& pool, CValidationState &state, const C
         view.SetBackend(dummy);
         }
 
+        // Cache the heights of our inputs for BIP68 checks
+        std::vector<int> prevHeights;
+
         // Only accept nLockTime-using transactions that can be mined in the next
         // block; we don't want our mempool filled up with transactions that can't
         // be mined yet.
-        if (CheckLockTime(tx, STANDARD_LOCKTIME_VERIFY_FLAGS))
+        if (CheckLockTime(tx, prevHeights, true, STANDARD_LOCKTIME_VERIFY_FLAGS))
             return state.DoS(0, false, REJECT_NONSTANDARD, "non-final");
 
         // Check for non-standard pay-to-script-hash in inputs
@@ -1074,7 +1117,7 @@ bool AcceptToMemoryPoolWorker(CTxMemPool& pool, CValidationState &state, const C
             }
         }
 
-        CTxMemPoolEntry entry(tx, nFees, GetTime(), dPriority, chainActive.Height(), pool.HasNoInputsOf(tx), inChainInputValue, fSpendsCoinbase, nSigOps);
+        CTxMemPoolEntry entry(tx, nFees, GetTime(), dPriority, chainActive.Height(), pool.HasNoInputsOf(tx), inChainInputValue, fSpendsCoinbase, nSigOps, prevHeights);
         unsigned int nSize = entry.GetTxSize();
 
         // Don't accept it if it can't get into a block
@@ -2197,7 +2240,7 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
             for (size_t j = 0; j < tx.vin.size(); j++) {
                 prevheights[j] = view.AccessCoins(tx.vin[j].prevout.hash)->nHeight;
             }
-            if (LockTime(tx, nLockTimeFlags, &prevheights, *pindex))
+            if (LockTime(tx, nLockTimeFlags, &prevheights, *pindex, NULL))
                 return state.DoS(100, error("ConnectBlock(): contains a non-final transaction", __func__),
                                  REJECT_INVALID, "bad-txns-nonfinal");
 
@@ -2649,7 +2692,9 @@ static bool ActivateBestChainStep(CValidationState& state, const CChainParams& c
 
     // Disconnect active blocks which are no longer in the best chain.
     bool fBlocksDisconnected = false;
+    int minReorgChainHeight = chainActive.Height();
     while (chainActive.Tip() && chainActive.Tip() != pindexFork) {
+        minReorgChainHeight = chainActive.Height();
         if (!DisconnectTip(state, chainparams.GetConsensus()))
             return false;
         fBlocksDisconnected = true;
@@ -2699,7 +2744,7 @@ static bool ActivateBestChainStep(CValidationState& state, const CChainParams& c
     }
 
     if (fBlocksDisconnected) {
-        mempool.removeForReorg(pcoinsTip, chainActive.Tip()->nHeight + 1, STANDARD_LOCKTIME_VERIFY_FLAGS);
+        mempool.removeForReorg(pcoinsTip, chainActive.Tip()->nHeight + 1, STANDARD_LOCKTIME_VERIFY_FLAGS, minReorgChainHeight);
         LimitMempoolSize(mempool, GetArg("-maxmempool", DEFAULT_MAX_MEMPOOL_SIZE) * 1000000, GetArg("-mempoolexpiry", DEFAULT_MEMPOOL_EXPIRY) * 60 * 60);
     }
     mempool.check(pcoinsTip);
@@ -2802,6 +2847,7 @@ bool InvalidateBlock(CValidationState& state, const Consensus::Params& consensus
     setDirtyBlockIndex.insert(pindex);
     setBlockIndexCandidates.erase(pindex);
 
+    bool fDisconnectedBlocks = false;
     while (chainActive.Contains(pindex)) {
         CBlockIndex *pindexWalk = chainActive.Tip();
         pindexWalk->nStatus |= BLOCK_FAILED_CHILD;
@@ -2810,9 +2856,11 @@ bool InvalidateBlock(CValidationState& state, const Consensus::Params& consensus
         // ActivateBestChain considers blocks already in chainActive
         // unconditionally valid already, so force disconnect away from it.
         if (!DisconnectTip(state, consensusParams)) {
-            mempool.removeForReorg(pcoinsTip, chainActive.Tip()->nHeight + 1, STANDARD_LOCKTIME_VERIFY_FLAGS);
+            // XXX Should we even call this function if DisconnectTip failed?
+            mempool.removeForReorg(pcoinsTip, chainActive.Tip()->nHeight + 1, STANDARD_LOCKTIME_VERIFY_FLAGS, 0);
             return false;
         }
+        fDisconnectedBlocks = true;
     }
 
     LimitMempoolSize(mempool, GetArg("-maxmempool", DEFAULT_MAX_MEMPOOL_SIZE) * 1000000, GetArg("-mempoolexpiry", DEFAULT_MEMPOOL_EXPIRY) * 60 * 60);
@@ -2828,7 +2876,9 @@ bool InvalidateBlock(CValidationState& state, const Consensus::Params& consensus
     }
 
     InvalidChainFound(pindex);
-    mempool.removeForReorg(pcoinsTip, chainActive.Tip()->nHeight + 1, STANDARD_LOCKTIME_VERIFY_FLAGS);
+    if (fDisconnectedBlocks) {
+        mempool.removeForReorg(pcoinsTip, chainActive.Tip()->nHeight + 1, STANDARD_LOCKTIME_VERIFY_FLAGS, pindex->nHeight);
+    }
     return true;
 }
 
@@ -3173,7 +3223,7 @@ bool ContextualCheckBlock(const CBlock& block, CValidationState& state, CBlockIn
 
     // Check that all transactions are finalized
     BOOST_FOREACH(const CTransaction& tx, block.vtx) {
-        if (LockTime(tx, nLockTimeFlags, NULL, blockIndex))
+        if (LockTime(tx, nLockTimeFlags, NULL, blockIndex, NULL))
             return state.DoS(10, error("%s: contains a non-final transaction", __func__), REJECT_INVALID, "bad-txns-nonfinal");
     }
 

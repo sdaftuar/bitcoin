@@ -70,6 +70,7 @@ private:
     bool spendsCoinbase; //! keep track of transactions that spend a coinbase
     unsigned int sigOpCount; //! Legacy sig ops plus P2SH sig op count
     int64_t feeDelta; //! Used for determining the priority of the transaction for mining in a block
+    std::vector<int> prevHeights; //! Cache the heights of inputs to avoid unnecessary LockTime calls after reorg
 
     // Information about descendants of this transaction that are in the
     // mempool; if we remove this transaction we must remove all of these
@@ -84,7 +85,7 @@ public:
     CTxMemPoolEntry(const CTransaction& _tx, const CAmount& _nFee,
                     int64_t _nTime, double _entryPriority, unsigned int _entryHeight,
                     bool poolHasNoInputsOf, CAmount _inChainInputValue, bool spendsCoinbase,
-                    unsigned int nSigOps);
+                    unsigned int nSigOps, const std::vector<int> &_prevHeights);
     CTxMemPoolEntry(const CTxMemPoolEntry& other);
 
     const CTransaction& GetTx() const { return this->tx; }
@@ -119,6 +120,8 @@ public:
     CAmount GetFeesWithDescendants() const { return nFeesWithDescendants; }
 
     bool GetSpendsCoinbase() const { return spendsCoinbase; }
+    const std::vector<int> & GetPrevHeights() const { return prevHeights; }
+    void UpdatePrevHeights(std::vector<int> &newHeights) { prevHeights = newHeights; }
 };
 
 // Helpers for modifying CTxMemPool::mapTx, which is a boost multi_index.
@@ -161,6 +164,15 @@ struct mempoolentry_txid
     {
         return entry.GetTx().GetHash();
     }
+};
+
+struct update_prev_heights
+{
+    update_prev_heights(std::vector<int> &_ph) : prevHeights(_ph) {}
+    void operator() (CTxMemPoolEntry &e) { e.UpdatePrevHeights(prevHeights); }
+
+private:
+    std::vector<int> &prevHeights;
 };
 
 /** \class CompareTxMemPoolEntryByFee
@@ -420,7 +432,7 @@ public:
     bool addUnchecked(const uint256& hash, const CTxMemPoolEntry &entry, setEntries &setAncestors, bool fCurrentEstimate = true);
 
     void remove(const CTransaction &tx, std::list<CTransaction>& removed, bool fRecursive = false);
-    void removeForReorg(const CCoinsViewCache *pcoins, unsigned int nMemPoolHeight, int flags);
+    void removeForReorg(const CCoinsViewCache *pcoins, unsigned int nMemPoolHeight, int flags, int minDisconnectedBlockOnPriorChain);
     void removeConflicts(const CTransaction &tx, std::list<CTransaction>& removed);
     void removeForBlock(const std::vector<CTransaction>& vtx, unsigned int nBlockHeight,
                         std::list<CTransaction>& conflicts, bool fCurrentEstimate = true);

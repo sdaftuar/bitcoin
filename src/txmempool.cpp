@@ -17,15 +17,18 @@
 #include "utiltime.h"
 #include "version.h"
 
+#include <algorithm>
+
 using namespace std;
 
 CTxMemPoolEntry::CTxMemPoolEntry(const CTransaction& _tx, const CAmount& _nFee,
                                  int64_t _nTime, double _entryPriority, unsigned int _entryHeight,
                                  bool poolHasNoInputsOf, CAmount _inChainInputValue,
-                                 bool _spendsCoinbase, unsigned int _sigOps):
+                                 bool _spendsCoinbase, unsigned int _sigOps, 
+                                 const std::vector<int> &_prevHeights):
     tx(_tx), nFee(_nFee), nTime(_nTime), entryPriority(_entryPriority), entryHeight(_entryHeight),
     hadNoDependencies(poolHasNoInputsOf), inChainInputValue(_inChainInputValue),
-    spendsCoinbase(_spendsCoinbase), sigOpCount(_sigOps)
+    spendsCoinbase(_spendsCoinbase), sigOpCount(_sigOps), prevHeights(_prevHeights)
 {
     nTxSize = ::GetSerializeSize(tx, SER_NETWORK, PROTOCOL_VERSION);
     nModSize = tx.CalculateModifiedSize(nTxSize);
@@ -497,14 +500,23 @@ void CTxMemPool::remove(const CTransaction &origTx, std::list<CTransaction>& rem
     }
 }
 
-void CTxMemPool::removeForReorg(const CCoinsViewCache *pcoins, unsigned int nMemPoolHeight, int flags)
+void CTxMemPool::removeForReorg(const CCoinsViewCache *pcoins, unsigned int nMemPoolHeight, int flags, int minDisconnectedBlockOnPriorChain)
 {
     // Remove transactions spending a coinbase which are now immature and no-longer-final transactions
     LOCK(cs);
     list<CTransaction> transactionsToRemove;
     for (indexed_transaction_set::const_iterator it = mapTx.begin(); it != mapTx.end(); it++) {
+        bool removing = false;
         const CTransaction& tx = it->GetTx();
-        if (CheckLockTime(tx, flags)) {
+        // Figure out if we need CheckLockTime to re-calculate heights
+        bool recalcPrevHeights = false;
+        std::vector<int> prevHeights = it->GetPrevHeights();
+        int maxHeight = *std::max_element(prevHeights.begin(), prevHeights.end());
+        if (maxHeight >= minDisconnectedBlockOnPriorChain) {
+            recalcPrevHeights = true;
+        }
+        if (CheckLockTime(tx, prevHeights, recalcPrevHeights, flags)) {
+            removing = true;
             transactionsToRemove.push_back(tx);
         } else if (it->GetSpendsCoinbase()) {
             BOOST_FOREACH(const CTxIn& txin, tx.vin) {
@@ -512,12 +524,18 @@ void CTxMemPool::removeForReorg(const CCoinsViewCache *pcoins, unsigned int nMem
                 if (it2 != mapTx.end())
                     continue;
                 const CCoins *coins = pcoins->AccessCoins(txin.prevout.hash);
-		if (nCheckFrequency != 0) assert(coins);
+                if (nCheckFrequency != 0) assert(coins);
                 if (!coins || (coins->IsCoinBase() && ((signed long)nMemPoolHeight) - coins->nHeight < COINBASE_MATURITY)) {
+                    removing = true;
                     transactionsToRemove.push_back(tx);
                     break;
                 }
             }
+        } 
+        if (recalcPrevHeights && !removing) {
+            // Need to update the entry's cached heights (doesn't affect
+            // any indices).
+            mapTx.modify(it, update_prev_heights(prevHeights));
         }
     }
     BOOST_FOREACH(const CTransaction& tx, transactionsToRemove) {

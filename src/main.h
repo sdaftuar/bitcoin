@@ -329,8 +329,10 @@ bool CheckTransaction(const CTransaction& tx, CValidationState& state);
 /**
  * Check if transaction is final and can be included in a block. Consensus critical.
  * Takes as input a list of heights at which tx's inputs (in order) confirmed.
+ * Optionally takes a vector that will be populated to indicate which inputs are
+ * sequence-locked.
  */
-int64_t LockTime(const CTransaction &tx, int flags, const std::vector<int>* prevheights, const CBlockIndex& block);
+int64_t LockTime(const CTransaction &tx, int flags, const std::vector<int>* prevheights, const CBlockIndex& block, std::vector<bool> *fSequenceLocked);
 
 /**
  * Check if transaction will be final in the next block to be created.
@@ -339,7 +341,10 @@ int64_t LockTime(const CTransaction &tx, int flags, const std::vector<int>* prev
  *
  * See consensus/consensus.h for flag definitions.
  */
-int64_t CheckLockTime(const CTransaction &tx, int flags = -1);
+
+int64_t CheckLockTime(const CTransaction &tx, std::vector<int> &prevHeights, bool recalcHeights, int flags=-1);
+// Wrapper for the above function, when prevHeights not needed.
+int64_t CheckLockTime(const CTransaction &tx, int flags=-1);
 
 /** 
  * Closure representing one script verification

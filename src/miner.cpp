@@ -238,7 +238,7 @@ CBlockTemplate* CreateNewBlock(const CChainParams& chainparams, const CScript& s
                 }
             }
 
-            if (LockTime(tx, STANDARD_LOCKTIME_VERIFY_FLAGS, &prevheights, index))
+            if (LockTime(tx, STANDARD_LOCKTIME_VERIFY_FLAGS, &prevheights, index, NULL))
                 continue;
 
             unsigned int nTxSigOps = iter->GetSigOpCount();
