@@ -104,6 +104,9 @@ announcing their headers directly, instead of just announcing the hash. In a
 reorganization, all new headers are sent, instead of just the new tip. This
 can often prevent an extra roundtrip before the actual block is downloaded.
 
+With this change, pruning nodes are now able to relay new blocks to compatible
+peers.
+
 Memory pool limiting
 --------------------
 
