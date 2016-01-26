@@ -18,7 +18,6 @@ SegWit p2p test.
 def get_virtual_size(witness_block):
     base_size = len(witness_block.serialize())
     total_size = len(witness_block.serialize(with_witness=True))
-    print "get_virtual_size: ", base_size, total_size, base_size*3 + total_size
     # the "+3" is so we round up
     vsize = int((3*base_size + total_size + 3)/4)
     return vsize
@@ -453,11 +452,7 @@ class SegWitTest(BitcoinTestFramework):
     # submitblock will try to add the nonce automatically, so that mining
     # software doesn't need to worry about doing so itself.
     def test_submit_block(self):
-        tip = self.nodes[0].getbestblockhash()
-        height = self.nodes[0].getblockcount() + 1
-        block_time = self.nodes[0].getblockheader(tip)["mediantime"] + 1
-        block = create_block(int(tip, 16), create_coinbase(height), block_time)
-        block.nVersion = 5
+        block = self.build_next_block(nVersion=5)
 
         # Try using a custom nonce and then don't supply it.
         # This shouldn't possibly work.
@@ -465,7 +460,7 @@ class SegWitTest(BitcoinTestFramework):
         block.vtx[0].wit = CTxWitness() # drop the nonce
         block.solve()
         self.nodes[0].submitblock(binascii.hexlify(block.serialize(True)))
-        assert_equal(self.nodes[0].getbestblockhash(), tip)
+        assert(self.nodes[0].getbestblockhash() != block.hash)
 
         # Now redo commitment with the standard nonce, but let bitcoind fill it in.
         add_witness_commitment(block, nonce=0L)
@@ -474,16 +469,21 @@ class SegWitTest(BitcoinTestFramework):
         self.nodes[0].submitblock(binascii.hexlify(block.serialize(True)))
         assert_equal(self.nodes[0].getbestblockhash(), block.hash)
 
-        block_2 = create_block(block.sha256, create_coinbase(height+1), block_time+1)
-        block_2.nVersion = 5
-        block_2.rehash()
-        # Don't add the commitment at all this time.
+        # This time, add a tx with non-empty witness, but don't supply
+        # the commitment.
+        block_2 = self.build_next_block(nVersion=5)
+
+        add_witness_commitment(block_2)
+
         block_2.solve()
+
+        # Drop commitment and nonce -- submitblock should not fill in.
+        block_2.vtx[0].vout.pop()
+        block_2.vtx[0].wit = CTxWitness()
 
         self.nodes[0].submitblock(binascii.hexlify(block_2.serialize(True)))
         # Tip should not advance!
-        if self.nodes[0].getbestblockhash() == block_2.hash:
-            print "ERROR: submitblock consensus bug not yet fixed!"
+        assert(self.nodes[0].getbestblockhash() != block_2.hash)
 
     def test_extra_witness_data(self):
         print "Testing extra witness data in tx after upgrade enforcement"
