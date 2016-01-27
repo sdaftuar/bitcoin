@@ -332,67 +332,68 @@ class SegWitTest(BitcoinTestFramework):
         # Test that witness-bearing blocks are limited at ceil(base + wit/4) <= 1MB.
         block = self.build_next_block(nVersion=5)
 
-        # Don't need to do this next part anymore...
-        ## Make the coinbase big.
-        #block.vtx[0].vout.append(CTxOut(0, CScript(['a'900000])))
-        
         assert(len(self.utxo) > 0)
         
         # Create a P2WSH transaction.
-        # The witness program will be 1M OP_DROP's, followed by OP_TRUE.
+        # The witness program will be a bunch of OP_DROP's, followed by OP_TRUE.
         # This should give us plenty of room to tweak the spending tx's
         # virtual size.
-        NUM_DROPS = 500000
-        tx = CTransaction()
-        tx.vin.append(CTxIn(COutPoint(self.utxo[0][0], self.utxo[0][1]), ""))
-        witness_program = CScript([OP_DROP]*NUM_DROPS + [OP_TRUE])
+        NUM_DROPS = 197 # max ops per script!
+
+        witness_program = CScript([OP_2DROP]*NUM_DROPS + [OP_TRUE])
         witness_hash = uint256_from_str(sha256(witness_program))
         scriptPubKey = CScript([OP_0, ser_uint256(witness_hash)])
-        tx.vout.append(CTxOut(self.utxo[0][2]-1000, scriptPubKey))
-        tx.rehash()
-        # ...and add it to the block.
-        block.vtx.append(tx)
+
+        prevout = COutPoint(self.utxo[0][0], self.utxo[0][1])
+        value = self.utxo[0][2]
+
+        # Create 20 transactions, each of which will be approximately 50k in virtual size
+        txs = []
+        for i in xrange(21):
+            txs.append(CTransaction())
+            txs[i].vin.append(CTxIn(prevout, ""))
+            txs[i].vout.append(CTxOut(value-1000, scriptPubKey))
+            txs[i].rehash()
+
+            # From the second transaction, we'll start adding witness data
+            if (i > 0):
+                txs[i].wit.vtxinwit.append(CTxinWitness())
+                txs[i].wit.vtxinwit[0].scriptWitness.stack = [CScript(['a'*500])]*(2*NUM_DROPS) + [witness_program]
+                
+            txs[i].rehash()
+            # ...and add it to the block.
+            block.vtx.append(txs[i])
+
+            prevout = COutPoint(txs[i].sha256, 0)
+            value = txs[i].vout[0].nValue
+            print i, ": ", 1000000 - get_virtual_size(block)
         
-        # Now spend that transaction; the spend can be made arbitrarily
-        # large.
-        tx2 = CTransaction()
-        tx2.vin.append(CTxIn(COutPoint(tx.sha256, 0), ""))
-        tx2.vout.append(CTxOut(tx.vout[0].nValue-1000, scriptPubKey))
-        tx2.rehash()
-        tx2.wit.vtxinwit.append(CTxinWitness())
-
-        # We'll make it pretty big, and then see how close we got to MAX_BLOCK_SIZE.
-        tx2.wit.vtxinwit[0].scriptWitness.stack = [CScript(['aaaa'])]*NUM_DROPS + [witness_program]
-        block.vtx.append(tx2)
-        print "tx_size= ", len(tx2.serialize_with_witness())
-        add_witness_commitment(block)
-
         vsize = get_virtual_size(block)
+        additional_bytes = (MAX_BLOCK_SIZE - vsize)
 
-        additional_bytes = (MAX_BLOCK_SIZE - vsize)*4
         print "additional_bytes = ", additional_bytes
-        assert(additional_bytes < NUM_DROPS)
-        tx2.wit.vtxinwit[0].scriptWitness.stack[0]
+
+        # Just add an extra OP_RETURN output to use up the remaining bytes
+        block.vtx[-1].vout.append(CTxOut(0, CScript(['OP_RETURN', 'a'*(additional_bytes-20)])))
 
         vsize = get_virtual_size(block)
-        additional_bytes = (MAX_BLOCK_SIZE - vsize)*4
-        print additional_bytes
-        # Now add just one more...
-        #block.vtx[-1].wit.vtxinwit[0].scriptWitness.stack[0] = CScript(['aaaa'])
-
+        print "vsize= ", vsize
         # Get rid of the old commitment, and add a new one. 
-        block.vtx[0].vout.pop()
         add_witness_commitment(block)
+
+        block.hashMerkleRoot = block.calc_merkle_root()
+        for i in block.vtx:
+            print repr(i.hash)
 
         # Make sure we made a too-big block.
         #assert(get_virtual_size(block) > MAX_BLOCK_SIZE)
-        assert(len(block.serialize(True)) < 2*MAX_BLOCK_SIZE) # make sure it will relay
+        #assert(len(block.serialize(True)) < 2*MAX_BLOCK_SIZE) # make sure it will relay
 
         block.solve()
 
         self.test_node.send_message(msg_witness_block(block))
         self.test_node.sync_with_ping()
-        assert(self.nodes[0].getbestblockhash() != block.hash)
+        assert(self.nodes[0].getbestblockhash() == block.hash)
 
         # Now resize the second transaction to make the block fit.
         tx2.wit.vtxinwit[0].scriptWitness.stack[0] = CScript(['a'*(100000+additional_bytes)])
@@ -597,7 +598,7 @@ class SegWitTest(BitcoinTestFramework):
         self.test_block_malleability()
 
         # TODO: fix and re-enable this test
-        #self.test_witness_block_size()
+        self.test_witness_block_size()
 
         self.test_submit_block()
 
