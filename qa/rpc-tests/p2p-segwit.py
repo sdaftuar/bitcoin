@@ -339,6 +339,7 @@ class SegWitTest(BitcoinTestFramework):
         # This should give us plenty of room to tweak the spending tx's
         # virtual size.
         NUM_DROPS = 200 # 201 max ops per script!
+        NUM_OUTPUTS = 50
 
         witness_program = CScript([OP_2DROP]*NUM_DROPS + [OP_TRUE])
         witness_hash = uint256_from_str(sha256(witness_program))
@@ -349,9 +350,8 @@ class SegWitTest(BitcoinTestFramework):
 
         parent_tx = CTransaction()
         parent_tx.vin.append(CTxIn(prevout, ""))
-        child_value = int(value/50)
-        print "value, childvalue: ", value, child_value
-        for i in xrange(50):
+        child_value = int(value/NUM_OUTPUTS)
+        for i in xrange(NUM_OUTPUTS):
             parent_tx.vout.append(CTxOut(child_value, scriptPubKey))
         parent_tx.vout[0].nValue -= 50000
         assert(parent_tx.vout[0].nValue > 0)
@@ -359,12 +359,12 @@ class SegWitTest(BitcoinTestFramework):
         block.vtx.append(parent_tx)
 
         child_tx = CTransaction()
-        for i in xrange(50):
+        for i in xrange(NUM_OUTPUTS):
             child_tx.vin.append(CTxIn(COutPoint(parent_tx.sha256, i), ""))
         child_tx.vout = [CTxOut(value - 100000, CScript([OP_TRUE]))]
-        child_tx.wit.vtxinwit = [CTxinWitness()]*50
-        for i in xrange(50):
-            child_tx.wit.vtxinwit[i].scriptWitness.stack = [CScript(['a'*195])]*(2*NUM_DROPS) + [witness_program]
+        for i in xrange(NUM_OUTPUTS):
+            child_tx.wit.vtxinwit.append(CTxinWitness())
+            child_tx.wit.vtxinwit[-1].scriptWitness.stack = [CScript(['a'*195])]*(2*NUM_DROPS) + [witness_program]
         child_tx.rehash()
         block.vtx.append(child_tx)
 
@@ -373,87 +373,41 @@ class SegWitTest(BitcoinTestFramework):
 
         vsize = get_virtual_size(block)
         additional_bytes = (MAX_BLOCK_SIZE - vsize)*4
-        print "big block vsize= ", vsize, additional_bytes
-        for i in xrange(50):
-            child_tx.wit.vtxinwit[i].scriptWitness.stack[0] = CScript(['a'*
+        i = 0
+        while additional_bytes > 0:
+            # Add some more bytes to each input until we hit MAX_BLOCK_SIZE+1
+            extra_bytes = min(additional_bytes+1, 55)
+            block.vtx[-1].wit.vtxinwit[int(i/(2*NUM_DROPS))].scriptWitness.stack[i%(2*NUM_DROPS)] = CScript(['a'*(195+extra_bytes)])
+            additional_bytes -= extra_bytes
+            i += 1
 
-        #print "additional_bytes = ", additional_bytes
-
-        # Just add an extra OP_RETURN output to use up the remaining bytes
-        #block.vtx[-1].vout.append(CTxOut(0, CScript(['OP_RETURN', 'a'*(additional_bytes-20)])))
-
-        # Get rid of the old commitment, and add a new one. 
-        #add_witness_commitment(block)
-
-        #block.hashMerkleRoot = block.calc_merkle_root()
-        #for i in block.vtx:
-        #    print repr(i.hash)
-
-        # Make sure we made a too-big block.
-        #assert(get_virtual_size(block) > MAX_BLOCK_SIZE)
-        #assert(len(block.serialize(True)) < 2*MAX_BLOCK_SIZE) # make sure it will relay
-
+        block.vtx[0].vout.pop()  # Remove old commitment
+        add_witness_commitment(block)
         block.solve()
+        vsize = get_virtual_size(block)
+        assert_equal(vsize, MAX_BLOCK_SIZE + 1)
 
         self.test_node.send_message(msg_witness_block(block))
         self.test_node.sync_with_ping()
-        assert(self.nodes[0].getbestblockhash() == block.hash)
-
-        assert(False)
+        assert(self.nodes[0].getbestblockhash() != block.hash)
 
         # Now resize the second transaction to make the block fit.
-        tx2.wit.vtxinwit[0].scriptWitness.stack[0] = CScript(['a'*(100000+additional_bytes)])
-        # Get rid of the old commitment, and add a new one. 
+        cur_length = len(block.vtx[-1].wit.vtxinwit[0].scriptWitness.stack[0])
+        # subtract 3 -- 2 bytes for serialization overhead, and one more to
+        # reduce the size to MAX_BLOCK_SIZE
+        block.vtx[-1].wit.vtxinwit[0].scriptWitness.stack[0] = CScript(['a'*(cur_length-3)])
         block.vtx[0].vout.pop()
         add_witness_commitment(block)
-        assert(get_virtual_size(block) == MAX_BLOCK_SIZE)
-        assert(len(block.serialize(True)) < 2*MAX_BLOCK_SIZE) # make sure it will relay
         block.solve()
+        assert(get_virtual_size(block) == MAX_BLOCK_SIZE)
+
         self.test_node.send_message(msg_witness_block(block))
         self.test_node.sync_with_ping()
         assert(self.nodes[0].getbestblockhash() == block.hash)
-
-        # Now test the max size of a message sent over the p2p protocol.
-        # Needs to be able to handle 4MB blocks.
-        block_2 = self.build_next_block(nVersion=5)
-
-        # Build a transaction that spends tx2's output.
-        tx3 = CTransaction()
-        tx3.vin.append(CTxIn(COutPoint(tx2.sha256, 0), ""))
-        tx3.vout.append(CTxOut(tx2.vout[0].nValue-1000, CScript([OP_TRUE])))
-        tx3.rehash()
-        tx3.wit.vtxinwit.append(CTxinWitness())
-
-        # Make this really big.
-        tx3.wit.vtxinwit[0].scriptWitness.stack = [CScript(['a'*3000000]), witness_program]
-        block_2.vtx.append(tx3)
-        add_witness_commitment(block_2)
-        block_2.solve()
-
-        # This block is not too big for consensus
-        assert(get_virtual_size(block_2) < MAX_BLOCK_SIZE)
-        # But it is bigger than 2MiB on the wire
-        assert(len(block_2.serialize(True)) > 2*1024*1024)
-        self.test_node.send_message(msg_witness_block(block_2))
-        
-        if (self.nodes[0].getbestblockhash() != block_2.hash):
-            # Try using submitblock instead
-            self.nodes[0].submitblock(binascii.hexlify(block_2.serialize(True)))
-            assert(self.nodes[0].getbestblockhash() == block_2.hash)
-            print "ERROR bug found: submitblock accepts bigger blocks than p2p!"
-
-            # Verify we got disconnected:
-            self.test_node.wait_for_close()
-            # Now switch to our backup connection
-            self.test_node.add_connection(self.connections[-1])
-            self.connections[-1].cb = self.test_node
-            self.test_node.sync_with_ping()
-        else:
-            print "P2P successfully relayed block with size = ", len(block_2.serialize(True))
 
         # Update available utxo's
         self.utxo.pop(0)
-        self.utxo.append([tx3.sha256, 0, tx3.vout[0].nValue])
+        self.utxo.append([block.vtx[-1].sha256, 0, block.vtx[-1].vout[0].nValue])
 
 
     # submitblock will try to add the nonce automatically, so that mining
@@ -603,7 +557,6 @@ class SegWitTest(BitcoinTestFramework):
 
         self.test_block_malleability()
 
-        # TODO: fix and re-enable this test
         self.test_witness_block_size()
 
         self.test_submit_block()
