@@ -24,6 +24,10 @@ class DataLoggingTest(BitcoinTestFramework):
         sync_blocks(self.nodes)
         
     def run_test(self):
+        # Mine one block to leave IBD
+        self.nodes[0].generate(1)
+        sync_blocks(self.nodes)
+
         # Prime the memory pool with pairs of transactions
         # (high-priority, random fee and zero-priority, random fee)
         min_fee = Decimal("0.001")
@@ -48,7 +52,7 @@ class DataLoggingTest(BitcoinTestFramework):
         stop_nodes(self.nodes)
 
         # Need to wait for files to be written out
-	while (os.path.isfile(self.options.tmpdir+"/node0/regtest/bitcoind.pid")):
+        while (os.path.isfile(self.options.tmpdir+"/node0/regtest/bitcoind.pid")):
             time.sleep(0.1)
 
         today = time.strftime("%Y%m%d")
