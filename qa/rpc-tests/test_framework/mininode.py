@@ -32,12 +32,16 @@ import logging
 import copy
 
 BIP0031_VERSION = 60000
-WITNESS_VERSION = 70012
-MY_VERSION = 70012  # support havewitness
+MY_VERSION = 60001  # past bip-31 for ping/pong
 MY_SUBVERSION = "/python-mininode-tester:0.0.1/"
 
 MAX_INV_SZ = 50000
 MAX_BLOCK_SIZE = 1000000
+
+NODE_NETWORK = (1 << 0)
+NODE_GETUTXO = (1 << 1)
+NODE_BLOOM = (1 << 2)
+NODE_WITNESS = (1 << 3)
 
 # Keep our own socket map for asyncore, so that we can track disconnects
 # ourselves (to workaround an issue with closing an asyncore socket when 
@@ -1080,22 +1084,6 @@ class msg_sendheaders(object):
         return "msg_sendheaders()"
 
 
-class msg_havewitness(object):
-    command = "havewitness"
-
-    def __init__(self):
-        pass
-
-    def deserialize(self, f):
-        pass
-
-    def serialize(self):
-        return ""
-
-    def __repr__(self):
-        return "msg_havewitness()"
-
-
 # getheaders message has
 # number of entries
 # vector of hashes
@@ -1222,6 +1210,7 @@ class NodeConnCB(object):
         conn.ver_send = min(MY_VERSION, message.nVersion)
         if message.nVersion < 209:
             conn.ver_recv = conn.ver_send
+        conn.nServices = message.nServices
 
     def on_verack(self, conn, message):
         conn.ver_recv = conn.ver_send
@@ -1252,7 +1241,6 @@ class NodeConnCB(object):
     def on_mempool(self, conn): pass
     def on_pong(self, conn, message): pass
     def on_sendheaders(self, conn, message): pass
-    def on_havewitness(self, conn, message): pass
 
 
 # The actual NodeConn class
@@ -1276,7 +1264,6 @@ class NodeConn(asyncore.dispatcher):
         "reject": msg_reject,
         "mempool": msg_mempool,
         "sendheaders": msg_sendheaders,
-        "havewitness": msg_havewitness
     }
     MAGIC_BYTES = {
         "mainnet": "\xf9\xbe\xb4\xd9",   # mainnet
@@ -1285,7 +1272,7 @@ class NodeConn(asyncore.dispatcher):
         "segnet": "\x2e\x96\xea\xca"     # segnet
     }
 
-    def __init__(self, dstaddr, dstport, rpc, callback, net="regtest", services=1):
+    def __init__(self, dstaddr, dstport, rpc, callback, net="regtest", services=NODE_NETWORK):
         asyncore.dispatcher.__init__(self, map=mininode_socket_map)
         self.log = logging.getLogger("NodeConn(%s:%d)" % (dstaddr, dstport))
         self.dstaddr = dstaddr
@@ -1300,6 +1287,7 @@ class NodeConn(asyncore.dispatcher):
         self.network = net
         self.cb = callback
         self.disconnect = False
+        self.nServices = 0
 
         # stuff version msg into sendbuf
         vt = msg_version()
