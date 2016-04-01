@@ -162,7 +162,7 @@ class SegWitTest(BitcoinTestFramework):
         self.nodes.append(start_node(0, self.options.tmpdir, ["-debug", "-logtimemicros=1", "-whitelist=127.0.0.1"]))
 
     def test_witness_services(self):
-        print "Testing receipt of havewitness p2p message"
+        print "\tVerifying NODE_WITNESS service bit\n"
         assert((self.test_node.connection.nServices & NODE_WITNESS) != 0)
 
     # Build a block on top of node0's tip.
@@ -198,13 +198,11 @@ class SegWitTest(BitcoinTestFramework):
     def test_non_witness_transaction(self):
         # Mine a block with an anyone-can-spend coinbase,
         # let it mature, then try to spend it.
-        print "Testing non-witness transaction"
+        print "\tTesting non-witness transaction"
         block = self.build_next_block(nVersion=1)
         block.solve()
         self.test_node.send_message(msg_block(block))
-        print "  Sent a new block"
         self.test_node.sync_with_ping() # make sure the block was processed
-        print "  Block synced"
         txid = block.vtx[0].sha256
 
         self.nodes[0].generate(99) # let the block mature
@@ -226,17 +224,16 @@ class SegWitTest(BitcoinTestFramework):
         self.utxo.append([tx.sha256, 0, 49*100000000])
         self.nodes[0].generate(1)
 
+    # Verify that the mempool rejects witness transactions before activation,
+    # and that witness blocks are rejected before activation.
     def test_unnecessary_witness_before_segwit_activation(self):
-        print "Testing behavior of unnecessary witnesses (before segwit activation)"
+        print "\tTesting behavior of unnecessary witnesses (pre-activation)"
         # For now, rely on earlier tests to have created at least one utxo for
         # us to use
         # TODO: create a new utxo to use if necessary
         assert(len(self.utxo) > 0)
-        # TODO: check that 75% hasn't triggered yet
-        # (needs to be added to softforks)
-        for i in self.nodes[0].getblockchaininfo()["softforks"]:
-            if (i["version"] >= 4):
-                assert(not i["enforce"]["status"])
+        assert(get_bip9_status(self.nodes[0], 'witness')['status'] != 'active')
+
         tx = CTransaction()
         tx.vin.append(CTxIn(COutPoint(self.utxo[0][0], self.utxo[0][1]), ""))
         tx.vout.append(CTxOut(self.utxo[0][2]-1000, CScript([OP_TRUE])))
@@ -254,11 +251,16 @@ class SegWitTest(BitcoinTestFramework):
         assert_equal(self.test_node.last_reject.reason, "no-witness-yet")
         assert(tx.hash not in self.nodes[0].getrawmempool())
 
-        # Construct a segwit-signalling block that includes the transaction.
+        # TODO: verify that mempool acceptance succeeds after dropping the
+        # witness.
+        # TODO: try this with trickier cases too, eg non-DER or HIGH_S sigs
+        # in witness.
+
+        # Construct a segwit-signaling block that includes the transaction.
         block = self.build_next_block(nVersion=(VB_TOP_BITS|(1 << VB_WITNESS_BIT)))
         self.update_witness_block_with_transactions(block, [tx])
-        # Sending witness data before 75% threshold is reached is
-        # not allowed (anti-spam rule).
+        # Sending witness data before activation is not allowed (anti-spam
+        # rule).
         self.test_witness_block(block, accepted=False)
         # TODO: fix synchronization so we can test reject reason
         #assert_equal(self.test_node.last_reject.reason, "unexpected-witness")
@@ -273,6 +275,9 @@ class SegWitTest(BitcoinTestFramework):
         self.utxo.pop(0)
         self.utxo.append([tx.sha256, 0, tx.vout[0].nValue])
 
+    # Mine enough blocks to lock in segwit, but don't activate.
+    # TODO: we could verify that lockin only happens at the right threshold of
+    # signalling blocks, rather than just at the right period boundary.
     def advance_to_segwit_lockin(self):
         height = self.nodes[0].getblockcount()
         # Will need to rewrite the tests here if we are past the first period
@@ -290,6 +295,9 @@ class SegWitTest(BitcoinTestFramework):
         self.nodes[0].generate(1)
         assert_equal(get_bip9_status(self.nodes[0], 'witness')['status'], 'locked_in')
 
+    # Mine enough blocks to activate segwit.
+    # TODO: we could verify that activation only happens at the right threshold
+    # of signalling blocks, rather than just at the right period boundary.
     def advance_to_segwit_active(self):
         assert_equal(get_bip9_status(self.nodes[0], 'witness')['status'], 'locked_in')
         height = self.nodes[0].getblockcount()
@@ -300,7 +308,7 @@ class SegWitTest(BitcoinTestFramework):
 
     # This test can only be run after segwit has activated
     def test_witness_commitments(self):
-        print "Testing witness commitments"
+        print "\tTesting witness commitments (post activation)"
 
         # First try a correct witness commitment.
         block = self.build_next_block()
@@ -377,7 +385,8 @@ class SegWitTest(BitcoinTestFramework):
         self.utxo.append([tx2.sha256, 0, tx2.vout[0].nValue])
        
     def test_block_malleability(self):
-        print "Testing witness block malleability"
+        print "\tTesting witness block malleability"
+
         # Make sure that a block that has too big a virtual size
         # because of a too-large coinbase witness is not permanently
         # marked bad.
@@ -389,6 +398,7 @@ class SegWitTest(BitcoinTestFramework):
         assert(get_virtual_size(block) > MAX_BLOCK_SIZE)
 
         # We can't send over the p2p network, because this is too big to relay
+        # TODO: repeat this test with a block that can be relayed
         self.nodes[0].submitblock(binascii.hexlify(block.serialize(True)))
 
         assert(self.nodes[0].getbestblockhash() != block.hash)
@@ -416,7 +426,7 @@ class SegWitTest(BitcoinTestFramework):
 
 
     def test_witness_block_size(self):
-        print "Testing enforcement of witness block size limit"
+        print "\tTesting enforcement of witness block size limit"
         # TODO: Test that non-witness carrying blocks can't exceed 1MB
         # Skipping this test for now; this is covered in p2p-fullblocktest.py
 
@@ -872,6 +882,7 @@ class SegWitTest(BitcoinTestFramework):
         # Test logic begins here
         self.test_node.wait_for_verack()
 
+        print "Starting tests before segwit lock in:"
         self.test_witness_services()
 
         self.test_non_witness_transaction()
@@ -881,6 +892,7 @@ class SegWitTest(BitcoinTestFramework):
         self.test_witness_block_relay()
 
         # At lockin, nothing should change.
+        print "Testing behavior post lockin, pre-activation"
         self.advance_to_segwit_lockin()
 
         # Retest unnecessary witnesses
@@ -891,6 +903,7 @@ class SegWitTest(BitcoinTestFramework):
         self.test_witness_block_relay()
 
         # Now activate segwit
+        print "Testing behavior after segwit activation"
         self.advance_to_segwit_active()
 
         self.test_witness_commitments()
