@@ -1,6 +1,8 @@
 # Copyright (c) 2014-2015 The Bitcoin Core developers
 # Distributed under the MIT software license, see the accompanying
 # file COPYING or http://www.opensource.org/licenses/mit-license.php.
+
+
 #
 # Helpful routines for regression testing
 #
@@ -9,6 +11,8 @@
 import os
 import sys
 
+from binascii import hexlify, unhexlify
+from base64 import b64encode
 from decimal import Decimal, ROUND_DOWN
 import json
 import random
@@ -90,6 +94,15 @@ def check_json_precision():
 
 def count_bytes(hex_string):
     return len(bytearray.fromhex(hex_string))
+
+def bytes_to_hex_str(byte_str):
+    return hexlify(byte_str).decode('ascii')
+
+def hex_str_to_bytes(hex_str):
+    return unhexlify(hex_str.encode('ascii'))
+
+def str_to_b64str(string):
+    return b64encode(string.encode('utf-8')).decode('ascii')
 
 def sync_blocks(rpc_connections, wait=1):
     """
@@ -465,8 +478,37 @@ def assert_is_hash_string(string, length=64):
         raise AssertionError(
             "String %r contains invalid characters for a hash." % string)
 
+def assert_array_result(object_array, to_match, expected, should_not_find = False):
+    """
+        Pass in array of JSON objects, a dictionary with key/value pairs
+        to match against, and another dictionary with expected key/value
+        pairs.
+        If the should_not_find flag is true, to_match should not be found
+        in object_array
+        """
+    if should_not_find == True:
+        assert_equal(expected, { })
+    num_matched = 0
+    for item in object_array:
+        all_match = True
+        for key,value in to_match.items():
+            if item[key] != value:
+                all_match = False
+        if not all_match:
+            continue
+        elif should_not_find == True:
+            num_matched = num_matched+1
+        for key,value in expected.items():
+            if item[key] != value:
+                raise AssertionError("%s : expected %s=%s"%(str(item), str(key), str(value)))
+            num_matched = num_matched+1
+    if num_matched == 0 and should_not_find != True:
+        raise AssertionError("No objects matched %s"%(str(to_match)))
+    if num_matched > 0 and should_not_find == True:
+        raise AssertionError("Objects were found %s"%(str(to_match)))
+
 def satoshi_round(amount):
-    return  Decimal(amount).quantize(Decimal('0.00000001'), rounding=ROUND_DOWN)
+    return Decimal(amount).quantize(Decimal('0.00000001'), rounding=ROUND_DOWN)
 
 # Helper to create at least "count" utxos
 # Pass in a fee that is sufficient for relay and mining new transactions.

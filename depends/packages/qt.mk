@@ -31,7 +31,7 @@ $(package)_config_opts += -no-iconv
 $(package)_config_opts += -no-gif
 $(package)_config_opts += -no-freetype
 $(package)_config_opts += -no-nis
-$(package)_config_opts += -no-pch
+$(package)_config_opts += -pch
 $(package)_config_opts += -no-qml-debug
 $(package)_config_opts += -nomake examples
 $(package)_config_opts += -nomake tests
@@ -49,7 +49,7 @@ $(package)_config_opts += -no-sql-sqlite2
 $(package)_config_opts += -prefix $(host_prefix)
 $(package)_config_opts += -hostprefix $(build_prefix)
 $(package)_config_opts += -bindir $(build_prefix)/bin
-$(package)_config_opts += -no-c++11
+$(package)_config_opts += -c++11
 $(package)_config_opts += -openssl-linked
 $(package)_config_opts += -v
 $(package)_config_opts += -static
@@ -108,8 +108,8 @@ endef
 define $(package)_extract_cmds
   mkdir -p $($(package)_extract_dir) && \
   echo "$($(package)_sha256_hash)  $($(package)_source)" > $($(package)_extract_dir)/.$($(package)_file_name).hash && \
-  echo "$($(package)_qttranslations_sha256_hash)  $($(package)_source_dir)/$($(package)_qttranslations_file_name)" > $($(package)_extract_dir)/.$($(package)_file_name).hash && \
-  echo "$($(package)_qttools_sha256_hash)  $($(package)_source_dir)/$($(package)_qttools_file_name)" > $($(package)_extract_dir)/.$($(package)_file_name).hash && \
+  echo "$($(package)_qttranslations_sha256_hash)  $($(package)_source_dir)/$($(package)_qttranslations_file_name)" >> $($(package)_extract_dir)/.$($(package)_file_name).hash && \
+  echo "$($(package)_qttools_sha256_hash)  $($(package)_source_dir)/$($(package)_qttools_file_name)" >> $($(package)_extract_dir)/.$($(package)_file_name).hash && \
   $(build_SHA256SUM) -c $($(package)_extract_dir)/.$($(package)_file_name).hash && \
   mkdir qtbase && \
   tar --strip-components=1 -xf $($(package)_source) -C qtbase && \
