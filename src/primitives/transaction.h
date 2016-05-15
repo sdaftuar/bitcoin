@@ -11,6 +11,13 @@
 #include "serialize.h"
 #include "uint256.h"
 
+// NOTE: we either need a positive or a negative flag for indicating witness (de)serialization.
+//       The initial commit uses a positive flag, but that leads to many call sites that need
+//       changing, and code paths that miss such a flag would be hard to detect. Therefore,
+//       we temporarily use both a negative and a positive flag, and require that exactly one
+//       of both is set whenever a transaction is serialized or deserialized. This forces us
+//       to deal with every code path. In a later stage however (before final merge), the
+//       positive flag can probably be removed, resulting in a much smaller patch set.
 static const int SERIALIZE_TRANSACTION_WITNESS = 0x40000000;
 static const int SERIALIZE_TRANSACTION_NO_WITNESS = 0x20000000;
 
