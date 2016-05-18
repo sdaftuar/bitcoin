@@ -783,7 +783,7 @@ public:
 
 
 class CTransaction;
-void RelayTransaction(const CTransaction& tx, CFeeRate feerate);
+void RelayTransaction(const CTransaction& tx);
 
 /** Access to the (IP) address database (peers.dat) */
 class CAddrDB
@@ -794,6 +794,7 @@ public:
     CAddrDB();
     bool Write(const CAddrMan& addr);
     bool Read(CAddrMan& addr);
+    bool Read(CAddrMan& addr, CDataStream& ssPeers);
 };
 
 /** Access to the banlist database (banlist.dat) */

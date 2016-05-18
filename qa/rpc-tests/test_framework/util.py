@@ -1,4 +1,5 @@
-# Copyright (c) 2014-2015 The Bitcoin Core developers
+#!/usr/bin/env python3
+# Copyright (c) 2014-2016 The Bitcoin Core developers
 # Distributed under the MIT software license, see the accompanying
 # file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
@@ -7,7 +8,6 @@
 # Helpful routines for regression testing
 #
 
-# Add python-bitcoinrpc to module search path:
 import os
 import sys
 
@@ -15,6 +15,7 @@ from binascii import hexlify, unhexlify
 from base64 import b64encode
 from decimal import Decimal, ROUND_DOWN
 import json
+import http.client
 import random
 import shutil
 import subprocess
@@ -26,6 +27,18 @@ from . import coverage
 from .authproxy import AuthServiceProxy, JSONRPCException
 
 COVERAGE_DIR = None
+
+# The maximum number of nodes a single test can spawn
+MAX_NODES = 8
+# Don't assign rpc or p2p ports lower than this
+PORT_MIN = 11000
+# The number of ports to "reserve" for p2p and rpc, each
+PORT_RANGE = 5000
+
+
+class PortSeed:
+    # Must be initialized with a unique integer for each process
+    n = None
 
 #Set Mocktime default to OFF.
 #MOCKTIME is only needed for scripts that use the
@@ -81,9 +94,11 @@ def get_rpc_proxy(url, node_number, timeout=None):
 
 
 def p2p_port(n):
-    return 11000 + n + os.getpid()%999
+    assert(n <= MAX_NODES)
+    return PORT_MIN + n + (MAX_NODES * PortSeed.n) % (PORT_RANGE - 1 - MAX_NODES)
+
 def rpc_port(n):
-    return 12000 + n + os.getpid()%999
+    return PORT_MIN + PORT_RANGE + n + (MAX_NODES * PortSeed.n) % (PORT_RANGE - 1 - MAX_NODES)
 
 def check_json_precision():
     """Make sure json library being used does not lose precision converting BTC values"""
@@ -191,10 +206,10 @@ def initialize_chain(test_dir):
                 args.append("-connect=127.0.0.1:"+str(p2p_port(0)))
             bitcoind_processes[i] = subprocess.Popen(args)
             if os.getenv("PYTHON_DEBUG", ""):
-                print "initialize_chain: bitcoind started, waiting for RPC to come up"
+                print("initialize_chain: bitcoind started, waiting for RPC to come up")
             wait_for_bitcoind_start(bitcoind_processes[i], rpc_url(i), i)
             if os.getenv("PYTHON_DEBUG", ""):
-                print "initialize_chain: RPC succesfully started"
+                print("initialize_chain: RPC succesfully started")
 
         rpcs = []
         for i in range(4):
@@ -275,11 +290,11 @@ def start_node(i, dirname, extra_args=None, rpchost=None, timewait=None, binary=
     if extra_args is not None: args.extend(extra_args)
     bitcoind_processes[i] = subprocess.Popen(args)
     if os.getenv("PYTHON_DEBUG", ""):
-        print "start_node: bitcoind started, waiting for RPC to come up"
+        print("start_node: bitcoind started, waiting for RPC to come up")
     url = rpc_url(i, rpchost)
     wait_for_bitcoind_start(bitcoind_processes[i], url, i)
     if os.getenv("PYTHON_DEBUG", ""):
-        print "start_node: RPC succesfully started"
+        print("start_node: RPC succesfully started")
     proxy = get_rpc_proxy(url, i, timeout=timewait)
 
     if COVERAGE_DIR:
@@ -291,8 +306,8 @@ def start_nodes(num_nodes, dirname, extra_args=None, rpchost=None, binary=None):
     """
     Start multiple bitcoinds, return RPC connections to them
     """
-    if extra_args is None: extra_args = [ None for i in range(num_nodes) ]
-    if binary is None: binary = [ None for i in range(num_nodes) ]
+    if extra_args is None: extra_args = [ None for _ in range(num_nodes) ]
+    if binary is None: binary = [ None for _ in range(num_nodes) ]
     rpcs = []
     try:
         for i in range(num_nodes):
@@ -306,13 +321,19 @@ def log_filename(dirname, n_node, logname):
     return os.path.join(dirname, "node"+str(n_node), "regtest", logname)
 
 def stop_node(node, i):
-    node.stop()
+    try:
+        node.stop()
+    except http.client.CannotSendRequest as e:
+        print("WARN: Unable to stop node: " + repr(e))
     bitcoind_processes[i].wait()
     del bitcoind_processes[i]
 
 def stop_nodes(nodes):
     for node in nodes:
-        node.stop()
+        try:
+            node.stop()
+        except http.client.CannotSendRequest as e:
+            print("WARN: Unable to stop node: " + repr(e))
     del nodes[:] # Emptying array closes connections as a side effect
 
 def set_node_times(nodes, t):
@@ -469,7 +490,7 @@ def assert_is_hex_string(string):
             "Couldn't interpret %r as hexadecimal; raised: %s" % (string, e))
 
 def assert_is_hash_string(string, length=64):
-    if not isinstance(string, basestring):
+    if not isinstance(string, str):
         raise AssertionError("Expected a string, got type %r" % type(string))
     elif length and len(string) != length:
         raise AssertionError(
@@ -520,7 +541,7 @@ def create_confirmed_utxos(fee, node, count):
     addr2 = node.getnewaddress()
     if iterations <= 0:
         return utxos
-    for i in xrange(iterations):
+    for i in range(iterations):
         t = utxos.pop()
         inputs = []
         inputs.append({ "txid" : t["txid"], "vout" : t["vout"]})
@@ -546,11 +567,11 @@ def gen_return_txouts():
     # So we have big transactions (and therefore can't fit very many into each block)
     # create one script_pubkey
     script_pubkey = "6a4d0200" #OP_RETURN OP_PUSH2 512 bytes
-    for i in xrange (512):
+    for i in range (512):
         script_pubkey = script_pubkey + "01"
     # concatenate 128 txouts of above script_pubkey which we'll insert before the txout for change
     txouts = "81"
-    for k in xrange(128):
+    for k in range(128):
         # add txout value
         txouts = txouts + "0000000000000000"
         # add length of script_pubkey
@@ -572,7 +593,7 @@ def create_tx(node, coinbase, to_address, amount):
 def create_lots_of_big_transactions(node, txouts, utxos, fee):
     addr = node.getnewaddress()
     txids = []
-    for i in xrange(len(utxos)):
+    for i in range(len(utxos)):
         t = utxos.pop()
         inputs = []
         inputs.append({ "txid" : t["txid"], "vout" : t["vout"]})
