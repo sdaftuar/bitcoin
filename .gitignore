@@ -7,6 +7,8 @@ src/bitcoin-cli
 src/bitcoin-tx
 src/test/test_bitcoin
 src/qt/test/test_bitcoin-qt
+src/printdb
+src/dataprinter
 
 # autoreconf
 Makefile.in

@@ -36,6 +36,9 @@
 #include "util.h"
 #include "utilmoneystr.h"
 #include "validationinterface.h"
+
+#include "ccl/cclglobals.h" // CCLGlobal * cclGlobal
+
 #ifdef ENABLE_WALLET
 #include "wallet/wallet.h"
 #endif
@@ -210,6 +213,8 @@ void Shutdown()
             LogPrintf("%s: Failed to write fee estimates to %s\n", __func__, est_path.string());
         fFeeEstimatesInitialized = false;
     }
+
+    cclGlobals->Shutdown();
 
     {
         LOCK(cs_main);
@@ -472,6 +477,8 @@ std::string HelpMessage(HelpMessageMode mode)
         strUsage += HelpMessageOpt("-rpcworkqueue=<n>", strprintf("Set the depth of the work queue to service RPC calls (default: %d)", DEFAULT_HTTP_WORKQUEUE));
         strUsage += HelpMessageOpt("-rpcservertimeout=<n>", strprintf("Timeout during HTTP requests (default: %d)", DEFAULT_HTTP_SERVER_TIMEOUT));
     }
+
+    cclGlobals->UpdateUsage(strUsage);
 
     return strUsage;
 }
@@ -1340,6 +1347,10 @@ bool AppInit2(boost::thread_group& threadGroup, CScheduler& scheduler)
         mempool.ReadFeeEstimates(est_filein);
     fFeeEstimatesInitialized = true;
 
+    if (!cclGlobals->Init(&mempool)) {
+        return false;
+    }
+
     // ********************************************************* Step 8: load wallet
 #ifdef ENABLE_WALLET
     if (fDisableWallet) {
@@ -1412,10 +1423,12 @@ bool AppInit2(boost::thread_group& threadGroup, CScheduler& scheduler)
     LogPrintf("mapAddressBook.size() = %u\n",  pwalletMain ? pwalletMain->mapAddressBook.size() : 0);
 #endif
 
+    if (!cclGlobals->Run(threadGroup)) {
+        StartNode(threadGroup, scheduler);
+    }
+
     if (GetBoolArg("-listenonion", DEFAULT_LISTEN_ONION))
         StartTorControl(threadGroup, scheduler);
-
-    StartNode(threadGroup, scheduler);
 
     // Monitor the chain, and alert if we get blocks much quicker or slower than expected
     int64_t nPowTargetSpacing = Params().GetConsensus().nPowTargetSpacing;
