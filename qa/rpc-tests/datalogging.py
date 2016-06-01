@@ -15,14 +15,14 @@ class DataLoggingTest(BitcoinTestFramework):
         self.nodes.append(start_node(0, self.options.tmpdir,
                             ["-writemempool", "-dlogdir=" + self.options.tmpdir]))
 
-        
+
         self.nodes.append(start_node(1, self.options.tmpdir));
         self.nodes.append(start_node(2, self.options.tmpdir));
         connect_nodes_bi(self.nodes, 1, 0)
         connect_nodes_bi(self.nodes, 1, 2)
 
         sync_blocks(self.nodes)
-        
+
     def run_test(self):
         # Mine one block to leave IBD
         self.nodes[0].generate(1)
@@ -62,7 +62,7 @@ class DataLoggingTest(BitcoinTestFramework):
         txheader = re.findall(b'CTransaction', alltx)
         if len(txheader) != 24:
                 raise AssertionError("Wrong number of logged tx's, expected 24, got %d"%(len(txheader)))
-    
+
         # Check that the size of the block log is correct
         allblocks = subprocess.check_output([ "dataprinter", self.options.tmpdir+"/block."+today])
         blockheaders = re.findall(b'CBlock', allblocks)

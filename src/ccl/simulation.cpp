@@ -51,7 +51,7 @@ void Simulation::InitAutoFile(auto_ptr<CAutoFile> &which, std::string fileprefix
 {
     for (date s=d; s<= enddate; s += days(1)) {
         string filename = fileprefix + boost::gregorian::to_iso_string(s);
-        boost::filesystem::path fullpath = logdir / filename; 
+        boost::filesystem::path fullpath = logdir / filename;
         which.reset(new CAutoFile(fopen(fullpath.string().c_str(), "rb"),
                     SER_DISK, CLIENT_VERSION));
         if (!which->IsNull()) {
@@ -65,7 +65,7 @@ void Simulation::InitAutoFile(auto_ptr<CAutoFile> &which, std::string fileprefix
 void Simulation::operator()()
 {
     LogPrintf("Simulation starting\n");
-    
+
     date curdate = begindate;
     if (loadMempoolAtStartup) {
         // Start up with beginning mempool
@@ -95,7 +95,7 @@ void Simulation::operator()()
             if (!hdrEOF && !headersEvent.valid) {
                 hdrEOF = !ReadEvent(*headersfile, &headersEvent);
             }
-            
+
             vector<CCLEvent *> validEvents;
             if (txEvent.valid) validEvents.push_back(&txEvent);
             if (blockEvent.valid) validEvents.push_back(&blockEvent);
@@ -121,7 +121,7 @@ void Simulation::operator()()
                 for (size_t i=0; i<headersEvent.obj.size(); ++i) {
                     // The 3rd argument to AcceptBlockHeader is only
                     // used for catching misbehaving nodes.  This could
-                    // cause a sim-live discrepancy where 
+                    // cause a sim-live discrepancy where
                     if (!AcceptBlockHeader(headersEvent.obj[i], state, NULL)) {
                         int nDoS;
                         if (state.IsInvalid(nDoS)) break;

@@ -3570,7 +3570,7 @@ void ProcessTransaction(CTransaction &tx)
         LogPrint("mempool", "AcceptToMemoryPool: accepted %s (poolsz %u)\n",
                 tx.GetHash().ToString(),
                 mempool.mapTx.size());
-        
+
         // Recursively process any orphan transactions that depended on this one
         for (unsigned int i = 0; i < vWorkQueue.size(); i++)
         {

@@ -10,12 +10,12 @@
 
 CCLGlobals *cclGlobals = new CCLGlobals;
 
-CCLGlobals::CCLGlobals() 
+CCLGlobals::CCLGlobals()
     : mempool(NULL), writeMempoolAtShutdown(false), rnd(301)
 {
 }
 
-CCLGlobals::~CCLGlobals() 
+CCLGlobals::~CCLGlobals()
 {
     LogPrintf("CCLGlobals: destructor\n");
 }
@@ -28,7 +28,7 @@ void CCLGlobals::UpdateUsage(std::string &strUsage)
     strUsage += "  -writemempool=<file>            " + _("Write out mempool at end of run to DATADIR/file; specifying file is optional (default: 'mempool')") + "\n";
 
     // DataLogger options
-    strUsage += "  -dlogdir=<dirname>      " + _("Turn on data logging to specified output directory") + "\n";    
+    strUsage += "  -dlogdir=<dirname>      " + _("Turn on data logging to specified output directory") + "\n";
 
     // Simulation options
     strUsage += "  -simulation            " + _("Sim mode! Don't call add networking threads to threadgroup") + "\n";
@@ -75,7 +75,7 @@ bool CCLGlobals::Init(CTxMemPool *pool)
             simdatadir = mapArgs["-simdatadir"];
         }
         bool loadMempool = GetBoolArg("-loadmempool", true);
-        simulation.reset(new 
+        simulation.reset(new
             Simulation(boost::gregorian::from_undelimited_string(startdate),
                 boost::gregorian::from_undelimited_string(enddate),
                 simdatadir, loadMempool)
@@ -144,7 +144,7 @@ void CCLGlobals::WriteMempool(CAutoFile &logfile)
     if (!logfile.IsNull()) {
         LOCK(mempool->cs);
         CTxMemPool::txiter it;
-        for (it=cclGlobals->mempool->mapTx.begin(); 
+        for (it=cclGlobals->mempool->mapTx.begin();
             it != cclGlobals->mempool->mapTx.end(); ++it) {
             // can't get this to work:
             // mempoolLog << it->second;

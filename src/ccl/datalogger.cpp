@@ -9,11 +9,11 @@
 using namespace boost::gregorian;
 using namespace boost::posix_time;
 
-//    transactionLog(NULL, SER_DISK, CLIENT_VERSION), 
+//    transactionLog(NULL, SER_DISK, CLIENT_VERSION),
 //    blockLog(NULL, SER_DISK, CLIENT_VERSION),
 //    mempoolLog(NULL, SER_DISK, CLIENT_VERSION)
 
-DataLogger::DataLogger(string pathPrefix) 
+DataLogger::DataLogger(string pathPrefix)
 {
     if (pathPrefix == "") {
         logdir = GetDataDir();

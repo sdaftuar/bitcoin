@@ -1425,7 +1425,7 @@ bool AppInit2(boost::thread_group& threadGroup, CScheduler& scheduler)
 
     if (!cclGlobals->Run(threadGroup)) {
         StartNode(threadGroup, scheduler);
-    } 
+    }
 
     if (GetBoolArg("-listenonion", DEFAULT_LISTEN_ONION))
         StartTorControl(threadGroup, scheduler);

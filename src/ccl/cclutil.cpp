@@ -25,5 +25,5 @@ bool RotateFile(boost::filesystem::path dir, std::string filename)
             return false;
         }
     }
-    return true; 
+    return true;
 }

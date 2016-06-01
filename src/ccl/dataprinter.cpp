@@ -163,6 +163,6 @@ void print(HeadersEvent &headersEvent)
 void print(MyCTxMemPoolEntry &entry)
 {
     printf("%s\n", entry.tx->ToString().c_str());
-    printf("nFee= %lu nTime= %ld dPriority= %g nHeight= %d\n", 
+    printf("nFee= %lu nTime= %ld dPriority= %g nHeight= %d\n",
             entry.nFee, entry.nTime, entry.dPriority, entry.nHeight);
 }

@@ -13,12 +13,12 @@ CCL_BITCOIND_HDR = \
   ccl/datalogger.h \
   ccl/cclutil.h \
   ccl/cclglobals.h \
-  ccl/simulation.h 
+  ccl/simulation.h
 
 libbitcoin_server_a_SOURCES += $(CCL_BITCOIND_SRC) $(CCL_BITCOIND_HDR)
 
-# dataprinter binary 
-# 
+# dataprinter binary
+#
 
 dataprinter_SOURCES = ccl/dataprinter.cpp
 dataprinter_CPPFLAGS = $(AM_CPPFLAGS) $(BITCOIN_INCLUDES)
@@ -48,8 +48,8 @@ dataprinter_LDADD = \
 
 bin_PROGRAMS += dataprinter
 
-# printdb binary 
-# 
+# printdb binary
+#
 
 printdb_SOURCES = ccl/printdb.cpp
 printdb_CPPFLAGS = $(AM_CPPFLAGS) $(BITCOIN_INCLUDES)

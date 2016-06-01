@@ -52,15 +52,15 @@ struct HeadersEvent : public CCLEvent {
  * Usage: Construct with dates to run the simulation, along with path to directory
  *        where data is stored, and whether to start with an empty or pre-
  *        populated mempool.
- * 
- * Currently only delivers events to bitcoind's main.cpp functions 
+ *
+ * Currently only delivers events to bitcoind's main.cpp functions
  * (ProcessNewBlock and a new ProcessTransaction that mirrors the code that
  * handles transactions coming in from the network).
  *
  * Should probably not use this code with the code that connects to peers
  * over the network; preventing that is handled by init.cpp.
  *
- * This only works if you have a bitcoin datadir that is setup with the 
+ * This only works if you have a bitcoin datadir that is setup with the
  * blockindex and chainstate as of midnight on startdate.
  */
 
