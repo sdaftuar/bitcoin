@@ -4962,7 +4962,14 @@ bool static ProcessMessage(CNode* pfrom, string strCommand, CDataStream& vRecv, 
                     CNodeState *nodestate = State(pfrom->GetId());
                     if (CanDirectFetch(chainparams.GetConsensus()) &&
                         nodestate->nBlocksInFlight < MAX_BLOCKS_IN_TRANSIT_PER_PEER) {
-                        vToFetch.push_back(inv);
+                        if(nodestate->fProvidesHeaderAndIDs) {
+                            CInv cmpctInv = inv;
+                            cmpctInv.type = MSG_CMPCT_BLOCK;
+                            vToFetch.push_back(cmpctInv);
+                        }
+                        else {
+                            vToFetch.push_back(inv);
+                        }
                         // Mark block as in flight already, even though the actual "getdata" message only goes out
                         // later (within the same cs_main lock, though).
                         MarkBlockAsInFlight(pfrom->GetId(), inv.hash, chainparams.GetConsensus());
