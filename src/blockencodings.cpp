@@ -101,9 +101,6 @@ ReadStatus PartiallyDownloadedBlock::InitData(const CBlockHeaderAndShortTxIDs& c
     const std::vector<std::pair<uint256, CTxMemPool::txiter>>& vTxHashes = pool->vTxHashes;
     for (size_t i = 0; i < vTxHashes.size(); i++) {
         uint64_t shortid = cmpctblock.GetShortID(vTxHashes[i].first);
-        //TODO: Put an ifdef guard around the prefetch here
-        if (i + 1 < vTxHashes.size())
-            __builtin_prefetch(vTxHashes[i + 1].first.begin());
         std::unordered_map<uint64_t, uint16_t>::iterator idit = shorttxids.find(shortid);
         if (idit != shorttxids.end()) {
             if (!have_txn[idit->second]) {
