@@ -3493,21 +3493,13 @@ static bool AcceptBlockHeader(const CBlockHeader& block, CValidationState& state
     return true;
 }
 
-/** Store block on disk. If dbp is non-NULL, the file is known to already reside on disk */
-static bool AcceptBlock(const CBlock& block, CValidationState& state, const CChainParams& chainparams, CBlockIndex** ppindex, bool fRequested, const CDiskBlockPos* dbp, bool* fNewBlock)
+// Try to process all requested blocks that we don't have, but only
+// process an unrequested block if it's new and has enough work to
+// advance our tip, and isn't too many blocks ahead.
+static bool SkipBlockProcessing(const CBlockIndex *pindex, bool fRequested)
 {
-    if (fNewBlock) *fNewBlock = false;
-    AssertLockHeld(cs_main);
+    AssertLockHeld(cs_main); // for chainActive.Tip()
 
-    CBlockIndex *pindexDummy = NULL;
-    CBlockIndex *&pindex = ppindex ? *ppindex : pindexDummy;
-
-    if (!AcceptBlockHeader(block, state, chainparams, &pindex))
-        return false;
-
-    // Try to process all requested blocks that we don't have, but only
-    // process an unrequested block if it's new and has enough work to
-    // advance our tip, and isn't too many blocks ahead.
     bool fAlreadyHave = pindex->nStatus & BLOCK_HAVE_DATA;
     bool fHasMoreWork = (chainActive.Tip() ? pindex->nChainWork > chainActive.Tip()->nChainWork : true);
     // Blocks that are too out-of-order needlessly limit the effectiveness of
@@ -3525,6 +3517,24 @@ static bool AcceptBlock(const CBlock& block, CValidationState& state, const CCha
         if (!fHasMoreWork) return true;     // Don't process less-work chains
         if (fTooFarAhead) return true;      // Block height is too high
     }
+    return false;
+}
+
+/** Store block on disk. If dbp is non-NULL, the file is known to already reside on disk */
+static bool AcceptBlock(const CBlock& block, CValidationState& state, const CChainParams& chainparams, CBlockIndex** ppindex, bool fRequested, const CDiskBlockPos* dbp, bool* fNewBlock)
+{
+    if (fNewBlock) *fNewBlock = false;
+    AssertLockHeld(cs_main);
+
+    CBlockIndex *pindexDummy = NULL;
+    CBlockIndex *&pindex = ppindex ? *ppindex : pindexDummy;
+
+    if (!AcceptBlockHeader(block, state, chainparams, &pindex))
+        return false;
+
+    if (SkipBlockProcessing(pindex, fRequested))
+        return true;
+
     if (fNewBlock) *fNewBlock = true;
 
     if ((!CheckBlock(block, state, chainparams.GetConsensus(), GetAdjustedTime())) || !ContextualCheckBlock(block, state, pindex->pprev)) {
