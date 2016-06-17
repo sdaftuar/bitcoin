@@ -4494,7 +4494,7 @@ void static ProcessGetData(CNode* pfrom, const Consensus::Params& consensusParam
         if (pfrom->nSendSize >= SendBufferSize())
             break;
 
-        const CInv &inv = *it;
+        CInv &inv = *it;
         {
             boost::this_thread::interruption_point();
             it++;
@@ -4539,6 +4539,16 @@ void static ProcessGetData(CNode* pfrom, const Consensus::Params& consensusParam
                     CBlock block;
                     if (!ReadBlockFromDisk(block, (*mi).second, consensusParams))
                         assert(!"cannot load block from disk");
+                    if (inv.type == MSG_CMPCT_BLOCK)
+                    {
+                        if (mi->second->nHeight >= chainActive.Height() - 10) {
+                            CBlockHeaderAndShortTxIDs cmpctblock(block);
+                            pfrom->PushMessage(NetMsgType::CMPCTBLOCK, cmpctblock);
+                        } else {
+                            // Fall back to sending a normal block if it's too deep.
+                            inv.type = MSG_BLOCK;
+                        }
+                    }
                     if (inv.type == MSG_BLOCK)
                         pfrom->PushMessage(NetMsgType::BLOCK, block);
                     else if (inv.type == MSG_FILTERED_BLOCK)
@@ -4560,13 +4570,6 @@ void static ProcessGetData(CNode* pfrom, const Consensus::Params& consensusParam
                         }
                         // else
                             // no response
-                    }
-                    else if (inv.type == MSG_CMPCT_BLOCK)
-                    {
-                        if (mi->second->nHeight >= chainActive.Height() - 10) {
-                            CBlockHeaderAndShortTxIDs cmpctblock(block);
-                            pfrom->PushMessage(NetMsgType::CMPCTBLOCK, cmpctblock);
-                        }
                     }
 
                     // Trigger the peer node to send a getblocks request for the next batch of inventory
@@ -4607,7 +4610,7 @@ void static ProcessGetData(CNode* pfrom, const Consensus::Params& consensusParam
             // Track requests for our stuff.
             GetMainSignals().Inventory(inv.hash);
 
-            if (inv.type == MSG_BLOCK || inv.type == MSG_FILTERED_BLOCK)
+            if (inv.type == MSG_BLOCK || inv.type == MSG_FILTERED_BLOCK || inv.type == MSG_CMPCT_BLOCK)
                 break;
         }
     }
