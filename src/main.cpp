@@ -5393,17 +5393,22 @@ bool static ProcessMessage(CNode* pfrom, string strCommand, CDataStream& vRecv, 
         BlockTransactions resp;
         vRecv >> resp;
 
-        map<uint256, pair<NodeId, list<QueuedBlock>::iterator> >::iterator it = mapBlocksInFlight.find(resp.blockhash);
-        if (it == mapBlocksInFlight.end() || !it->second.second->partialBlock ||
-                it->second.first != pfrom->GetId()) {
-            LogPrint("net", "Peer %d sent us block transactions for block we didn't request", pfrom->id); //...or we timed out
-            return true;
-        }
-
-        PartiallyDownloadedBlock& partialBlock = *it->second.second->partialBlock;
         CBlock block;
-        ReadStatus status = partialBlock.FillBlock(block, resp.txn);
+        ReadStatus status;
+        {
+            LOCK(cs_main);
+            map<uint256, pair<NodeId, list<QueuedBlock>::iterator> >::iterator it = mapBlocksInFlight.find(resp.blockhash);
+            if (it == mapBlocksInFlight.end() || !it->second.second->partialBlock ||
+                    it->second.first != pfrom->GetId()) {
+                LogPrint("net", "Peer %d sent us block transactions for block we didn't request", pfrom->id); //...or we timed out
+                    return true;
+            }
+
+            PartiallyDownloadedBlock& partialBlock = *it->second.second->partialBlock;
+            status = partialBlock.FillBlock(block, resp.txn);
+        }
         if (status == READ_STATUS_INVALID) {
+            LOCK(cs_main);
             Misbehaving(pfrom->GetId(), 100);
             LogPrintf("Peer %d sent us invalid compact block/non-matching block transactions", pfrom->id);
             return true;
