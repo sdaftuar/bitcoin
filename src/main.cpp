@@ -5314,10 +5314,16 @@ bool static ProcessMessage(CNode* pfrom, string strCommand, CDataStream& vRecv, 
 
         // If AcceptBlockHeader returned true, it set pindex
         assert(pindex);
-        if (pindex->nStatus & BLOCK_HAVE_DATA)
-            return true;
 
         UpdateBlockAvailability(pfrom->GetId(), pindex->GetBlockHash());
+
+        std::map<uint256, pair<NodeId, list<QueuedBlock>::iterator> >::iterator blockInFlightIt = mapBlocksInFlight.find(pindex->GetBlockHash());
+        bool fAlreadyInFlight = blockInFlightIt != mapBlocksInFlight.end();
+
+        // If this block was in flight, that means we requested it. Check to
+        // see if this block is worth processing.
+        if (SkipBlockProcessing(pindex, fAlreadyInFlight))
+            return true;
 
         // If we're not close to tip yet, give up and let parallel block fetch work its magic
         if (!CanDirectFetch(chainparams.GetConsensus()))
@@ -5325,8 +5331,6 @@ bool static ProcessMessage(CNode* pfrom, string strCommand, CDataStream& vRecv, 
 
         CNodeState *nodestate = State(pfrom->GetId());
         if (pindex->pprev->nStatus & BLOCK_HAVE_DATA) {
-            std::map<uint256, pair<NodeId, list<QueuedBlock>::iterator> >::iterator blockInFlightIt = mapBlocksInFlight.find(pindex->GetBlockHash());
-            bool fAlreadyInFlight = blockInFlightIt != mapBlocksInFlight.end();
             if ((!fAlreadyInFlight && nodestate->nBlocksInFlight < MAX_BLOCKS_IN_TRANSIT_PER_PEER) ||
                  (fAlreadyInFlight && blockInFlightIt->second.first == pfrom->GetId())) {
                 list<QueuedBlock>::iterator *queuedBlockIt = NULL;
