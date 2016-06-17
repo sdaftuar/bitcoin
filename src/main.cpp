@@ -4541,7 +4541,7 @@ void static ProcessGetData(CNode* pfrom, const Consensus::Params& consensusParam
                         assert(!"cannot load block from disk");
                     if (inv.type == MSG_CMPCT_BLOCK)
                     {
-                        if (mi->second->nHeight >= chainActive.Height() - 10) {
+                        if (mi->second->nHeight >= chainActive.Height() - MAX_BLOCKS_TO_ANNOUNCE) {
                             CBlockHeaderAndShortTxIDs cmpctblock(block);
                             pfrom->PushMessage(NetMsgType::CMPCTBLOCK, cmpctblock);
                         } else {
