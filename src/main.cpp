@@ -5317,60 +5317,51 @@ bool static ProcessMessage(CNode* pfrom, string strCommand, CDataStream& vRecv, 
             return true;
 
         CNodeState *nodestate = State(pfrom->GetId());
-        if (pindex->pprev->nStatus & BLOCK_HAVE_DATA) {
-            std::map<uint256, pair<NodeId, list<QueuedBlock>::iterator> >::iterator blockInFlightIt = mapBlocksInFlight.find(pindex->GetBlockHash());
-            bool fAlreadyInFlight = blockInFlightIt != mapBlocksInFlight.end();
-            if ((!fAlreadyInFlight && nodestate->nBlocksInFlight < MAX_BLOCKS_IN_TRANSIT_PER_PEER) ||
-                 (fAlreadyInFlight && blockInFlightIt->second.first == pfrom->GetId())) {
-                list<QueuedBlock>::iterator *queuedBlockIt = NULL;
-                if (!MarkBlockAsInFlight(pfrom->GetId(), pindex->GetBlockHash(), chainparams.GetConsensus(), pindex, &queuedBlockIt)) {
-                    if (!(*queuedBlockIt)->partialBlock)
-                        (*queuedBlockIt)->partialBlock.reset(new PartiallyDownloadedBlock(&mempool));
-                    else {
-                        // The block was already in flight using compact blocks from the same peer
-                        LogPrint("net", "Peer sent us compact block we were already syncing!");
-                        return true;
-                    }
-                }
-
-                PartiallyDownloadedBlock& partialBlock = *(*queuedBlockIt)->partialBlock;
-                ReadStatus status = partialBlock.InitData(cmpctblock);
-                if (status == READ_STATUS_INVALID) {
-                    Misbehaving(pfrom->GetId(), 100);
-                    LogPrintf("Peer %d sent us invalid compact block", pfrom->id);
+        std::map<uint256, pair<NodeId, list<QueuedBlock>::iterator> >::iterator blockInFlightIt = mapBlocksInFlight.find(pindex->GetBlockHash());
+        bool fAlreadyInFlight = blockInFlightIt != mapBlocksInFlight.end();
+        if ((!fAlreadyInFlight && nodestate->nBlocksInFlight < MAX_BLOCKS_IN_TRANSIT_PER_PEER) ||
+             (fAlreadyInFlight && blockInFlightIt->second.first == pfrom->GetId())) {
+            list<QueuedBlock>::iterator *queuedBlockIt = NULL;
+            if (!MarkBlockAsInFlight(pfrom->GetId(), pindex->GetBlockHash(), chainparams.GetConsensus(), pindex, &queuedBlockIt)) {
+                if (!(*queuedBlockIt)->partialBlock)
+                    (*queuedBlockIt)->partialBlock.reset(new PartiallyDownloadedBlock(&mempool));
+                else {
+                    // The block was already in flight using compact blocks from the same peer
+                    LogPrint("net", "Peer sent us compact block we were already syncing!");
                     return true;
-                } else if (status == READ_STATUS_FAILED) {
-                    // Duplicate txindexes, the block is now in-flight, so just request it
-                    std::vector<CInv> vInv(1);
-                    vInv[0] = CInv(MSG_BLOCK, cmpctblock.header.GetHash());
-                    pfrom->PushMessage(NetMsgType::GETDATA, vInv);
-                    return true;
-                }
-
-                BlockTransactionsRequest req;
-                for (size_t i = 0; i < cmpctblock.BlockTxCount(); i++) {
-                    if (!partialBlock.IsTxAvailable(i))
-                        req.indexes.push_back(i);
-                }
-                if (req.indexes.empty()) {
-                    // Dirty hack to jump to BLOCKTXN code (TODO: move message handling into their own functions)
-                    BlockTransactions txn;
-                    txn.blockhash = cmpctblock.header.GetHash();
-                    CDataStream blockTxnMsg(SER_NETWORK, PROTOCOL_VERSION);
-                    blockTxnMsg << txn;
-                    return ProcessMessage(pfrom, NetMsgType::BLOCKTXN, blockTxnMsg, nTimeReceived, chainparams);
-                } else {
-                    req.blockhash = pindex->GetBlockHash();
-                    pfrom->PushMessage(NetMsgType::GETBLOCKTXN, req);
                 }
             }
-        } else {
-            // Dirty hack to process as if it were just a headers message (TODO: move message handling into their own functions)
-            std::vector<CBlock> headers;
-            headers.push_back(cmpctblock.header);
-            CDataStream vHeadersMsg(SER_NETWORK, PROTOCOL_VERSION);
-            vHeadersMsg << headers;
-            return ProcessMessage(pfrom, NetMsgType::HEADERS, vHeadersMsg, nTimeReceived, chainparams);
+
+            PartiallyDownloadedBlock& partialBlock = *(*queuedBlockIt)->partialBlock;
+            ReadStatus status = partialBlock.InitData(cmpctblock);
+            if (status == READ_STATUS_INVALID) {
+                Misbehaving(pfrom->GetId(), 100);
+                LogPrintf("Peer %d sent us invalid compact block", pfrom->id);
+                return true;
+            } else if (status == READ_STATUS_FAILED) {
+                // Duplicate txindexes, the block is now in-flight, so just request it
+                std::vector<CInv> vInv(1);
+                vInv[0] = CInv(MSG_BLOCK, cmpctblock.header.GetHash());
+                pfrom->PushMessage(NetMsgType::GETDATA, vInv);
+                return true;
+            }
+
+            BlockTransactionsRequest req;
+            for (size_t i = 0; i < cmpctblock.BlockTxCount(); i++) {
+                if (!partialBlock.IsTxAvailable(i))
+                    req.indexes.push_back(i);
+            }
+            if (req.indexes.empty()) {
+                // Dirty hack to jump to BLOCKTXN code (TODO: move message handling into their own functions)
+                BlockTransactions txn;
+                txn.blockhash = cmpctblock.header.GetHash();
+                CDataStream blockTxnMsg(SER_NETWORK, PROTOCOL_VERSION);
+                blockTxnMsg << txn;
+                return ProcessMessage(pfrom, NetMsgType::BLOCKTXN, blockTxnMsg, nTimeReceived, chainparams);
+            } else {
+                req.blockhash = pindex->GetBlockHash();
+                pfrom->PushMessage(NetMsgType::GETBLOCKTXN, req);
+            }
         }
 
         CheckBlockIndex(chainparams.GetConsensus());
