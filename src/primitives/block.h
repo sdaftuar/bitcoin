@@ -77,6 +77,8 @@ public:
     std::vector<CTransaction> vtx;
 
     // memory only
+    // TODO: cache check status inside the validation logic instead of inside of
+    // the primitive data type CBlock.
     mutable bool fChecked;
 
     CBlock()
