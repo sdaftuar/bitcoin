@@ -5443,9 +5443,7 @@ bool static ProcessMessage(CNode* pfrom, string strCommand, CDataStream& vRecv, 
         }
 
         if (mapBlockIndex.find(headers[0].hashPrevBlock) == mapBlockIndex.end()) {
-            // Doesn't connect, instead of DoSing in AcceptBlockHeader, request deeper headers
-            if (!IsInitialBlockDownload())
-                pfrom->PushMessage(NetMsgType::GETHEADERS, chainActive.GetLocator(pindexBestHeader), uint256());
+            // Doesn't connect, ignore.
             return true;
         }
 
