@@ -231,7 +231,9 @@ class CInv(object):
     typemap = {
         0: "Error",
         1: "TX",
-        2: "Block"}
+        2: "Block",
+        4: "CompactBlock",
+    }
 
     def __init__(self, t=0, h=0):
         self.type = t
@@ -588,6 +590,58 @@ class CAlert(object):
     def __repr__(self):
         return "CAlert(vchMsg.sz %d, vchSig.sz %d)" \
             % (len(self.vchMsg), len(self.vchSig))
+
+
+class PrefilledTransaction(object):
+    def __init__(self, _index=0, _tx = None):
+        self.index = _index 
+        self.tx = _tx
+
+    def deserialize(self, f):
+        self.index = deser_compact_size(f)
+        self.tx.deserialize(f)
+
+    def serialize(self):
+        r = b""
+        r += ser_compact_size(self.index)
+        r += self.tx.serialize()
+        return r
+
+    def __repr__(self):
+        return "PrefilledTransaction(index=%d, tx=%s)" % (self.index, repr(self.tx))
+
+class HeaderAndShortIDs(object):
+    def __init__(self):
+        self.header = CBlockHeader()
+        self.nonce = 0
+        self.shortids_length = 0
+        self.shortids = []
+        self.prefilled_txn_length = 0
+        self.prefilledtxn = []
+
+    def deserialize(self, f):
+        self.header.deserialize(f)
+        self.nonce = struct.unpack("<Q", f.read(8))[0]
+        self.shortids_length = deser_compact_size(f)
+        for i in range(self.shortids_length):
+            # shortids are defined to be 6 bytes in the spec, so append
+            # two zero bytes and read it in as an 8-byte number
+            self.shortids.append(struct.unpack("<Q", f.read(6) + b'\x00\x00')[0])
+        self.prefilled_txn = deser_vector(f, CTransaction) 
+        self.prefilled_txn_length = len(self.prefiled_txn)
+
+    def serialize(self, f):
+        r = b""
+        r += self.header.serialize()
+        r += struct.pack("<Q", self.nonce)
+        r += ser_compact_size(self.shortids_length)
+        for x in self.shortids:
+            # We only want the first 6 bytes
+            r += struct.pack("<Q", x)[0:6]
+        r += ser_vector(self.prefilledtxn)
+
+    def __repr__(self):
+        return "HeaderAndShortIDs(header=%s, nonce=%d, shortids_length=%d, shortids=%s, prefilled_txn_length=%d, prefilledtxn=%s" % (repr(self.header), self.nonce, self.shortids_length, repr(self.shortids), self.prefilled_txn_length, repr(self.prefilled_txn)
 
 
 # Objects that correspond to messages on the wire
@@ -1011,6 +1065,78 @@ class msg_feefilter(object):
 
     def __repr__(self):
         return "msg_feefilter(feerate=%08x)" % self.feerate
+
+class msg_sendcmpct(object):
+    command = b"sendcmpct"
+
+    def __init__(self):
+        self.announce = False
+        self.version = 0
+
+    def deserialize(self, f):
+        self.announce = struct.unpack("<?", f.read(1))[0]
+        self.version = struct.unpack("<Q", f.read(8))[0]
+
+    def serialize(self):
+        r = b""
+        r += struct.pack("<?", self.announce)
+        r += struct.pack("<Q", self.version)
+        return r
+
+    def __repr__(self):
+        return "msg_sendcmpct(announce=%s, version=%lu)" % (self.fAnnounce, self.version)
+
+class msg_cmpctblock(object):
+    command = b"cmpctblock"
+
+    def __init__(self):
+        self.header_and_shortids = None
+        pass
+
+    def deserialize(self, f):
+        self.header_and_shortids.deserialize(f)
+        pass
+
+    def serialize(self):
+        r = b""
+        r += self.header_and_shortids.serialize()
+        return r
+
+    def __repr__(self):
+        return "msg_cmpctblock(HeaderAndShortIDs=%s)" % repr(self.headers_and_shortids)
+
+# TODO: finish below objects
+class msg_getblocktxn(object):
+    command = b"getblocktxn"
+
+    def __init__(self):
+        pass
+
+    def deserialize(self, f):
+        pass
+
+    def serialize(self):
+        r = b""
+        return r
+
+    def __repr__(self):
+        return "msg_getblocktxn"
+
+class msg_blocktxn(object):
+    command = b"blocktxn"
+
+    def __init__(self):
+        pass
+
+    def deserialize(self, f):
+        pass
+
+    def serialize(self):
+        r = b""
+        return r
+
+    def __repr__(self):
+        return "msg_getblocktxn"
 
 # This is what a callback should look like for NodeConn
 # Reimplement the on_* functions to provide handling for events
