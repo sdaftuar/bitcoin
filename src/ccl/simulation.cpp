@@ -47,7 +47,7 @@ void Simulation::LoadFiles(date d)
     InitAutoFile(headersfile, "headers.", d);
 }
 
-void Simulation::InitAutoFile(auto_ptr<CAutoFile> &which, std::string fileprefix, date d)
+void Simulation::InitAutoFile(unique_ptr<CAutoFile> &which, std::string fileprefix, date d)
 {
     for (date s=d; s<= enddate; s += days(1)) {
         string filename = fileprefix + boost::gregorian::to_iso_string(s);
@@ -69,7 +69,8 @@ void Simulation::operator()()
     date curdate = begindate;
     if (loadMempoolAtStartup) {
         // Start up with beginning mempool
-        cclGlobals->InitMemPool(*mempoolfile);
+        //cclGlobals->InitMemPool(*mempoolfile);
+        LogPrintf("Simulation: not loading mempool! Doesn't really work...\n");
     } else {
         LogPrintf("Simulation: not loading mempool\n");
     }

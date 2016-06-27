@@ -78,7 +78,7 @@ void DataLogger::RollDate()
     logRotateDate = today + days(1);
 }
 
-void DataLogger::InitAutoFile(auto_ptr<CAutoFile> &which, std::string prefix, std::string curdate)
+void DataLogger::InitAutoFile(unique_ptr<CAutoFile> &which, std::string prefix, std::string curdate)
 {
     std::string fullname = prefix + curdate;
     boost::filesystem::path thispath = logdir / fullname;

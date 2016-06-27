@@ -77,12 +77,12 @@ public:
 
 private:
     void LoadFiles(date d);
-    void InitAutoFile(auto_ptr<CAutoFile> &which, std::string fileprefix, date d);
+    void InitAutoFile(unique_ptr<CAutoFile> &which, std::string fileprefix, date d);
 
-    auto_ptr<CAutoFile> blkfile;
-    auto_ptr<CAutoFile> txfile;
-    auto_ptr<CAutoFile> mempoolfile;
-    auto_ptr<CAutoFile> headersfile;
+    unique_ptr<CAutoFile> blkfile;
+    unique_ptr<CAutoFile> txfile;
+    unique_ptr<CAutoFile> mempoolfile;
+    unique_ptr<CAutoFile> headersfile;
 
     boost::filesystem::path logdir;
 

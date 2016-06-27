@@ -27,10 +27,10 @@ class CBlockHeader;
 
 class DataLogger {
 private:
-    auto_ptr<CAutoFile> transactionLog;
-    auto_ptr<CAutoFile> blockLog;
-    auto_ptr<CAutoFile> mempoolLog;
-    auto_ptr<CAutoFile> headersLog;
+    unique_ptr<CAutoFile> transactionLog;
+    unique_ptr<CAutoFile> blockLog;
+    unique_ptr<CAutoFile> mempoolLog;
+    unique_ptr<CAutoFile> headersLog;
 
     // Store the path where we're putting
     // all the data files, for log rotation
@@ -39,7 +39,7 @@ private:
 
     boost::gregorian::date logRotateDate;
 
-    void InitAutoFile(auto_ptr<CAutoFile> &which, std::string prefix, std::string curdate);
+    void InitAutoFile(unique_ptr<CAutoFile> &which, std::string prefix, std::string curdate);
     void RollDate();
     void LoadOldMempool();
 
