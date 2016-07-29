@@ -17,7 +17,7 @@ DataLogger::DataLogger(string pathPrefix)
         logdir = pathPrefix;
     }
 
-    LoadOldMempool();
+    //LoadOldMempool();
     RollDate();
 
     if (transactionLog->IsNull()) {
