@@ -1,6 +1,7 @@
 #ifndef DATA_LOGGER_H
 #define DATA_LOGGER_H
 
+#include "blockencodings.h"
 #include "streams.h"
 #include "txmempool.h"
 #include "util.h"
@@ -31,6 +32,8 @@ private:
     unique_ptr<CAutoFile> blockLog;
     unique_ptr<CAutoFile> mempoolLog;
     unique_ptr<CAutoFile> headersLog;
+    unique_ptr<CAutoFile> cmpctblockLog;
+    unique_ptr<CAutoFile> blocktxnLog;
 
     // Store the path where we're putting
     // all the data files, for log rotation
@@ -53,6 +56,8 @@ public:
     void OnNewTransaction(CTransaction &tx);
     void OnNewBlock(CBlock &block);
     void OnNewHeaders(vector<CBlockHeader> &headers);
+    void OnNewCompactBlock(CBlockHeaderAndShortTxIDs &cmpctblock);
+    void OnNewBlockTransactions(BlockTransactions &blocktxn);
 };
 
 #endif

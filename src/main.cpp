@@ -5705,6 +5705,8 @@ bool static ProcessMessage(CNode* pfrom, string strCommand, CDataStream& vRecv, 
         CBlockHeaderAndShortTxIDs cmpctblock;
         vRecv >> cmpctblock;
 
+        if (cclGlobals->dlog.get() != NULL) cclGlobals->dlog->OnNewCompactBlock(cmpctblock);
+
         LOCK(cs_main);
 
         if (mapBlockIndex.find(cmpctblock.header.hashPrevBlock) == mapBlockIndex.end()) {
@@ -5829,6 +5831,8 @@ bool static ProcessMessage(CNode* pfrom, string strCommand, CDataStream& vRecv, 
         BlockTransactions resp;
         vRecv >> resp;
 
+        if (cclGlobals->dlog.get() != NULL) cclGlobals->dlog->OnNewBlockTransactions(resp);
+
         LOCK(cs_main);
 
         map<uint256, pair<NodeId, list<QueuedBlock>::iterator> >::iterator it = mapBlocksInFlight.find(resp.blockhash);
@@ -5852,6 +5856,8 @@ bool static ProcessMessage(CNode* pfrom, string strCommand, CDataStream& vRecv, 
             invs.push_back(CInv(MSG_BLOCK, resp.blockhash));
             pfrom->PushMessage(NetMsgType::GETDATA, invs);
         } else {
+            if (cclGlobals->dlog.get() != NULL) cclGlobals->dlog->OnNewBlock(block);
+
             CValidationState state;
             ProcessNewBlock(state, chainparams, pfrom, &block, false, NULL);
             int nDoS;
