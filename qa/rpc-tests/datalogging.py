@@ -13,8 +13,7 @@ class DataLoggingTest(BitcoinTestFramework):
     def setup_network(self):
         self.nodes = []
         self.nodes.append(start_node(0, self.options.tmpdir,
-                            ["-writemempool", "-dlogdir=" + self.options.tmpdir]))
-
+                            ["-writemempool", "-dlogdir=" + self.options.tmpdir, "-debug"]))
 
         self.nodes.append(start_node(1, self.options.tmpdir));
         self.nodes.append(start_node(2, self.options.tmpdir));
@@ -61,26 +60,26 @@ class DataLoggingTest(BitcoinTestFramework):
         alltx = subprocess.check_output([ "dataprinter", self.options.tmpdir+"/tx."+today])
         txheader = re.findall(b'CTransaction', alltx)
         if len(txheader) != 24:
-                raise AssertionError("Wrong number of logged tx's, expected 24, got %d"%(len(txheader)))
+            raise AssertionError("Wrong number of logged tx's, expected 24, got %d"%(len(txheader)))
 
         # Check that the size of the block log is correct
         allblocks = subprocess.check_output([ "dataprinter", self.options.tmpdir+"/block."+today])
         blockheaders = re.findall(b'CBlock', allblocks)
         if len(blockheaders) != 1:
-                raise AssertionError("Wrong number of logged blocks, expected 1, got %d" % len(blockheaders))
+            raise AssertionError("Wrong number of logged blocks, expected 1, got %d" % len(blockheaders))
 
         # Check that the size of the mempool log is correct
         allmptx = subprocess.check_output([ "dataprinter", self.options.tmpdir+"/mempool."+today])
         mpheaders = re.findall(b'CTransaction', allmptx)
         if len(mpheaders) != 12:
-                raise AssertionError("Wrong number of mempool entries, expected 12, got %d" % len(mpheaders))
+            raise AssertionError("Wrong number of mempool entries, expected 12, got %d" % len(mpheaders))
 
         # Check that the size of the headers log is correct
         # TODO: figure out how many headers we should actually get...
         allheaders = subprocess.check_output([ "dataprinter", self.options.tmpdir+"/headers."+today])
         hdrheaders = re.findall(b'CBlockHeader', allheaders)
         if len(mpheaders) == 0:
-                raise AssertionError("Wrong number of blockheader entries, expected some, got %d" % len(hdrheaders))
+            raise AssertionError("Wrong number of blockheader entries, expected some, got %d" % len(hdrheaders))
 
 if __name__ == '__main__':
     DataLoggingTest().main()

@@ -5,6 +5,7 @@
 #include "primitives/block.h"
 #include "primitives/transaction.h"
 #include "txmempool.h"
+#include "blockencodings.h"
 #include "boost/date_time/gregorian/gregorian.hpp" //include all types plus i/o
 #include "boost/filesystem.hpp"
 
@@ -46,6 +47,16 @@ struct HeadersEvent : public CCLEvent {
     vector<CBlockHeader> obj;
 };
 
+struct CompactBlockEvent : public CCLEvent {
+    CompactBlockEvent() : CCLEvent() {}
+    CBlockHeaderAndShortTxIDs obj;
+};
+
+struct BlockTransactionsEvent : public CCLEvent {
+    BlockTransactionsEvent() : CCLEvent() {}
+    BlockTransactions obj;
+};
+
 /**
  * Simulation: plays historical data (@see DataLogger) back through bitcoind.
  *
@@ -83,6 +94,8 @@ private:
     unique_ptr<CAutoFile> txfile;
     unique_ptr<CAutoFile> mempoolfile;
     unique_ptr<CAutoFile> headersfile;
+    unique_ptr<CAutoFile> cmpctblockfile;
+    unique_ptr<CAutoFile> blocktxnfile;
 
     boost::filesystem::path logdir;
 

@@ -9,10 +9,6 @@
 using namespace boost::gregorian;
 using namespace boost::posix_time;
 
-//    transactionLog(NULL, SER_DISK, CLIENT_VERSION),
-//    blockLog(NULL, SER_DISK, CLIENT_VERSION),
-//    mempoolLog(NULL, SER_DISK, CLIENT_VERSION)
-
 DataLogger::DataLogger(string pathPrefix)
 {
     if (pathPrefix == "") {
@@ -35,6 +31,12 @@ DataLogger::DataLogger(string pathPrefix)
     }
     if (headersLog->IsNull()) {
         LogPrintf("DataLogger: Unable to create headers log file, will proceed with no headers log\n");
+    }
+    if (cmpctblockLog->IsNull()) {
+        LogPrintf("DataLogger: Unable to create compact block log file, will proceed without\n");
+    }
+    if (blocktxnLog->IsNull()) {
+        LogPrintf("DataLogger: Unable to create block transactions log file, will proceed without\n");
     }
 }
 
@@ -72,6 +74,8 @@ void DataLogger::RollDate()
     InitAutoFile(blockLog, "block.", to_iso_string(today));
     InitAutoFile(mempoolLog, "mempool.", to_iso_string(today));
     InitAutoFile(headersLog, "headers.", to_iso_string(today));
+    InitAutoFile(cmpctblockLog, "cmpctblock.", to_iso_string(today));
+    InitAutoFile(blocktxnLog, "blocktxn.", to_iso_string(today));
 
     cclGlobals->WriteMempool(*mempoolLog);
 
@@ -130,5 +134,27 @@ void DataLogger::OnNewHeaders(vector<CBlockHeader> &headers)
         for (size_t i=0; i<headers.size(); ++i) {
             *headersLog << headers[i];
         }
+    }
+}
+
+void DataLogger::OnNewCompactBlock(CBlockHeaderAndShortTxIDs &cmpctblock)
+{
+    if (!cmpctblockLog->IsNull()) {
+        if (day_clock::local_day() >= logRotateDate) {
+            RollDate();
+        }
+        *cmpctblockLog << GetTimeMicros();
+        *cmpctblockLog << cmpctblock;
+    }
+}
+
+void DataLogger::OnNewBlockTransactions(BlockTransactions &blocktxn)
+{
+    if (!blocktxnLog->IsNull()) {
+        if (day_clock::local_day() >= logRotateDate) {
+            RollDate();
+        }
+        *blocktxnLog << GetTimeMicros();
+        *blocktxnLog << blocktxn;
     }
 }

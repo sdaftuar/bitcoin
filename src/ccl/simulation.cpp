@@ -30,6 +30,12 @@ Simulation::Simulation(date sdate, date edate, string datadir, bool loadMempool)
     if (headersfile->IsNull()) {
         LogPrintf("Simulation: can't open headers file, continuing without\n");
     }
+    if (cmpctblockfile->IsNull()) {
+        LogPrintf("Simulation: can't open cmpctblock file, continuing without\n");
+    }
+    if (blocktxnfile->IsNull()) {
+        LogPrintf("Simulation: can't open blocktxn file, continuing without\n");
+    }
 
     // Actually, this should error if the right date can't be found...
     if (loadMempoolAtStartup) {
@@ -45,6 +51,8 @@ void Simulation::LoadFiles(date d)
     InitAutoFile(txfile, "tx.", d);
     InitAutoFile(blkfile, "block.", d);
     InitAutoFile(headersfile, "headers.", d);
+    InitAutoFile(cmpctblockfile, "cmpctblock.", d);
+    InitAutoFile(blocktxnfile, "blocktxn.", d);
 }
 
 void Simulation::InitAutoFile(unique_ptr<CAutoFile> &which, std::string fileprefix, date d)
@@ -78,29 +86,38 @@ void Simulation::operator()()
         bool txEOF = false;
         bool blkEOF = false;
         bool hdrEOF = false;
+        bool cbEOF = false;
+        bool btEOF = false;
 
         BlockEvent blockEvent;
         TxEvent txEvent;
         HeadersEvent headersEvent;
+        CompactBlockEvent cmpctblockEvent;
+        BlockTransactionsEvent blocktxnEvent;
 
-        while (!txEOF || !blkEOF || !hdrEOF) {
+        while (!txEOF || !blkEOF || !hdrEOF || !cbEOF || !btEOF) {
             if (!txEOF && !txEvent.valid) {
                 txEOF = !ReadEvent(*txfile, &txEvent);
             }
-            // TODO: look at LoadExternalBlockFile (in main.cpp) and try
-            // to understand why there's so much more code there.  Might
-            // need to beef this up...
             if (!blkEOF && !blockEvent.valid) {
                 blkEOF = !ReadEvent(*blkfile, &blockEvent);
             }
             if (!hdrEOF && !headersEvent.valid) {
                 hdrEOF = !ReadEvent(*headersfile, &headersEvent);
             }
+            if (!cbEOF && !cmpctblockEvent.valid) {
+                cbEOF = !ReadEvent(*cmpctblockfile, &cmpctblockEvent);
+            }
+            if (!btEOF && !blocktxnEvent.valid) {
+                btEOF = !ReadEvent(*blocktxnfile, &blocktxnEvent);
+            }
 
             vector<CCLEvent *> validEvents;
             if (txEvent.valid) validEvents.push_back(&txEvent);
             if (blockEvent.valid) validEvents.push_back(&blockEvent);
             if (headersEvent.valid) validEvents.push_back(&headersEvent);
+            if (cmpctblockEvent.valid) validEvents.push_back(&cmpctblockEvent);
+            if (blocktxnEvent.valid) validEvents.push_back(&blocktxnEvent);
             if (validEvents.empty()) break;
 
             CCLEvent *nextEvent = validEvents[0];
@@ -129,6 +146,12 @@ void Simulation::operator()()
                     }
                 }
                 headersEvent.reset();
+            } else if (nextEvent == &cmpctblockEvent) {
+                // TODO: add a compactblock handler!
+                cmpctblockEvent.reset();
+            } else if (nextEvent == &blocktxnEvent) {
+                // TODO: add a blocktxn handler
+                blocktxnEvent.reset();
             }
         }
         curdate += days(1);
