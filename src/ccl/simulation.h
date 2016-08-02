@@ -119,23 +119,4 @@ bool Simulation::ReadEvent(CAutoFile &input, T *event)
     return true;
 }
 
-template<>
-inline bool Simulation::ReadEvent<HeadersEvent>(CAutoFile &input, HeadersEvent *event)
-{
-    try {
-        input >> event->timeMicros;
-        size_t numHeaders;
-        input >> numHeaders;
-        event->obj.resize(numHeaders);
-        for (size_t i=0; i<numHeaders; ++i) {
-            input >> event->obj[i];
-        }
-        event->valid = true;
-    } catch (std::ios_base::failure) {
-        event->reset();
-        return false;
-    }
-    return true;
-}
-
 #endif
