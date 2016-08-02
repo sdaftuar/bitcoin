@@ -17,38 +17,6 @@ CCL_BITCOIND_HDR = \
 
 libbitcoin_server_a_SOURCES += $(CCL_BITCOIND_SRC) $(CCL_BITCOIND_HDR)
 
-# convertdata binary
-#
-
-convertdata_SOURCES = ccl/convertdata.cpp
-convertdata_CPPFLAGS = $(AM_CPPFLAGS) $(BITCOIN_INCLUDES)
-convertdata_CXXFLAGS = $(AM_CXXFLAGS) $(PIE_FLAGS)
-convertdata_LDFLAGS = $(RELDFLAGS) $(AM_LDFLAGS) $(LIBTOOL_APP_LDFLAGS)
-
-convertdata_LDADD = \
-   $(LIBBITCOIN_SERVER) \
-   $(LIBBITCOIN_COMMON) \
-   $(LIBUNIVALUE) \
-   $(LIBBITCOIN_UTIL) \
-   $(LIBBITCOIN_CONSENSUS) \
-   $(LIBBITCOIN_CRYPTO) \
-   $(LIBLEVELDB) \
-   $(LIBMEMENV) \
-   $(LIBBITCOIN_WALLET) \
-   $(LIBSECP256K1) \
-   $(LIBBITCOIN_ZMQ) \
-   $(ZMQ_LIBS) \
-   $(BOOST_LIBS) \
-   $(BDB_LIBS) \
-   $(SSL_LIBS) \
-   $(CRYPTO_LIBS) \
-   $(MINIUPNPC_LIBS) \
-   $(EVENT_PTHREADS_LIBS) \
-   $(EVENT_LIBS)
-
-bin_PROGRAMS += convertdata
-
-
 # dataprinter binary
 #
 
