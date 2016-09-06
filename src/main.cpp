@@ -293,6 +293,10 @@ struct CNodeState {
     bool fHaveWitness;
     //! Whether this peer wants/supports witnesses in cmpctblocks/blocktxns
     bool fSupportsCmpctWitness;
+    //! The ping nonce used to determine whether the compact block version negotiation is complete.
+    uint64_t nCmpctVersionNonce;
+    //! Whether the compact block version negotiation with this peer is ongoing.
+    bool fCmpctVersionNegotiating;
 
     CNodeState() {
         fCurrentlyConnected = false;
@@ -314,6 +318,7 @@ struct CNodeState {
         fProvidesHeaderAndIDs = false;
         fHaveWitness = false;
         fSupportsCmpctWitness = false;
+        fCmpctVersionNegotiating = false;
     }
 };
 
@@ -470,6 +475,10 @@ void UpdateBlockAvailability(NodeId nodeid, const uint256 &hash) {
 void MaybeSetPeerAsAnnouncingHeaderAndIDs(const CNodeState* nodestate, CNode* pfrom, CConnman& connman) {
     if (pfrom->GetLocalServices() & NODE_WITNESS && !nodestate->fSupportsCmpctWitness) {
         // Never ask from peers who can't provide witnesses.
+        return;
+    }
+    if (nodestate->fCmpctVersionNegotiating) {
+        // Never ask from peers for whom we don't yet know what compact blocks they support.
         return;
     }
     if (nodestate->fProvidesHeaderAndIDs) {
@@ -5143,6 +5152,11 @@ bool static ProcessMessage(CNode* pfrom, string strCommand, CDataStream& vRecv, 
                 nCMPCTBLOCKVersion = 2;
                 pfrom->PushMessage(NetMsgType::SENDCMPCT, fAnnounceUsingCMPCTBLOCK, nCMPCTBLOCKVersion);
             }
+            uint64_t nNonce = GetRand(std::numeric_limits<uint64_t>::max());
+            LOCK(cs_main);
+            State(pfrom->GetId())->nCmpctVersionNonce = nNonce;
+            State(pfrom->GetId())->fCmpctVersionNegotiating = true;
+            pfrom->PushMessage(NetMsgType::PING, nNonce);
         }
     }
 
@@ -5266,7 +5280,7 @@ bool static ProcessMessage(CNode* pfrom, string strCommand, CDataStream& vRecv, 
                         nodestate->nBlocksInFlight < MAX_BLOCKS_IN_TRANSIT_PER_PEER &&
                         (!IsWitnessEnabled(chainActive.Tip(), chainparams.GetConsensus()) || State(pfrom->GetId())->fHaveWitness)) {
                         inv.type |= nFetchFlags;
-                        if (nodestate->fProvidesHeaderAndIDs)
+                        if (nodestate->fProvidesHeaderAndIDs && !nodestate->fCmpctVersionNegotiating)
                             vToFetch.push_back(CInv(MSG_CMPCT_BLOCK, inv.hash));
                         else
                             vToFetch.push_back(inv);
@@ -5914,7 +5928,7 @@ bool static ProcessMessage(CNode* pfrom, string strCommand, CDataStream& vRecv, 
                             pindexLast->GetBlockHash().ToString(), pindexLast->nHeight);
                 }
                 if (vGetData.size() > 0) {
-                    if (nodestate->fProvidesHeaderAndIDs && vGetData.size() == 1 && mapBlocksInFlight.size() == 1 && pindexLast->pprev->IsValid(BLOCK_VALID_CHAIN)) {
+                    if (!nodestate->fCmpctVersionNegotiating && nodestate->fProvidesHeaderAndIDs && vGetData.size() == 1 && mapBlocksInFlight.size() == 1 && pindexLast->pprev->IsValid(BLOCK_VALID_CHAIN)) {
                         // We seem to be rather well-synced, so it appears pfrom was the first to provide us
                         // with this block! Let's get them to announce using compact blocks in the future.
                         MaybeSetPeerAsAnnouncingHeaderAndIDs(nodestate, pfrom, connman);
@@ -6040,6 +6054,14 @@ bool static ProcessMessage(CNode* pfrom, string strCommand, CDataStream& vRecv, 
 
         if (nAvail >= sizeof(nonce)) {
             vRecv >> nonce;
+
+            {
+                LOCK(cs_main);
+                if (State(pfrom->GetId())->nCmpctVersionNonce == nonce) {
+                    State(pfrom->GetId())->fCmpctVersionNegotiating = false;
+                    return true;
+                }
+            }
 
             // Only process pong message if there is an outstanding ping (old ping without nonce should never pong)
             if (pfrom->nPingNonceSent != 0) {
