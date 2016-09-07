@@ -42,8 +42,8 @@ static const size_t MAX_HEADERS_SIZE = 8192;
 class HTTPWorkItem : public HTTPClosure
 {
 public:
-    HTTPWorkItem(std::unique_ptr<HTTPRequest> req, const std::string &path, const HTTPRequestHandler& func):
-        req(std::move(req)), path(path), func(func)
+    HTTPWorkItem(std::unique_ptr<HTTPRequest> _req, const std::string &_path, const HTTPRequestHandler& _func):
+        req(std::move(_req)), path(_path), func(_func)
     {
     }
     void operator()()
@@ -92,8 +92,8 @@ private:
     };
 
 public:
-    WorkQueue(size_t maxDepth) : running(true),
-                                 maxDepth(maxDepth),
+    WorkQueue(size_t _maxDepth) : running(true),
+                                 maxDepth(_maxDepth),
                                  numThreads(0)
     {
     }
@@ -158,8 +158,8 @@ public:
 struct HTTPPathHandler
 {
     HTTPPathHandler() {}
-    HTTPPathHandler(std::string prefix, bool exactMatch, HTTPRequestHandler handler):
-        prefix(prefix), exactMatch(exactMatch), handler(handler)
+    HTTPPathHandler(std::string _prefix, bool _exactMatch, HTTPRequestHandler _handler):
+        prefix(_prefix), exactMatch(_exactMatch), handler(_handler)
     {
     }
     std::string prefix;
@@ -197,12 +197,17 @@ static bool ClientAllowed(const CNetAddr& netaddr)
 static bool InitHTTPAllowList()
 {
     rpc_allow_subnets.clear();
-    rpc_allow_subnets.push_back(CSubNet("127.0.0.0/8")); // always allow IPv4 local subnet
-    rpc_allow_subnets.push_back(CSubNet("::1"));         // always allow IPv6 localhost
+    CNetAddr localv4;
+    CNetAddr localv6;
+    LookupHost("127.0.0.1", localv4, false);
+    LookupHost("::1", localv6, false);
+    rpc_allow_subnets.push_back(CSubNet(localv4, 8));      // always allow IPv4 local subnet
+    rpc_allow_subnets.push_back(CSubNet(localv6));         // always allow IPv6 localhost
     if (mapMultiArgs.count("-rpcallowip")) {
         const std::vector<std::string>& vAllow = mapMultiArgs["-rpcallowip"];
         for (std::string strAllow : vAllow) {
-            CSubNet subnet(strAllow);
+            CSubNet subnet;
+            LookupSubNet(strAllow.c_str(), subnet);
             if (!subnet.IsValid()) {
                 uiInterface.ThreadSafeMessageBox(
                     strprintf("Invalid -rpcallowip subnet specification: %s. Valid are a single IP (e.g. 1.2.3.4), a network/netmask (e.g. 1.2.3.4/255.255.255.0) or a network/CIDR (e.g. 1.2.3.4/24).", strAllow),
@@ -517,8 +522,8 @@ static void httpevent_callback_fn(evutil_socket_t, short, void* data)
         delete self;
 }
 
-HTTPEvent::HTTPEvent(struct event_base* base, bool deleteWhenTriggered, const std::function<void(void)>& handler):
-    deleteWhenTriggered(deleteWhenTriggered), handler(handler)
+HTTPEvent::HTTPEvent(struct event_base* base, bool _deleteWhenTriggered, const std::function<void(void)>& _handler):
+    deleteWhenTriggered(_deleteWhenTriggered), handler(_handler)
 {
     ev = event_new(base, -1, 0, httpevent_callback_fn, this);
     assert(ev);
@@ -534,7 +539,7 @@ void HTTPEvent::trigger(struct timeval* tv)
     else
         evtimer_add(ev, tv); // trigger after timeval passed
 }
-HTTPRequest::HTTPRequest(struct evhttp_request* req) : req(req),
+HTTPRequest::HTTPRequest(struct evhttp_request* _req) : req(_req),
                                                        replySent(false)
 {
 }
@@ -614,7 +619,7 @@ CService HTTPRequest::GetPeer()
         const char* address = "";
         uint16_t port = 0;
         evhttp_connection_get_peer(con, (char**)&address, &port);
-        peer = CService(address, port);
+        peer = LookupNumeric(address, port);
     }
     return peer;
 }

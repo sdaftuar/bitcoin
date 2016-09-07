@@ -269,14 +269,13 @@ UniValue disconnectnode(const UniValue& params, bool fHelp)
 
 UniValue getaddednodeinfo(const UniValue& params, bool fHelp)
 {
-    if (fHelp || params.size() < 1 || params.size() > 2)
+    if (fHelp || params.size() > 1)
         throw runtime_error(
-            "getaddednodeinfo dummy ( \"node\" )\n"
+            "getaddednodeinfo ( \"node\" )\n"
             "\nReturns information about the given added node, or all added nodes\n"
             "(note that onetry addnodes are not listed here)\n"
             "\nArguments:\n"
-            "1. dummy      (boolean, required) Kept for historical purposes but ignored\n"
-            "2. \"node\"   (string, optional) If provided, return information about this specific node, otherwise all nodes are returned.\n"
+            "1. \"node\"   (string, optional) If provided, return information about this specific node, otherwise all nodes are returned.\n"
             "\nResult:\n"
             "[\n"
             "  {\n"
@@ -299,10 +298,10 @@ UniValue getaddednodeinfo(const UniValue& params, bool fHelp)
 
     std::vector<AddedNodeInfo> vInfo = GetAddedNodeInfo();
 
-    if (params.size() == 2) {
+    if (params.size() == 1) {
         bool found = false;
         for (const AddedNodeInfo& info : vInfo) {
-            if (info.strAddedNode == params[1].get_str()) {
+            if (info.strAddedNode == params[0].get_str()) {
                 vInfo.assign(1, info);
                 found = true;
                 break;
@@ -484,7 +483,7 @@ UniValue setban(const UniValue& params, bool fHelp)
                             "\nExamples:\n"
                             + HelpExampleCli("setban", "\"192.168.0.6\" \"add\" 86400")
                             + HelpExampleCli("setban", "\"192.168.0.0/24\" \"add\"")
-                            + HelpExampleRpc("setban", "\"192.168.0.6\", \"add\" 86400")
+                            + HelpExampleRpc("setban", "\"192.168.0.6\", \"add\", 86400")
                             );
 
     CSubNet subNet;
@@ -494,10 +493,13 @@ UniValue setban(const UniValue& params, bool fHelp)
     if (params[0].get_str().find("/") != string::npos)
         isSubnet = true;
 
-    if (!isSubnet)
-        netAddr = CNetAddr(params[0].get_str());
+    if (!isSubnet) {
+        CNetAddr resolved;
+        LookupHost(params[0].get_str().c_str(), resolved, false);
+        netAddr = resolved;
+    }
     else
-        subNet = CSubNet(params[0].get_str());
+        LookupSubNet(params[0].get_str().c_str(), subNet);
 
     if (! (isSubnet ? subNet.IsValid() : netAddr.IsValid()) )
         throw JSONRPCError(RPC_CLIENT_NODE_ALREADY_ADDED, "Error: Invalid IP/Subnet");
@@ -587,8 +589,8 @@ static const CRPCCommand commands[] =
     { "network",            "clearbanned",            &clearbanned,            true  },
 };
 
-void RegisterNetRPCCommands(CRPCTable &tableRPC)
+void RegisterNetRPCCommands(CRPCTable &t)
 {
     for (unsigned int vcidx = 0; vcidx < ARRAYLEN(commands); vcidx++)
-        tableRPC.appendCommand(commands[vcidx].name, &commands[vcidx]);
+        t.appendCommand(commands[vcidx].name, &commands[vcidx]);
 }
