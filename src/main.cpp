@@ -291,12 +291,13 @@ struct CNodeState {
     bool fProvidesHeaderAndIDs;
     //! Whether this peer can give us witnesses
     bool fHaveWitness;
-    //! Whether this peer wants/supports witnesses in cmpctblocks/blocktxns
-    bool fSupportsCmpctWitness;
-    //! The ping nonce used to determine whether the compact block version negotiation is complete.
-    uint64_t nCmpctVersionNonce;
-    //! Whether the compact block version negotiation with this peer is ongoing.
-    bool fCmpctVersionNegotiating;
+    //! Whether this peer wants witnesses in cmpctblocks/blocktxns
+    bool fWantsCmpctWitness;
+    /**
+     * For witness nodes: whether this peer sends witnesses in cmpctblocks/blocktxns
+     * For non-witness nodes: whether this peer sends non-witnesses in cmpctblocks/blocktxns
+     */
+    bool fSupportsDesiredCmpctVersion;
 
     CNodeState() {
         fCurrentlyConnected = false;
@@ -317,8 +318,8 @@ struct CNodeState {
         fPreferHeaderAndIDs = false;
         fProvidesHeaderAndIDs = false;
         fHaveWitness = false;
-        fSupportsCmpctWitness = false;
-        fCmpctVersionNegotiating = false;
+        fWantsCmpctWitness = false;
+        fSupportsDesiredCmpctVersion = false;
     }
 };
 
@@ -473,12 +474,8 @@ void UpdateBlockAvailability(NodeId nodeid, const uint256 &hash) {
 }
 
 void MaybeSetPeerAsAnnouncingHeaderAndIDs(const CNodeState* nodestate, CNode* pfrom, CConnman& connman) {
-    if (pfrom->GetLocalServices() & NODE_WITNESS && !nodestate->fSupportsCmpctWitness) {
+    if (!nodestate->fSupportsDesiredCmpctVersion) {
         // Never ask from peers who can't provide witnesses.
-        return;
-    }
-    if (nodestate->fCmpctVersionNegotiating) {
-        // Never ask from peers for whom we don't yet know what compact blocks they support.
         return;
     }
     if (nodestate->fProvidesHeaderAndIDs) {
@@ -4867,7 +4864,7 @@ void static ProcessGetData(CNode* pfrom, const Consensus::Params& consensusParam
                         // they wont have a useful mempool to match against a compact block,
                         // and we don't feel like constructing the object for them, so
                         // instead we respond with the full, non-compact block.
-                        bool fPeerWantsWitness = State(pfrom->GetId())->fSupportsCmpctWitness;
+                        bool fPeerWantsWitness = State(pfrom->GetId())->fWantsCmpctWitness;
                         if (mi->second->nHeight >= chainActive.Height() - 10) {
                             CBlockHeaderAndShortTxIDs cmpctblock(block, fPeerWantsWitness);
                             pfrom->PushMessageWithFlag(fPeerWantsWitness ? 0 : SERIALIZE_TRANSACTION_NO_WITNESS, NetMsgType::CMPCTBLOCK, cmpctblock);
@@ -5146,17 +5143,11 @@ bool static ProcessMessage(CNode* pfrom, string strCommand, CDataStream& vRecv, 
             // We send this to non-NODE NETWORK peers as well, because
             // they may wish to request compact blocks from us
             bool fAnnounceUsingCMPCTBLOCK = false;
-            uint64_t nCMPCTBLOCKVersion = 1;
-            pfrom->PushMessage(NetMsgType::SENDCMPCT, fAnnounceUsingCMPCTBLOCK, nCMPCTBLOCKVersion);
-            if (pfrom->GetLocalServices() & NODE_WITNESS) {
-                nCMPCTBLOCKVersion = 2;
+            uint64_t nCMPCTBLOCKVersion = 2;
+            if (pfrom->GetLocalServices() & NODE_WITNESS)
                 pfrom->PushMessage(NetMsgType::SENDCMPCT, fAnnounceUsingCMPCTBLOCK, nCMPCTBLOCKVersion);
-            }
-            uint64_t nNonce = GetRand(std::numeric_limits<uint64_t>::max());
-            LOCK(cs_main);
-            State(pfrom->GetId())->nCmpctVersionNonce = nNonce;
-            State(pfrom->GetId())->fCmpctVersionNegotiating = true;
-            pfrom->PushMessage(NetMsgType::PING, nNonce);
+            nCMPCTBLOCKVersion = 1;
+            pfrom->PushMessage(NetMsgType::SENDCMPCT, fAnnounceUsingCMPCTBLOCK, nCMPCTBLOCKVersion);
         }
     }
 
@@ -5218,11 +5209,19 @@ bool static ProcessMessage(CNode* pfrom, string strCommand, CDataStream& vRecv, 
         bool fAnnounceUsingCMPCTBLOCK = false;
         uint64_t nCMPCTBLOCKVersion = 0;
         vRecv >> fAnnounceUsingCMPCTBLOCK >> nCMPCTBLOCKVersion;
-        if (nCMPCTBLOCKVersion == 1 || (nCMPCTBLOCKVersion == 2 && (pfrom->GetLocalServices() & NODE_WITNESS))) {
+        if (nCMPCTBLOCKVersion == 1 || nCMPCTBLOCKVersion == 2) {
             LOCK(cs_main);
-            State(pfrom->GetId())->fProvidesHeaderAndIDs = true;
-            State(pfrom->GetId())->fPreferHeaderAndIDs = fAnnounceUsingCMPCTBLOCK;
-            State(pfrom->GetId())->fSupportsCmpctWitness = (nCMPCTBLOCKVersion == 2);
+            if (!State(pfrom->GetId())->fProvidesHeaderAndIDs) {
+                State(pfrom->GetId())->fProvidesHeaderAndIDs = true;
+                State(pfrom->GetId())->fWantsCmpctWitness = nCMPCTBLOCKVersion == 2;
+                State(pfrom->GetId())->fPreferHeaderAndIDs = fAnnounceUsingCMPCTBLOCK;
+            }
+            if (!State(pfrom->GetId())->fSupportsDesiredCmpctVersion) {
+                if (pfrom->GetLocalServices() & NODE_WITNESS)
+                    State(pfrom->GetId())->fSupportsDesiredCmpctVersion = (nCMPCTBLOCKVersion == 2);
+                else
+                    State(pfrom->GetId())->fSupportsDesiredCmpctVersion = (nCMPCTBLOCKVersion == 1);
+            }
         }
     }
 
@@ -5280,7 +5279,7 @@ bool static ProcessMessage(CNode* pfrom, string strCommand, CDataStream& vRecv, 
                         nodestate->nBlocksInFlight < MAX_BLOCKS_IN_TRANSIT_PER_PEER &&
                         (!IsWitnessEnabled(chainActive.Tip(), chainparams.GetConsensus()) || State(pfrom->GetId())->fHaveWitness)) {
                         inv.type |= nFetchFlags;
-                        if (nodestate->fProvidesHeaderAndIDs && !nodestate->fCmpctVersionNegotiating)
+                        if (nodestate->fProvidesHeaderAndIDs && nodestate->fSupportsDesiredCmpctVersion)
                             vToFetch.push_back(CInv(MSG_CMPCT_BLOCK, inv.hash));
                         else
                             vToFetch.push_back(inv);
@@ -5408,7 +5407,7 @@ bool static ProcessMessage(CNode* pfrom, string strCommand, CDataStream& vRecv, 
             }
             resp.txn[i] = block.vtx[req.indexes[i]];
         }
-        pfrom->PushMessageWithFlag(State(pfrom->GetId())->fSupportsCmpctWitness ? 0 : SERIALIZE_TRANSACTION_NO_WITNESS, NetMsgType::BLOCKTXN, resp);
+        pfrom->PushMessageWithFlag(State(pfrom->GetId())->fWantsCmpctWitness ? 0 : SERIALIZE_TRANSACTION_NO_WITNESS, NetMsgType::BLOCKTXN, resp);
     }
 
 
@@ -5928,7 +5927,7 @@ bool static ProcessMessage(CNode* pfrom, string strCommand, CDataStream& vRecv, 
                             pindexLast->GetBlockHash().ToString(), pindexLast->nHeight);
                 }
                 if (vGetData.size() > 0) {
-                    if (!nodestate->fCmpctVersionNegotiating && nodestate->fProvidesHeaderAndIDs && vGetData.size() == 1 && mapBlocksInFlight.size() == 1 && pindexLast->pprev->IsValid(BLOCK_VALID_CHAIN)) {
+                    if (nodestate->fProvidesHeaderAndIDs && nodestate->fSupportsDesiredCmpctVersion && vGetData.size() == 1 && mapBlocksInFlight.size() == 1 && pindexLast->pprev->IsValid(BLOCK_VALID_CHAIN)) {
                         // We seem to be rather well-synced, so it appears pfrom was the first to provide us
                         // with this block! Let's get them to announce using compact blocks in the future.
                         MaybeSetPeerAsAnnouncingHeaderAndIDs(nodestate, pfrom, connman);
@@ -6054,14 +6053,6 @@ bool static ProcessMessage(CNode* pfrom, string strCommand, CDataStream& vRecv, 
 
         if (nAvail >= sizeof(nonce)) {
             vRecv >> nonce;
-
-            {
-                LOCK(cs_main);
-                if (State(pfrom->GetId())->nCmpctVersionNonce == nonce) {
-                    State(pfrom->GetId())->fCmpctVersionNegotiating = false;
-                    return true;
-                }
-            }
 
             // Only process pong message if there is an outstanding ping (old ping without nonce should never pong)
             if (pfrom->nPingNonceSent != 0) {
@@ -6565,8 +6556,8 @@ bool SendMessages(CNode* pto, CConnman& connman)
                     //TODO: Shouldn't need to reload block from disk, but requires refactor
                     CBlock block;
                     assert(ReadBlockFromDisk(block, pBestIndex, consensusParams));
-                    CBlockHeaderAndShortTxIDs cmpctblock(block, state.fSupportsCmpctWitness);
-                    pto->PushMessageWithFlag(state.fSupportsCmpctWitness ? 0 : SERIALIZE_TRANSACTION_NO_WITNESS, NetMsgType::CMPCTBLOCK, cmpctblock);
+                    CBlockHeaderAndShortTxIDs cmpctblock(block, state.fWantsCmpctWitness);
+                    pto->PushMessageWithFlag(state.fWantsCmpctWitness ? 0 : SERIALIZE_TRANSACTION_NO_WITNESS, NetMsgType::CMPCTBLOCK, cmpctblock);
                     state.pindexBestHeaderSent = pBestIndex;
                 } else if (state.fPreferHeaders) {
                     if (vHeaders.size() > 1) {
