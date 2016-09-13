@@ -287,7 +287,11 @@ struct CNodeState {
     bool fPreferHeaders;
     //! Whether this peer wants invs or cmpctblocks (when possible) for block announcements.
     bool fPreferHeaderAndIDs;
-    //! Whether this peer will send us cmpctblocks if we request them
+    /**
+      * Whether this peer will send us cmpctblocks if we request them.
+      * This is not used to gate request logic, as we really only care about fSupportsDesiredCmpctVersion,
+      * but is used as a flag to "lock in" the version of compact blocks (fWantsCmpctWitness) we send.
+      */
     bool fProvidesHeaderAndIDs;
     //! Whether this peer can give us witnesses
     bool fHaveWitness;
@@ -5211,6 +5215,7 @@ bool static ProcessMessage(CNode* pfrom, string strCommand, CDataStream& vRecv, 
         vRecv >> fAnnounceUsingCMPCTBLOCK >> nCMPCTBLOCKVersion;
         if (nCMPCTBLOCKVersion == 1 || ((pfrom->GetLocalServices() & NODE_WITNESS) && nCMPCTBLOCKVersion == 2)) {
             LOCK(cs_main);
+            // fProvidesHeaderAndIDs is used to "lock in" version of compact blocks we send (fWantsCmpctWitness)
             if (!State(pfrom->GetId())->fProvidesHeaderAndIDs) {
                 State(pfrom->GetId())->fProvidesHeaderAndIDs = true;
                 State(pfrom->GetId())->fWantsCmpctWitness = nCMPCTBLOCKVersion == 2;
@@ -5279,7 +5284,7 @@ bool static ProcessMessage(CNode* pfrom, string strCommand, CDataStream& vRecv, 
                         nodestate->nBlocksInFlight < MAX_BLOCKS_IN_TRANSIT_PER_PEER &&
                         (!IsWitnessEnabled(chainActive.Tip(), chainparams.GetConsensus()) || State(pfrom->GetId())->fHaveWitness)) {
                         inv.type |= nFetchFlags;
-                        if (nodestate->fProvidesHeaderAndIDs && nodestate->fSupportsDesiredCmpctVersion)
+                        if (nodestate->fSupportsDesiredCmpctVersion)
                             vToFetch.push_back(CInv(MSG_CMPCT_BLOCK, inv.hash));
                         else
                             vToFetch.push_back(inv);
@@ -5927,7 +5932,7 @@ bool static ProcessMessage(CNode* pfrom, string strCommand, CDataStream& vRecv, 
                             pindexLast->GetBlockHash().ToString(), pindexLast->nHeight);
                 }
                 if (vGetData.size() > 0) {
-                    if (nodestate->fProvidesHeaderAndIDs && nodestate->fSupportsDesiredCmpctVersion && vGetData.size() == 1 && mapBlocksInFlight.size() == 1 && pindexLast->pprev->IsValid(BLOCK_VALID_CHAIN)) {
+                    if (nodestate->fSupportsDesiredCmpctVersion && vGetData.size() == 1 && mapBlocksInFlight.size() == 1 && pindexLast->pprev->IsValid(BLOCK_VALID_CHAIN)) {
                         // We seem to be rather well-synced, so it appears pfrom was the first to provide us
                         // with this block! Let's get them to announce using compact blocks in the future.
                         MaybeSetPeerAsAnnouncingHeaderAndIDs(nodestate, pfrom, connman);
