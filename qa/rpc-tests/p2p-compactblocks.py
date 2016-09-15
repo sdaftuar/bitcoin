@@ -83,17 +83,17 @@ class CompactBlocksTest(BitcoinTestFramework):
     def __init__(self):
         super().__init__()
         self.setup_clean_chain = True
-        self.num_nodes = 1
+        self.num_nodes = 2
         self.utxos = []
 
     def setup_network(self):
         self.nodes = []
 
-        # Turn off segwit in this test, as compact blocks don't currently work
-        # with segwit.  (After BIP 152 is updated to support segwit, we can
-        # test behavior with and without segwit enabled by adding a second node
-        # to the test.)
-        self.nodes = start_nodes(self.num_nodes, self.options.tmpdir, [["-debug", "-logtimemicros=1", "-bip9params=segwit:0:0"]])
+        # Test behavior with and without segwit enabled.
+        # When segwit is not enabled, we should negotiate version 1 compact blocks.
+        # When segwit is enabled, the node should serve v1 or v2 compact blocks, but only
+        # request v2 compact blocks.
+        self.nodes = start_nodes(self.num_nodes, self.options.tmpdir, [["-debug", "-logtimemicros=1", "-bip9params=segwit:0:0"], ["-debug", "-logtimemicros=1"]])
 
     def build_block_on_tip(self):
         height = self.nodes[0].getblockcount()
@@ -130,7 +130,7 @@ class CompactBlocksTest(BitcoinTestFramework):
     # Test "sendcmpct":
     # - No compact block announcements or getdata(MSG_CMPCT_BLOCK) unless
     #   sendcmpct is sent.
-    # - If sendcmpct is sent with version > 0, the message is ignored.
+    # - If sendcmpct is sent with version > 1, the message is ignored.
     # - If sendcmpct is sent with boolean 0, then block announcements are not
     #   made with compact blocks.
     # - If sendcmpct is then sent with boolean 1, then new block announcements
@@ -148,15 +148,19 @@ class CompactBlocksTest(BitcoinTestFramework):
         tip = int(self.nodes[0].getbestblockhash(), 16)
 
         def check_announcement_of_new_block(node, peer, predicate):
-            self.test_node.clear_block_announcement()
+            peer.clear_block_announcement()
             node.generate(1)
-            got_message = wait_until(peer.received_block_announcement, timeout=30)
+            got_message = wait_until(lambda: peer.block_announced, timeout=30)
             assert(got_message)
             with mininode_lock:
-                assert(predicate)
+                print(peer.received_block_announcement())
+                print(peer.last_headers)
+                print(peer.last_cmpctblock)
+                print(peer.last_inv)
+                assert(predicate(peer))
 
         # We shouldn't get any block announcements via cmpctblock yet.
-        check_announcement_of_new_block(self.nodes[0], self.test_node, lambda: self.test_node.last_cmpctblock is None)
+        check_announcement_of_new_block(self.nodes[0], self.test_node, lambda p: p.last_cmpctblock is None)
 
         # Try one more time, this time after requesting headers.
         self.test_node.clear_block_announcement()
@@ -164,35 +168,35 @@ class CompactBlocksTest(BitcoinTestFramework):
         wait_until(self.test_node.received_block_announcement, timeout=30)
         self.test_node.clear_block_announcement()
 
-        check_announcement_of_new_block(self.nodes[0], self.test_node, lambda: self.test_node.last_cmpctblock is None and self.test_node.last_inv is not None)
+        check_announcement_of_new_block(self.nodes[0], self.test_node, lambda p: p.last_cmpctblock is None and p.last_inv is not None)
 
         # Now try a SENDCMPCT message with too-high version
         sendcmpct = msg_sendcmpct()
         sendcmpct.version = 2
         self.test_node.send_message(sendcmpct)
 
-        check_announcement_of_new_block(self.nodes[0], self.test_node, lambda: self.test_node.last_cmpctblock is None)
+        check_announcement_of_new_block(self.nodes[0], self.test_node, lambda p: p.last_cmpctblock is None)
 
         # Now try a SENDCMPCT message with valid version, but announce=False
         self.test_node.send_message(msg_sendcmpct())
-        check_announcement_of_new_block(self.nodes[0], self.test_node, lambda: self.test_node.last_cmpctblock is None)
+        check_announcement_of_new_block(self.nodes[0], self.test_node, lambda p: p.last_cmpctblock is None)
 
         # Finally, try a SENDCMPCT message with announce=True
         sendcmpct.version = 1
         sendcmpct.announce = True
         self.test_node.send_message(sendcmpct)
-        check_announcement_of_new_block(self.nodes[0], self.test_node, lambda: self.test_node.last_cmpctblock is not None)
+        check_announcement_of_new_block(self.nodes[0], self.test_node, lambda p: p.last_cmpctblock is not None)
 
         # Try one more time
-        check_announcement_of_new_block(self.nodes[0], self.test_node, lambda: self.test_node.last_cmpctblock is not None)
+        check_announcement_of_new_block(self.nodes[0], self.test_node, lambda p: p.last_cmpctblock is not None)
 
         # Try one more time, after turning on sendheaders
         self.test_node.send_message(msg_sendheaders())
-        check_announcement_of_new_block(self.nodes[0], self.test_node, lambda: self.test_node.last_cmpctblock is not None)
+        check_announcement_of_new_block(self.nodes[0], self.test_node, lambda p: p.last_cmpctblock is not None)
 
         # Now turn off announcements
         sendcmpct.announce = False
-        check_announcement_of_new_block(self.nodes[0], self.test_node, lambda: self.test_node.last_cmpctblock is None and self.test_node.last_headers is not None)
+        check_announcement_of_new_block(self.nodes[0], self.test_node, lambda p: p.last_cmpctblock is None and p.last_headers is not None)
 
     # This test actually causes bitcoind to (reasonably!) disconnect us, so do this last.
     def test_invalid_cmpctblock_message(self):
@@ -580,11 +584,17 @@ class CompactBlocksTest(BitcoinTestFramework):
 
     def run_test(self):
         # Setup the p2p connections and start up the network thread.
-        self.test_node = TestNode()
+        self.test_node = TestNode() # this will test the old, non-segwit node.
+        self.test_old_to_segwit_node = TestNode() # non-segwit peer <-> segwit node
+        self.test_segwit_to_segwit_node = TestNode() # segwit peer <-> segwit node
 
         connections = []
         connections.append(NodeConn('127.0.0.1', p2p_port(0), self.nodes[0], self.test_node))
+        connections.append(NodeConn('127.0.0.1', p2p_port(1), self.nodes[1], self.test_old_to_segwit_node))
+        connections.append(NodeConn('127.0.0.1', p2p_port(1), self.nodes[1], self.test_segwit_to_segwit_node, services=NODE_NETWORK|NODE_WITNESS))
         self.test_node.add_connection(connections[0])
+        self.test_old_to_segwit_node.add_connection(connections[1])
+        self.test_segwit_to_segwit_node.add_connection(connections[2])
 
         NetworkThread().start()  # Start up network handling in another thread
 
