@@ -5285,7 +5285,7 @@ bool static ProcessMessage(CNode* pfrom, string strCommand, CDataStream& vRecv, 
                         nodestate->nBlocksInFlight < MAX_BLOCKS_IN_TRANSIT_PER_PEER &&
                         (!IsWitnessEnabled(chainActive.Tip(), chainparams.GetConsensus()) || State(pfrom->GetId())->fHaveWitness)) {
                         inv.type |= nFetchFlags;
-                        if (nodestate->fSupportsDesiredCmpctVersion)
+                        if (nodestate->fSupportsDesiredCmpctVersion || !IsWitnessEnabled(chainActive.Tip(), chainparams.GetConsensus()))
                             vToFetch.push_back(CInv(MSG_CMPCT_BLOCK, inv.hash));
                         else
                             vToFetch.push_back(inv);
@@ -5692,6 +5692,11 @@ bool static ProcessMessage(CNode* pfrom, string strCommand, CDataStream& vRecv, 
         if (IsWitnessEnabled(pindex, chainparams.GetConsensus()) && !nodestate->fSupportsDesiredCmpctVersion) {
             // Don't bother trying to process compact blocks from v1 peers
             // after segwit activates.
+            if (fAlreadyInFlight && blockInFlightIt->second.first == pfrom->GetId()) {
+                // If we somehow requested this compact block, allow us to try
+                // downloading from someone else.
+                MarkBlockAsReceived(pindex->GetBlockHash());
+            }
             return true;
         }
 
@@ -5939,7 +5944,11 @@ bool static ProcessMessage(CNode* pfrom, string strCommand, CDataStream& vRecv, 
                             pindexLast->GetBlockHash().ToString(), pindexLast->nHeight);
                 }
                 if (vGetData.size() > 0) {
-                    if (nodestate->fSupportsDesiredCmpctVersion && vGetData.size() == 1 && mapBlocksInFlight.size() == 1 && pindexLast->pprev->IsValid(BLOCK_VALID_CHAIN)) {
+                    if ((nodestate->fSupportsDesiredCmpctVersion || !IsWitnessEnabled(pindexLast, chainparams.GetConsensus()))
+                                && vGetData.size() == 1 &&
+                                mapBlocksInFlight.size() == 1 &&
+                                pindexLast->pprev->IsValid(BLOCK_VALID_CHAIN))
+                    {
                         // We seem to be rather well-synced, so it appears pfrom was the first to provide us
                         // with this block! Let's get them to announce using compact blocks in the future.
                         MaybeSetPeerAsAnnouncingHeaderAndIDs(nodestate, pfrom, connman);
