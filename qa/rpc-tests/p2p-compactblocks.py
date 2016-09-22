@@ -730,6 +730,8 @@ class CompactBlocksTest(BitcoinTestFramework):
         sync_blocks(self.nodes)
         self.test_compactblock_requests(self.nodes[1], self.segwit_node)
         sync_blocks(self.nodes)
+        self.test_compactblock_requests(self.nodes[1], self.old_node)
+        sync_blocks(self.nodes)
 
         print("\tTesting getblocktxn requests...")
         self.test_getblocktxn_requests(self.nodes[0], self.test_node, 1)
