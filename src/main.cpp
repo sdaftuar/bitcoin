@@ -5285,7 +5285,7 @@ bool static ProcessMessage(CNode* pfrom, string strCommand, CDataStream& vRecv, 
                         nodestate->nBlocksInFlight < MAX_BLOCKS_IN_TRANSIT_PER_PEER &&
                         (!IsWitnessEnabled(chainActive.Tip(), chainparams.GetConsensus()) || State(pfrom->GetId())->fHaveWitness)) {
                         inv.type |= nFetchFlags;
-                        if (nodestate->fSupportsDesiredCmpctVersion || !IsWitnessEnabled(chainActive.Tip(), chainparams.GetConsensus()))
+                        if (nodestate->fSupportsDesiredCmpctVersion || (nodestate->fProvidesHeaderAndIDs && !IsWitnessEnabled(chainActive.Tip(), chainparams.GetConsensus())))
                             vToFetch.push_back(CInv(MSG_CMPCT_BLOCK, inv.hash));
                         else
                             vToFetch.push_back(inv);
@@ -5944,7 +5944,7 @@ bool static ProcessMessage(CNode* pfrom, string strCommand, CDataStream& vRecv, 
                             pindexLast->GetBlockHash().ToString(), pindexLast->nHeight);
                 }
                 if (vGetData.size() > 0) {
-                    if ((nodestate->fSupportsDesiredCmpctVersion || !IsWitnessEnabled(pindexLast, chainparams.GetConsensus()))
+                    if ((nodestate->fSupportsDesiredCmpctVersion || (nodestate->fProvidesHeaderAndIDs && !IsWitnessEnabled(pindexLast, chainparams.GetConsensus())))
                                 && vGetData.size() == 1 &&
                                 mapBlocksInFlight.size() == 1 &&
                                 pindexLast->pprev->IsValid(BLOCK_VALID_CHAIN))
