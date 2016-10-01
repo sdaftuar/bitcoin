@@ -1,4 +1,4 @@
-// Copyright (c) 2011-2015 The Bitcoin Core developers
+// Copyright (c) 2011-2016 The Bitcoin Core developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
@@ -626,34 +626,13 @@ BOOST_AUTO_TEST_CASE(test_witness)
     CheckWithFlag(output1, input2, SCRIPT_VERIFY_WITNESS | SCRIPT_VERIFY_P2SH, false);
     CheckWithFlag(output1, input2, STANDARD_SCRIPT_VERIFY_FLAGS, false);
 
-    // Witness pay-to-uncompressed-pubkey (v1).
+    // Signing disabled for witness pay-to-uncompressed-pubkey (v1).
     CreateCreditAndSpend(keystore, GetScriptForWitness(scriptPubkey1L), output1, input1, false);
     CreateCreditAndSpend(keystore, GetScriptForWitness(scriptPubkey2L), output2, input2, false);
-    CheckWithFlag(output1, input1, 0, true);
-    CheckWithFlag(output1, input1, SCRIPT_VERIFY_P2SH, true);
-    CheckWithFlag(output1, input1, SCRIPT_VERIFY_WITNESS | SCRIPT_VERIFY_P2SH, true);
-    CheckWithFlag(output1, input1, STANDARD_SCRIPT_VERIFY_FLAGS, false);
-    CheckWithFlag(output1, input1, STANDARD_SCRIPT_VERIFY_FLAGS & ~SCRIPT_VERIFY_WITNESS_PUBKEYTYPE, true);
-    CheckWithFlag(output1, input2, 0, true);
-    CheckWithFlag(output1, input2, SCRIPT_VERIFY_P2SH, true);
-    CheckWithFlag(output1, input2, SCRIPT_VERIFY_WITNESS | SCRIPT_VERIFY_P2SH, false);
-    CheckWithFlag(output1, input2, STANDARD_SCRIPT_VERIFY_FLAGS, false);
-    CheckWithFlag(output1, input2, STANDARD_SCRIPT_VERIFY_FLAGS & ~SCRIPT_VERIFY_WITNESS_PUBKEYTYPE, false);
 
-    // P2SH witness pay-to-uncompressed-pubkey (v1).
+    // Signing disabled for P2SH witness pay-to-uncompressed-pubkey (v1).
     CreateCreditAndSpend(keystore, GetScriptForDestination(CScriptID(GetScriptForWitness(scriptPubkey1L))), output1, input1, false);
     CreateCreditAndSpend(keystore, GetScriptForDestination(CScriptID(GetScriptForWitness(scriptPubkey2L))), output2, input2, false);
-    ReplaceRedeemScript(input2.vin[0].scriptSig, GetScriptForWitness(scriptPubkey1L));
-    CheckWithFlag(output1, input1, 0, true);
-    CheckWithFlag(output1, input1, SCRIPT_VERIFY_P2SH, true);
-    CheckWithFlag(output1, input1, SCRIPT_VERIFY_WITNESS | SCRIPT_VERIFY_P2SH, true);
-    CheckWithFlag(output1, input1, STANDARD_SCRIPT_VERIFY_FLAGS, false);
-    CheckWithFlag(output1, input1, STANDARD_SCRIPT_VERIFY_FLAGS & ~SCRIPT_VERIFY_WITNESS_PUBKEYTYPE, true);
-    CheckWithFlag(output1, input2, 0, true);
-    CheckWithFlag(output1, input2, SCRIPT_VERIFY_P2SH, true);
-    CheckWithFlag(output1, input2, SCRIPT_VERIFY_WITNESS | SCRIPT_VERIFY_P2SH, false);
-    CheckWithFlag(output1, input2, STANDARD_SCRIPT_VERIFY_FLAGS, false);
-    CheckWithFlag(output1, input2, STANDARD_SCRIPT_VERIFY_FLAGS & ~SCRIPT_VERIFY_WITNESS_PUBKEYTYPE, false);
 
     // Normal 2-of-2 multisig
     CreateCreditAndSpend(keystore, scriptMulti, output1, input1, false);
