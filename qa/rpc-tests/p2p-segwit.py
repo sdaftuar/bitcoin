@@ -1095,10 +1095,11 @@ class SegWitTest(BitcoinTestFramework):
             weight = 3*len(block.serialize(False)) + len(block.serialize(True))
             assert_equal(rpc_details["weight"], weight)
 
-            # Upgraded node should not ask for blocks from unupgraded
+            # Upgraded node should now ask for blocks from unupgraded
             block4 = self.build_next_block(nVersion=4)
             block4.solve()
             self.old_node.getdataset = set()
+            # XXX: this comment below is obsolete
             # Blocks can be requested via direct-fetch (immediately upon processing the announcement)
             # or via parallel download (with an indeterminate delay from processing the announcement)
             # so to test that a block is NOT requested, we could guess a time period to sleep for,
@@ -1107,7 +1108,7 @@ class SegWitTest(BitcoinTestFramework):
             # and then check to see if that particular getdata has been received.
             self.old_node.announce_block(block4, use_header=False)
             self.old_node.announce_tx_and_wait_for_getdata(block4.vtx[0])
-            assert(block4.sha256 not in self.old_node.getdataset)
+            assert(block4.sha256 in self.old_node.getdataset)
 
     # V0 segwit outputs should be standard after activation, but not before.
     def test_standardness_v0(self, segwit_activated):
