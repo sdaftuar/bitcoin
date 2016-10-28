@@ -157,7 +157,7 @@ def initialize_datadir(dirname, n):
     if not os.path.isdir(datadir):
         os.makedirs(datadir)
     rpc_u, rpc_p = rpc_auth_pair(n)
-    with open(os.path.join(datadir, "bitcoin.conf"), 'w') as f:
+    with open(os.path.join(datadir, "bitcoin.conf"), 'w', encoding='utf8') as f:
         f.write("regtest=1\n")
         f.write("rpcuser=" + rpc_u + "\n")
         f.write("rpcpassword=" + rpc_p + "\n")
@@ -171,7 +171,15 @@ def rpc_auth_pair(n):
 
 def rpc_url(i, rpchost=None):
     rpc_u, rpc_p = rpc_auth_pair(i)
-    return "http://%s:%s@%s:%d" % (rpc_u, rpc_p, rpchost or '127.0.0.1', rpc_port(i))
+    host = '127.0.0.1'
+    port = rpc_port(i)
+    if rpchost:
+        parts = rpchost.split(':')
+        if len(parts) == 2:
+            host, port = parts
+        else:
+            host = rpchost
+    return "http://%s:%s@%s:%d" % (rpc_u, rpc_p, host, int(port))
 
 def wait_for_bitcoind_start(process, url, i):
     '''
@@ -254,7 +262,6 @@ def initialize_chain(test_dir, num_nodes):
 
         # Shut them down, and clean up cache directories:
         stop_nodes(rpcs)
-        wait_bitcoinds()
         disable_mocktime()
         for i in range(MAX_NODES):
             os.remove(log_filename("cache", i, "debug.log"))
@@ -353,6 +360,7 @@ def stop_nodes(nodes):
         except http.client.CannotSendRequest as e:
             print("WARN: Unable to stop node: " + repr(e))
     del nodes[:] # Emptying array closes connections as a side effect
+    wait_bitcoinds()
 
 def set_node_times(nodes, t):
     for node in nodes:

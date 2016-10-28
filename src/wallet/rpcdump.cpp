@@ -257,6 +257,7 @@ UniValue importprunedfunds(const UniValue& params, bool fHelp)
     if (!EnsureWalletIsAvailable(fHelp))
         return NullUniValue;
 
+    // 0.13.x: Silently accept up to 3 params, but ignore the third:
     if (fHelp || params.size() < 2 || params.size() > 3)
         throw runtime_error(
             "importprunedfunds\n"
@@ -264,7 +265,6 @@ UniValue importprunedfunds(const UniValue& params, bool fHelp)
             "\nArguments:\n"
             "1. \"rawtransaction\" (string, required) A raw transaction in hex funding an already-existing address in wallet\n"
             "2. \"txoutproof\"     (string, required) The hex output from gettxoutproof that contains the transaction\n"
-            "3. \"label\"          (string, optional) An optional label\n"
         );
 
     CTransaction tx;
@@ -276,10 +276,6 @@ UniValue importprunedfunds(const UniValue& params, bool fHelp)
     CDataStream ssMB(ParseHexV(params[1], "proof"), SER_NETWORK, PROTOCOL_VERSION);
     CMerkleBlock merkleBlock;
     ssMB >> merkleBlock;
-
-    string strLabel = "";
-    if (params.size() == 3)
-        strLabel = params[2].get_str();
 
     //Search partial merkle tree in proof for our transaction and index in valid block
     vector<uint256> vMatch;
@@ -349,8 +345,6 @@ UniValue removeprunedfunds(const UniValue& params, bool fHelp)
     if(vHashOut.empty()) {
         throw JSONRPCError(RPC_INTERNAL_ERROR, "Transaction does not exist in wallet.");
     }
-
-    ThreadFlushWalletDB(pwalletMain->strWalletFile);
 
     return NullUniValue;
 }
@@ -602,19 +596,42 @@ UniValue dumpwallet(const UniValue& params, bool fHelp)
     file << strprintf("# * Best block at time of backup was %i (%s),\n", chainActive.Height(), chainActive.Tip()->GetBlockHash().ToString());
     file << strprintf("#   mined on %s\n", EncodeDumpTime(chainActive.Tip()->GetBlockTime()));
     file << "\n";
+
+    // add the base58check encoded extended master if the wallet uses HD 
+    CKeyID masterKeyID = pwalletMain->GetHDChain().masterKeyID;
+    if (!masterKeyID.IsNull())
+    {
+        CKey key;
+        if (pwalletMain->GetKey(masterKeyID, key))
+        {
+            CExtKey masterKey;
+            masterKey.SetMaster(key.begin(), key.size());
+
+            CBitcoinExtKey b58extkey;
+            b58extkey.SetKey(masterKey);
+
+            file << "# extended private masterkey: " << b58extkey.ToString() << "\n\n";
+        }
+    }
     for (std::vector<std::pair<int64_t, CKeyID> >::const_iterator it = vKeyBirth.begin(); it != vKeyBirth.end(); it++) {
         const CKeyID &keyid = it->second;
         std::string strTime = EncodeDumpTime(it->first);
         std::string strAddr = CBitcoinAddress(keyid).ToString();
         CKey key;
         if (pwalletMain->GetKey(keyid, key)) {
+            file << strprintf("%s %s ", CBitcoinSecret(key).ToString(), strTime);
             if (pwalletMain->mapAddressBook.count(keyid)) {
-                file << strprintf("%s %s label=%s # addr=%s\n", CBitcoinSecret(key).ToString(), strTime, EncodeDumpString(pwalletMain->mapAddressBook[keyid].name), strAddr);
+                file << strprintf("label=%s", EncodeDumpString(pwalletMain->mapAddressBook[keyid].name));
+            } else if (keyid == masterKeyID) {
+                file << "hdmaster=1";
             } else if (setKeyPool.count(keyid)) {
-                file << strprintf("%s %s reserve=1 # addr=%s\n", CBitcoinSecret(key).ToString(), strTime, strAddr);
+                file << "reserve=1";
+            } else if (pwalletMain->mapKeyMetadata[keyid].hdKeypath == "m") {
+                file << "inactivehdmaster=1";
             } else {
-                file << strprintf("%s %s change=1 # addr=%s\n", CBitcoinSecret(key).ToString(), strTime, strAddr);
+                file << "change=1";
             }
+            file << strprintf(" # addr=%s%s\n", strAddr, (pwalletMain->mapKeyMetadata[keyid].hdKeypath.size() > 0 ? " hdkeypath="+pwalletMain->mapKeyMetadata[keyid].hdKeypath : ""));
         }
     }
     file << "\n";

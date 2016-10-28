@@ -41,7 +41,10 @@
         <source>&amp;Delete</source>
         <translation>&amp;Törlés</translation>
     </message>
-</context>
+    </context>
+<context>
+    <name>AddressTableModel</name>
+    </context>
 <context>
     <name>AskPassphraseDialog</name>
     <message>
@@ -60,10 +63,18 @@
         <source>Repeat new passphrase</source>
         <translation>Új jelszó újra</translation>
     </message>
-</context>
+    </context>
 <context>
     <name>BanTableModel</name>
-    </context>
+    <message>
+        <source>IP/Netmask</source>
+        <translation>IP-cím/maszk</translation>
+    </message>
+    <message>
+        <source>Banned Until</source>
+        <translation>Kitiltás vége</translation>
+    </message>
+</context>
 <context>
     <name>BitcoinGUI</name>
     <message>
@@ -431,7 +442,7 @@
         <source>Priority</source>
         <translation>Prioritás</translation>
     </message>
-</context>
+    </context>
 <context>
     <name>EditAddressDialog</name>
     <message>
@@ -454,7 +465,7 @@
         <source>&amp;Address</source>
         <translation>&amp;Cím</translation>
     </message>
-</context>
+    </context>
 <context>
     <name>FreespaceChecker</name>
     <message>
@@ -542,7 +553,7 @@
         <source>Select payment request file</source>
         <translation>Fizetési kérelmi fájl kiválasztása</translation>
     </message>
-</context>
+    </context>
 <context>
     <name>OptionsDialog</name>
     <message>
@@ -754,6 +765,9 @@
     </message>
     </context>
 <context>
+    <name>PaymentServer</name>
+    </context>
+<context>
     <name>PeerTableModel</name>
     <message>
         <source>User Agent</source>
@@ -803,6 +817,9 @@
         <translation>%1 ms</translation>
     </message>
 </context>
+<context>
+    <name>QRImageWidget</name>
+    </context>
 <context>
     <name>RPCConsole</name>
     <message>
@@ -868,6 +885,10 @@
     <message>
         <source>&amp;Peers</source>
         <translation>&amp;Peerek</translation>
+    </message>
+    <message>
+        <source>Banned peers</source>
+        <translation>Kitiltott felek</translation>
     </message>
     <message>
         <source>Select a peer to view detailed information.</source>
@@ -942,6 +963,10 @@
         <translation>Konzol törlése</translation>
     </message>
     <message>
+        <source>Ban Node for</source>
+        <translation>Kitiltás oka</translation>
+    </message>
+    <message>
         <source>1 &amp;hour</source>
         <translation>1 &amp;óra</translation>
     </message>
@@ -956,6 +981,10 @@
     <message>
         <source>1 &amp;year</source>
         <translation>1 &amp;év</translation>
+    </message>
+    <message>
+        <source>&amp;Unban Node</source>
+        <translation>Kitiltás &amp;feloldása</translation>
     </message>
     <message>
         <source>Use up and down arrows to navigate history, and &lt;b&gt;Ctrl-L&lt;/b&gt; to clear screen.</source>
@@ -1052,7 +1081,7 @@
         <source>Remove</source>
         <translation>Eltávolítás</translation>
     </message>
-</context>
+    </context>
 <context>
     <name>ReceiveRequestDialog</name>
     <message>
@@ -1071,7 +1100,10 @@
         <source>&amp;Save Image...</source>
         <translation>&amp;Kép mentése</translation>
     </message>
-</context>
+    </context>
+<context>
+    <name>RecentRequestsTableModel</name>
+    </context>
 <context>
     <name>SendCoinsDialog</name>
     <message>
@@ -1182,7 +1214,7 @@
         <source>S&amp;end</source>
         <translation>&amp;Küldés</translation>
     </message>
-</context>
+    </context>
 <context>
     <name>SendCoinsEntry</name>
     <message>
@@ -1229,7 +1261,10 @@
         <source>Memo:</source>
         <translation>Jegyzet:</translation>
     </message>
-</context>
+    </context>
+<context>
+    <name>SendConfirmationDialog</name>
+    </context>
 <context>
     <name>ShutdownWindow</name>
     <message>
@@ -1311,14 +1346,32 @@
     </message>
 </context>
 <context>
+    <name>TransactionDesc</name>
+    </context>
+<context>
     <name>TransactionDescDialog</name>
     <message>
         <source>This pane shows a detailed description of the transaction</source>
         <translation>Ez a mező a tranzakció részleteit mutatja</translation>
     </message>
-</context>
+    </context>
+<context>
+    <name>TransactionTableModel</name>
+    </context>
+<context>
+    <name>TransactionView</name>
+    </context>
 <context>
     <name>UnitDisplayStatusBarControl</name>
+    </context>
+<context>
+    <name>WalletFrame</name>
+    </context>
+<context>
+    <name>WalletModel</name>
+    </context>
+<context>
+    <name>WalletView</name>
     </context>
 <context>
     <name>bitcoin-core</name>
@@ -1361,6 +1414,10 @@
     <message>
         <source>Execute command when a wallet transaction changes (%s in cmd is replaced by TxID)</source>
         <translation>Parancs, amit akkor hajt végre, amikor egy tárca-tranzakció megváltozik  (%s a parancsban lecserélődik a blokk TxID-re)</translation>
+    </message>
+    <message>
+        <source>Use UPnP to map the listening port (default: 1 when listening and no -proxy)</source>
+        <translation>UPnP használata porttovábbításra (alapértelmezett: 1, amikor kiszolgál és nem használt a -proxy)</translation>
     </message>
     <message>
         <source>Connect only to the specified node(s)</source>
@@ -1407,6 +1464,10 @@
         <translation>Helytelen vagy nemlétező genézis blokk. Helytelen hálózati adatkönyvtár?</translation>
     </message>
     <message>
+        <source>Loading banlist...</source>
+        <translation>Tiltólista betöltése...</translation>
+    </message>
+    <message>
         <source>Not enough file descriptors available.</source>
         <translation>Nincs elég fájlleíró. </translation>
     </message>
@@ -1421,6 +1482,18 @@
     <message>
         <source>Wallet options:</source>
         <translation>Tárca beállítások:</translation>
+    </message>
+    <message>
+        <source>Discover own IP addresses (default: 1 when listening and no -externalip or -proxy)</source>
+        <translation>Saját IP-cím felfedezése (alapértelmezett: 1, amikor kiszolgál és nem használt a -externalip)</translation>
+    </message>
+    <message>
+        <source>Whitelisted peers cannot be DoS banned and their transactions are always relayed, even if they are already in the mempool, useful e.g. for a gateway</source>
+        <translation>A fehérlistán szereplő felek nem lesznek automatikusan kitiltva és a tranzakcióik is mindig továbbítva lesznek, akkor is ha már a megerősítésre váró listán (mempool) vannak. Hasznos például összekötő csomópontokon (gateway).</translation>
+    </message>
+    <message>
+        <source>(default: %u)</source>
+        <translation>(alapértelmezett: %u)</translation>
     </message>
     <message>
         <source>Error reading from database, shutting down.</source>
@@ -1479,6 +1552,14 @@
     <message>
         <source>Loading addresses...</source>
         <translation>Címek betöltése...</translation>
+    </message>
+    <message>
+        <source>(default: %s)</source>
+        <translation>(alapértelmezett: %s)</translation>
+    </message>
+    <message>
+        <source>Include IP addresses in debug output (default: %u)</source>
+        <translation>IP-címek megjelenítése a naplóban (alapértelmezett: %u)</translation>
     </message>
     <message>
         <source>Invalid -proxy address: '%s'</source>
