@@ -24,6 +24,7 @@
 #include "boost/multi_index_container.hpp"
 #include "boost/multi_index/ordered_index.hpp"
 #include "boost/multi_index/hashed_index.hpp"
+#include <boost/multi_index/sequenced_index.hpp>
 
 class CAutoFile;
 class CBlockIndex;
@@ -210,13 +211,18 @@ private:
     const LockPoints& lp;
 };
 
-// extracts a TxMemPoolEntry's transaction hash
+// extracts a transaction hash from CTxMempoolEntry or CTransactionRef
 struct mempoolentry_txid
 {
     typedef uint256 result_type;
     result_type operator() (const CTxMemPoolEntry &entry) const
     {
         return entry.GetTx().GetHash();
+    }
+
+    result_type operator() (CTransactionRef tx) const
+    {
+        return tx->GetHash();
     }
 };
 
@@ -716,6 +722,83 @@ struct TxCoinAgePriorityCompare
         if (a.first == b.first)
             return CompareTxMemPoolEntryByScore()(*(b.second), *(a.second)); //Reverse order to make sort less than
         return a.first < b.first;
+    }
+};
+
+/**
+ * DisconnectedBlockTransactions
+
+ * During the reorg, it's desirable to re-add previously confirmed transactions
+ * to the mempool, so that anything not re-confirmed in the new chain is
+ * available to be mined. However, it's more efficient to wait until the reorg
+ * is complete and process all still-unconfirmed transactions at that time,
+ * since we expect most confirmed transactions to (typically) still be
+ * confirmed in the new chain, and re-accepting to the memory pool is expensive
+ * (and therefore better to not do in the middle of reorg-processing).
+ * Instead, store the disconnected transactions (in order!) as we go, remove any
+ * that are included in blocks in the new chain, and then process the remaining
+ * still-unconfirmed transactions at the end.
+ */
+
+// multi_index tag names
+struct txid_index {};
+struct insertion_order {};
+
+struct DisconnectedBlockTransactions {
+    typedef boost::multi_index_container<
+        CTransactionRef,
+        boost::multi_index::indexed_by<
+            // sorted by txid
+            boost::multi_index::hashed_unique<
+                boost::multi_index::tag<txid_index>,
+                mempoolentry_txid,
+                SaltedTxidHasher
+            >,
+            // sorted by order in the blockchain
+            boost::multi_index::sequenced<
+                boost::multi_index::tag<insertion_order>
+            >
+        >
+    > indexed_disconnected_transactions;
+
+    indexed_disconnected_transactions queuedTx;
+    uint64_t cachedInnerUsage = 0;
+
+    // Estimate the overhead of queuedTx to be 6 pointers + an allocation, as
+    // no exact formula for boost::multi_index_contained is implemented.
+    size_t DynamicMemoryUsage() const {
+        return memusage::MallocUsage(sizeof(CTransactionRef) + 6 * sizeof(void*)) * queuedTx.size() + cachedInnerUsage;
+    }
+
+    void addTransaction(CTransactionRef tx)
+    {
+        queuedTx.insert(tx);
+        cachedInnerUsage += RecursiveDynamicUsage(*tx) + memusage::DynamicUsage(tx);
+    }
+
+    // Remove entries based on txid_index, and update memory usage.
+    void removeForBlock(const std::vector<CTransactionRef>& vtx)
+    {
+        for (auto const &tx : vtx) {
+            auto it = queuedTx.find(tx->GetHash());
+            if (it != queuedTx.end()) {
+                cachedInnerUsage -= RecursiveDynamicUsage(**it) + memusage::DynamicUsage(*it);
+                queuedTx.erase(it);
+            }
+        }
+    }
+
+    // Remove an entry by insertion_order index, and update memory usage.
+    void removeEntry(indexed_disconnected_transactions::index<insertion_order>::type::iterator entry)
+    {
+        cachedInnerUsage -= RecursiveDynamicUsage(**entry) + memusage::DynamicUsage(*entry);
+        queuedTx.get<insertion_order>().erase(entry);
+    }
+
+    void clear()
+    {
+        cachedInnerUsage = 0;
+        queuedTx.clear();
     }
 };
 
