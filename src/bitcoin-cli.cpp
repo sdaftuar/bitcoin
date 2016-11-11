@@ -28,6 +28,7 @@ using namespace std;
 
 static const char DEFAULT_RPCCONNECT[] = "127.0.0.1";
 static const int DEFAULT_HTTP_CLIENT_TIMEOUT=900;
+static const int CONTINUE_EXECUTION=-1;
 
 std::string HelpMessageCli()
 {
@@ -67,7 +68,11 @@ public:
 
 };
 
-static bool AppInitRPC(int argc, char* argv[])
+//
+// This function returns either one of EXIT_ codes when it's expected to stop the process or
+// CONTINUE_EXECUTION when it's expected to continue further.
+//
+static int AppInitRPC(int argc, char* argv[])
 {
     //
     // Parameters
@@ -85,31 +90,35 @@ static bool AppInitRPC(int argc, char* argv[])
         }
 
         fprintf(stdout, "%s", strUsage.c_str());
-        return false;
+        if (argc < 2) {
+            fprintf(stderr, "Error: too few parameters\n");
+            return EXIT_FAILURE;
+        }
+        return EXIT_SUCCESS;
     }
     if (!boost::filesystem::is_directory(GetDataDir(false))) {
         fprintf(stderr, "Error: Specified data directory \"%s\" does not exist.\n", mapArgs["-datadir"].c_str());
-        return false;
+        return EXIT_FAILURE;
     }
     try {
         ReadConfigFile(GetArg("-conf", BITCOIN_CONF_FILENAME), mapArgs, mapMultiArgs);
     } catch (const std::exception& e) {
         fprintf(stderr,"Error reading configuration file: %s\n", e.what());
-        return false;
+        return EXIT_FAILURE;
     }
     // Check for -testnet or -regtest parameter (BaseParams() calls are only valid after this clause)
     try {
         SelectBaseParams(ChainNameFromCommandLine());
     } catch (const std::exception& e) {
         fprintf(stderr, "Error: %s\n", e.what());
-        return false;
+        return EXIT_FAILURE;
     }
     if (GetBoolArg("-rpcssl", false))
     {
         fprintf(stderr, "Error: SSL mode for RPC (-rpcssl) is no longer supported.\n");
-        return false;
+        return EXIT_FAILURE;
     }
-    return true;
+    return CONTINUE_EXECUTION;
 }
 
 
@@ -223,7 +232,7 @@ UniValue CallRPC(const string& strMethod, const UniValue& params)
     evhttp_add_header(output_headers, "Authorization", (std::string("Basic ") + EncodeBase64(strRPCUserColonPass)).c_str());
 
     // Attach request data
-    std::string strRequest = JSONRPCRequest(strMethod, params, 1);
+    std::string strRequest = JSONRPCRequestObj(strMethod, params, 1).write() + "\n";
     struct evbuffer * output_buffer = evhttp_request_get_output_buffer(req);
     assert(output_buffer);
     evbuffer_add(output_buffer, strRequest.data(), strRequest.size());
@@ -240,7 +249,7 @@ UniValue CallRPC(const string& strMethod, const UniValue& params)
     event_base_free(base);
 
     if (response.status == 0)
-        throw CConnectionFailed(strprintf("couldn't connect to server (%d %s)", response.error, http_errorstring(response.error)));
+        throw CConnectionFailed(strprintf("couldn't connect to server\n(make sure server is running and you are connecting to the correct RPC port: %d %s)", response.error, http_errorstring(response.error)));
     else if (response.status == HTTP_UNAUTHORIZED)
         throw runtime_error("incorrect rpcuser or rpcpassword (authorization failed)");
     else if (response.status >= 400 && response.status != HTTP_BAD_REQUEST && response.status != HTTP_NOT_FOUND && response.status != HTTP_INTERNAL_SERVER_ERROR)
@@ -354,8 +363,9 @@ int main(int argc, char* argv[])
     }
 
     try {
-        if(!AppInitRPC(argc, argv))
-            return EXIT_FAILURE;
+        int ret = AppInitRPC(argc, argv);
+        if (ret != CONTINUE_EXECUTION)
+            return ret;
     }
     catch (const std::exception& e) {
         PrintExceptionContinue(&e, "AppInitRPC()");

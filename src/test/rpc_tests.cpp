@@ -24,11 +24,14 @@ UniValue CallRPC(string args)
     boost::split(vArgs, args, boost::is_any_of(" \t"));
     string strMethod = vArgs[0];
     vArgs.erase(vArgs.begin());
-    UniValue params = RPCConvertValues(strMethod, vArgs);
+    JSONRPCRequest request;
+    request.strMethod = strMethod;
+    request.params = RPCConvertValues(strMethod, vArgs);
+    request.fHelp = false;
     BOOST_CHECK(tableRPC[strMethod]);
     rpcfn_type method = tableRPC[strMethod]->actor;
     try {
-        UniValue result = (*method)(params, false);
+        UniValue result = (*method)(request);
         return result;
     }
     catch (const UniValue& objError) {
@@ -79,6 +82,28 @@ BOOST_AUTO_TEST_CASE(rpc_rawparams)
     BOOST_CHECK_THROW(CallRPC("sendrawtransaction null"), runtime_error);
     BOOST_CHECK_THROW(CallRPC("sendrawtransaction DEADBEEF"), runtime_error);
     BOOST_CHECK_THROW(CallRPC(string("sendrawtransaction ")+rawtx+" extra"), runtime_error);
+}
+
+BOOST_AUTO_TEST_CASE(rpc_togglenetwork)
+{
+    UniValue r;
+
+    r = CallRPC("getnetworkinfo");
+    bool netState = find_value(r.get_obj(), "networkactive").get_bool();
+    BOOST_CHECK_EQUAL(netState, true);
+
+    BOOST_CHECK_NO_THROW(CallRPC("setnetworkactive false"));
+    r = CallRPC("getnetworkinfo");
+    int numConnection = find_value(r.get_obj(), "connections").get_int();
+    BOOST_CHECK_EQUAL(numConnection, 0);
+
+    netState = find_value(r.get_obj(), "networkactive").get_bool();
+    BOOST_CHECK_EQUAL(netState, false);
+
+    BOOST_CHECK_NO_THROW(CallRPC("setnetworkactive true"));
+    r = CallRPC("getnetworkinfo");
+    netState = find_value(r.get_obj(), "networkactive").get_bool();
+    BOOST_CHECK_EQUAL(netState, true);
 }
 
 BOOST_AUTO_TEST_CASE(rpc_rawsign)

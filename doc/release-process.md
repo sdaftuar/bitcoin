@@ -12,6 +12,7 @@ Before every minor and major release:
 * Update [bips.md](bips.md) to account for changes since the last release.
 * Update version in sources (see below)
 * Write release notes (see below)
+* Update `src/chainparams.cpp` nMinimumChainWork with information from the getblockchaininfo rpc.
 
 Before every major release:
 
@@ -279,6 +280,8 @@ bitcoin.org (see below for bitcoin.org update instructions).
 
   - Notify BlueMatt so that he can start building [the PPAs](https://launchpad.net/~bitcoin/+archive/ubuntu/bitcoin)
 
-  - Add release notes for the new version to the directory `doc/release-notes` in git master
+  - Archive release notes for the new version to `doc/release-notes/` (branch `master` and branch of the release)
+
+  - Create a [new GitHub release](https://github.com/bitcoin/bitcoin/releases/new) with a link to the archived release notes.
 
   - Celebrate

@@ -50,7 +50,6 @@ BITCOIN_TESTS =\
   test/bip32_tests.cpp \
   test/blockencodings_tests.cpp \
   test/bloom_tests.cpp \
-  test/Checkpoints_tests.cpp \
   test/coins_tests.cpp \
   test/compress_tests.cpp \
   test/crypto_tests.cpp \
@@ -85,6 +84,7 @@ BITCOIN_TESTS =\
   test/streams_tests.cpp \
   test/test_bitcoin.cpp \
   test/test_bitcoin.h \
+  test/test_random.h \
   test/testutil.cpp \
   test/testutil.h \
   test/timedata_tests.cpp \
