@@ -608,6 +608,8 @@ void ThreadImport(std::vector<boost::filesystem::path> vImportFiles)
 {
     const CChainParams& chainparams = Params();
     RenameThread("bitcoin-loadblk");
+
+    {
     CImportingNow imp;
 
     // -reindex
@@ -667,7 +669,7 @@ void ThreadImport(std::vector<boost::filesystem::path> vImportFiles)
         LogPrintf("Stopping after block import\n");
         StartShutdown();
     }
-
+    } // End scope of CImportingNow
     LoadMempool();
 }
 
