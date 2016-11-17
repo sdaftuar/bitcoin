@@ -1,4 +1,5 @@
 #include "cclglobals.h"
+#include "consensus/validation.h"
 #include "init.h"
 #include "ui_interface.h" // Defines the _() function!
 #include "arith_uint256.h"
@@ -11,7 +12,7 @@
 CCLGlobals *cclGlobals = new CCLGlobals;
 
 CCLGlobals::CCLGlobals()
-    : mempool(NULL), writeMempoolAtShutdown(false), rnd(301)
+    : mempool(NULL), rnd(301)
 {
 }
 
@@ -24,9 +25,6 @@ void CCLGlobals::UpdateUsage(std::string &strUsage)
 {
     strUsage += "\n" + _("CCL Options:") + "\n";
 
-    // CCL options:
-    strUsage += "  -writemempool=<file>            " + _("Write out mempool at end of run to DATADIR/file; specifying file is optional (default: 'mempool')") + "\n";
-
     // DataLogger options
     strUsage += "  -dlogdir=<dirname>      " + _("Turn on data logging to specified output directory") + "\n";
 
@@ -35,22 +33,13 @@ void CCLGlobals::UpdateUsage(std::string &strUsage)
     strUsage += "      -simdatadir=<dir>  " + _("For simulations: specify data directory (default: /chaincode/data/)") + "\n";
     strUsage += "      -start=<YYYYMMDD>  " + _("For simulations: start date") + "\n";
     strUsage += "      -end=<YYYYMMDD>    " + _("For simulations: end date (defaults to start date)") + "\n";
-    strUsage += "      -loadmempool=[1/0] " + _("Turn on/off loading initial mempool (default: 1)") + "\n";
+    strUsage += "      -loadmempool=[1/0] " + _("Turn on/off loading initial mempool (default: 0)") + "\n";
 
 }
 
 bool CCLGlobals::Init(CTxMemPool *pool)
 {
     mempool = pool;
-
-    // CCL initialization
-    if (mapArgs.count("-writemempool")) {
-        writeMempoolAtShutdown = true;
-        if (mapArgs["-writemempool"].empty())
-            outputFileName = "mempool";
-        else
-            outputFileName = mapArgs["-writemempool"];
-    }
 
     // DataLogger initialization
     if (mapArgs.count("-dlogdir")) {
@@ -74,12 +63,23 @@ bool CCLGlobals::Init(CTxMemPool *pool)
         if (mapArgs.count("-simdatadir")) {
             simdatadir = mapArgs["-simdatadir"];
         }
-        bool loadMempool = GetBoolArg("-loadmempool", true);
         simulation.reset(new
             Simulation(boost::gregorian::from_undelimited_string(startdate),
                 boost::gregorian::from_undelimited_string(enddate),
-                simdatadir, loadMempool)
+                simdatadir)
         );
+
+        // If we're in simulation, normal mempool loading won't take place,
+        // because we disable the import thread.
+        // Load the mempool directly if asked to do so.
+        if (GetBoolArg("-loadmempool", false)) {
+            // LoadMempool will proactively expire old transactions,
+            // so set the mocktime to be from where the simulation would start.
+            boost::gregorian::date sdate = boost::gregorian::from_undelimited_string(startdate);
+            boost::posix_time::ptime simStart(sdate);
+            SetMockTime(boost::posix_time::to_time_t(simStart));
+            LoadMempool();
+        }
     }
     return true;
 }
@@ -94,68 +94,14 @@ bool CCLGlobals::Run(boost::thread_group &threadGroup)
     }
 }
 
+bool CCLGlobals::IsSim()
+{
+    return (simulation.get() != NULL);
+}
+
 void CCLGlobals::Shutdown()
 {
     if (dlog.get()) dlog->Shutdown();
-    if (writeMempoolAtShutdown) {
-        boost::filesystem::path output = GetDataDir() /
-            outputFileName;
-        CAutoFile mplog(fopen(output.string().c_str(), "wb"),
-                SER_DISK, CLIENT_VERSION);
-        WriteMempool(mplog);
-    }
-}
-
-void CCLGlobals::InitMemPool(CAutoFile &filein)
-{
-    int counter=0;
-    LOCK(mempool->cs);
-
-    try {
-        while (1) {
-            CTransaction tx;
-            int64_t nFee;
-            int64_t nTime;
-            double dPriority;
-            unsigned int nHeight;
-
-            filein >> tx;
-            filein >> nFee;
-            filein >> nTime;
-            filein >> dPriority;
-            filein >> nHeight;
-
-            // TODO: restore original values somehow.  For now restoring the
-            // mempool exactly doesn't work quite right, and not clear we use
-            // it much anyway.
-            ProcessTransaction(tx);
-            //CTxMemPoolEntry e(tx, nFee, nTime, dPriority, nHeight);
-            //mempool->addUnchecked(tx.GetHash(), e);
-            ++counter;
-        }
-    } catch (std::ios_base::failure e) {
-
-    }
-    LogPrintf("CCLGlobals: added %u/%d entries to mempool\n", mempool->size(), counter);
-}
-
-void CCLGlobals::WriteMempool(CAutoFile &logfile)
-{
-    if (!logfile.IsNull()) {
-        LOCK(mempool->cs);
-        CTxMemPool::txiter it;
-        for (it=cclGlobals->mempool->mapTx.begin();
-            it != cclGlobals->mempool->mapTx.end(); ++it) {
-            // can't get this to work:
-            // mempoolLog << it->second;
-            const CTxMemPoolEntry &e = *it;
-            logfile << e.GetTx();
-            logfile << e.GetFee();
-            logfile << e.GetTime();
-            logfile << e.GetPriority(e.GetHeight());
-            logfile << e.GetHeight();
-        }
-    }
 }
 
 // Use the leveldb random number generator -- not a crypto secure

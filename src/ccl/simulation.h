@@ -77,7 +77,7 @@ struct BlockTransactionsEvent : public CCLEvent {
 
 class Simulation {
 public:
-    Simulation(date startdate, date enddate, std::string datadir, bool loadMempool);
+    Simulation(date startdate, date enddate, std::string datadir);
     ~Simulation() {}
 
     void operator()();
@@ -100,7 +100,6 @@ private:
     boost::filesystem::path logdir;
 
     date begindate, enddate;
-    bool loadMempoolAtStartup;
 
     int64_t timeInMicros; // microseconds since epoch
 };

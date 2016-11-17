@@ -15,10 +15,9 @@
 using namespace boost;
 using namespace std;
 
-Simulation::Simulation(date sdate, date edate, string datadir, bool loadMempool)
+Simulation::Simulation(date sdate, date edate, string datadir)
  : logdir(datadir),
-   begindate(sdate), enddate(edate),
-   loadMempoolAtStartup(loadMempool)
+   begindate(sdate), enddate(edate)
 {
     LoadFiles(begindate);
     if (blkfile->IsNull()) {
@@ -35,14 +34,6 @@ Simulation::Simulation(date sdate, date edate, string datadir, bool loadMempool)
     }
     if (blocktxnfile->IsNull()) {
         LogPrintf("Simulation: can't open blocktxn file, continuing without\n");
-    }
-
-    // Actually, this should error if the right date can't be found...
-    if (loadMempoolAtStartup) {
-        InitAutoFile(mempoolfile, "mempool.", begindate);
-        if (mempoolfile->IsNull()) {
-            LogPrintf("Simulation: can't open mempool file, continuing without\n");
-        }
     }
 }
 
@@ -75,13 +66,6 @@ void Simulation::operator()()
     LogPrintf("Simulation starting\n");
 
     date curdate = begindate;
-    if (loadMempoolAtStartup) {
-        // Start up with beginning mempool
-        //cclGlobals->InitMemPool(*mempoolfile);
-        LogPrintf("Simulation: not loading mempool! Doesn't really work...\n");
-    } else {
-        LogPrintf("Simulation: not loading mempool\n");
-    }
     while (curdate <= enddate) {
         bool txEOF = false;
         bool blkEOF = false;

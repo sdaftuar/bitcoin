@@ -17,7 +17,6 @@ DataLogger::DataLogger(string pathPrefix)
         logdir = pathPrefix;
     }
 
-    //LoadOldMempool();
     RollDate();
 
     if (transactionLog->IsNull()) {
@@ -25,9 +24,6 @@ DataLogger::DataLogger(string pathPrefix)
     }
     if (blockLog->IsNull()) {
         LogPrintf("DataLogger: Unable to create block log file, will proceed with no block log\n");
-    }
-    if (mempoolLog->IsNull()) {
-        LogPrintf("DataLogger: Unable to create mempool log file, will proceed with no mempool log\n");
     }
     if (headersLog->IsNull()) {
         LogPrintf("DataLogger: Unable to create headers log file, will proceed with no headers log\n");
@@ -42,27 +38,6 @@ DataLogger::DataLogger(string pathPrefix)
 
 DataLogger::~DataLogger() {}
 
-void DataLogger::LoadOldMempool()
-{
-    date today(day_clock::local_day());
-
-    std::string fullname = "mempool." + to_iso_string(today);
-    boost::filesystem::path thispath = logdir / fullname;
-
-    if (!boost::filesystem::exists(thispath)) {
-        fullname = "mempool." + to_iso_string(today-days(1));
-        thispath = logdir / fullname;
-    }
-
-    CAutoFile oldMempool(fopen(thispath.string().c_str(), "rb"), SER_DISK, CLIENT_VERSION);
-
-    if (!oldMempool.IsNull()) {
-        cclGlobals->InitMemPool(oldMempool);
-    } else {
-        LogPrintf("DataLogger: unable to load previous mempool, continuing without\n");
-    }
-}
-
 void DataLogger::RollDate()
 {
     LogPrintf("DataLogger: log files rolling to new date\n");
@@ -72,12 +47,9 @@ void DataLogger::RollDate()
     // to specify the event type.
     InitAutoFile(transactionLog, "tx.", to_iso_string(today));
     InitAutoFile(blockLog, "block.", to_iso_string(today));
-    InitAutoFile(mempoolLog, "mempool.", to_iso_string(today));
     InitAutoFile(headersLog, "headers.", to_iso_string(today));
     InitAutoFile(cmpctblockLog, "cmpctblock.", to_iso_string(today));
     InitAutoFile(blocktxnLog, "blocktxn.", to_iso_string(today));
-
-    cclGlobals->WriteMempool(*mempoolLog);
 
     logRotateDate = today + days(1);
 }
@@ -97,9 +69,7 @@ void DataLogger::InitAutoFile(unique_ptr<CAutoFile> &which, std::string prefix, 
 }
 
 void DataLogger::Shutdown()
-{
-    cclGlobals->WriteMempool(*mempoolLog);
-}
+{ }
 
 void DataLogger::OnNewTransaction(CTransaction &tx)
 {
