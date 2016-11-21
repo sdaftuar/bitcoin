@@ -135,7 +135,7 @@ void print(BlockEvent &blockEvent)
             block.nTime, block.nBits, block.nNonce,
             block.vtx.size());
     for (unsigned int i = 0; i < block.vtx.size(); i++)
-        printf("[%d] %s\n", i, block.vtx[i].ToString().c_str());
+        printf("[%d] %s\n", i, block.vtx[i]->ToString().c_str());
     printf("\n");
 }
 

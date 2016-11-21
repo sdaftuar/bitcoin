@@ -131,8 +131,7 @@ void Simulation::operator()()
                 ProcessTransaction(txEvent.obj);
                 txEvent.reset();
             } else if (nextEvent == &blockEvent) {
-                CValidationState state;
-                ProcessNewBlock(state, Params(), NULL, &blockEvent.obj, true, NULL, false);
+                ProcessNewBlock(Params(), &blockEvent.obj, true, NULL, NULL);
                 blockEvent.reset();
             } else if (nextEvent == &headersEvent) {
                 CValidationState state;
