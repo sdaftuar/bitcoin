@@ -5738,9 +5738,8 @@ bool static ProcessMessage(CNode* pfrom, string strCommand, CDataStream& vRecv, 
 
         // If we successfully decode the compact block, store here for processing
         // (without cs_main).
-        bool fBlockReconstructed = false;
-        CDataStream blockTxnMsg(SER_NETWORK, PROTOCOL_VERSION);
-
+        bool fBlockRead = false;
+        CBlock block;
         {
         LOCK(cs_main);
 
@@ -5800,9 +5799,17 @@ bool static ProcessMessage(CNode* pfrom, string strCommand, CDataStream& vRecv, 
         // We want to be a bit conservative just to be extra careful about DoS
         // possibilities in compact block processing...
         if (pindex->nHeight <= chainActive.Height() + 2) {
-            if ((!fAlreadyInFlight && nodestate->nBlocksInFlight < MAX_BLOCKS_IN_TRANSIT_PER_PEER) ||
-                 (fAlreadyInFlight && blockInFlightIt->second.first == pfrom->GetId())) {
-                list<QueuedBlock>::iterator *queuedBlockIt = NULL;
+            bool fRequestedOtherPeer = fAlreadyInFlight && blockInFlightIt->second.first != pfrom->GetId();
+            // fAbleToDownload will be true if we can request the block from
+            // this peer, or if we've already requested this block from the
+            // peer.
+            bool fAbleToDownload = !fRequestedOtherPeer && nodestate->nBlocksInFlight < MAX_BLOCKS_IN_TRANSIT_PER_PEER;
+            PartiallyDownloadedBlock tempBlock(&mempool);
+            list<QueuedBlock>::iterator *queuedBlockIt = NULL;
+            if (fAbleToDownload) {
+                // Insert or lookup the queuedBlock entry for this block and
+                // this peer, and create a new PartiallyDownloadedBlock to use
+                // for reconstruction.
                 if (!MarkBlockAsInFlight(pfrom->GetId(), pindex->GetBlockHash(), chainparams.GetConsensus(), pindex, &queuedBlockIt)) {
                     if (!(*queuedBlockIt)->partialBlock)
                         (*queuedBlockIt)->partialBlock.reset(new PartiallyDownloadedBlock(&mempool));
@@ -5812,44 +5819,67 @@ bool static ProcessMessage(CNode* pfrom, string strCommand, CDataStream& vRecv, 
                         return true;
                     }
                 }
+            }
 
-                PartiallyDownloadedBlock& partialBlock = *(*queuedBlockIt)->partialBlock;
-                ReadStatus status = partialBlock.InitData(cmpctblock);
+            PartiallyDownloadedBlock& partialBlock = fAbleToDownload ?  *(*queuedBlockIt)->partialBlock : tempBlock;
+            ReadStatus status = partialBlock.InitData(cmpctblock);
 
-                if (status == READ_STATUS_INVALID) {
+            if (status == READ_STATUS_INVALID) {
+                if (fAbleToDownload)
                     MarkBlockAsReceived(pindex->GetBlockHash()); // Reset in-flight state in case of whitelist
-                    Misbehaving(pfrom->GetId(), 100);
-                    LogPrintf("Peer %d sent us invalid compact block\n", pfrom->id);
-                    return true;
-                } else if (status == READ_STATUS_FAILED) {
+                Misbehaving(pfrom->GetId(), 100);
+                LogPrintf("Peer %d sent us invalid compact block\n", pfrom->id);
+                return true;
+            } else if (status == READ_STATUS_FAILED) {
+                if (fAbleToDownload) {
                     // Duplicate txindexes, the block is now in-flight, so just request it
                     std::vector<CInv> vInv(1);
                     vInv[0] = CInv(MSG_BLOCK | GetFetchFlags(pfrom, pindex->pprev, chainparams.GetConsensus()), cmpctblock.header.GetHash());
                     connman.PushMessage(pfrom, NetMsgType::GETDATA, vInv);
-                    return true;
                 }
+                return true;
+            }
 
-                if (!fAlreadyInFlight && mapBlocksInFlight.size() == 1 && pindex->pprev->IsValid(BLOCK_VALID_CHAIN)) {
-                    // We seem to be rather well-synced, so it appears pfrom was the first to provide us
-                    // with this block! Let's get them to announce using compact blocks in the future.
-                    MaybeSetPeerAsAnnouncingHeaderAndIDs(nodestate, pfrom, connman);
-                }
+            if (!fAlreadyInFlight && mapBlocksInFlight.size() == 1 && pindex->pprev->IsValid(BLOCK_VALID_CHAIN)) {
+                // We seem to be rather well-synced, so it appears pfrom was the first to provide us
+                // with this block! Let's get them to announce using compact blocks in the future.
+                MaybeSetPeerAsAnnouncingHeaderAndIDs(nodestate, pfrom, connman);
+            }
 
-                BlockTransactionsRequest req;
-                for (size_t i = 0; i < cmpctblock.BlockTxCount(); i++) {
-                    if (!partialBlock.IsTxAvailable(i))
-                        req.indexes.push_back(i);
-                }
-                if (req.indexes.empty()) {
-                    // Dirty hack to jump to BLOCKTXN code (TODO: move message handling into their own functions)
-                    BlockTransactions txn;
-                    txn.blockhash = cmpctblock.header.GetHash();
-                    blockTxnMsg << txn;
-                    fBlockReconstructed = true;
+            BlockTransactionsRequest req;
+            for (size_t i = 0; i < cmpctblock.BlockTxCount(); i++) {
+                if (!partialBlock.IsTxAvailable(i))
+                    req.indexes.push_back(i);
+            }
+            if (req.indexes.empty()) {
+                // Dirty hack to jump to BLOCKTXN code (TODO: move message handling into their own functions)
+                BlockTransactions txn;
+                txn.blockhash = cmpctblock.header.GetHash();
+                ReadStatus status = partialBlock.FillBlock(block, txn.txn);
+                if (status == READ_STATUS_INVALID) {
+                    // This should be impossible, since we checked that we have
+                    // all the transactions.
+                    if (fAbleToDownload)
+                        MarkBlockAsReceived(txn.blockhash);
+                    Misbehaving(pfrom->GetId(), 100);
+                    LogPrintf("Peer %d sent us invalid compact block/non-matching transactions\n", pfrom->id);
+                } else if (status == READ_STATUS_FAILED) {
+                    // Could be due to collision.
+                    if (fAbleToDownload) {
+                        std::vector<CInv> invs;
+                        invs.push_back(CInv(MSG_BLOCK | GetFetchFlags(pfrom, chainActive.Tip(), chainparams.GetConsensus()), txn.blockhash));
+                        connman.PushMessage(pfrom, NetMsgType::GETDATA, invs);
+                    }
                 } else {
-                    req.blockhash = pindex->GetBlockHash();
-                    connman.PushMessage(pfrom, NetMsgType::GETBLOCKTXN, req);
+                    // Try to process the block.
+                    if (fAbleToDownload)
+                        MarkBlockAsReceived(txn.blockhash);
+                    mapBlockSource.emplace(txn.blockhash, std::make_pair(pfrom->GetId(), false));
+                    fBlockRead = true;
                 }
+            } else if (fAbleToDownload) {
+                req.blockhash = pindex->GetBlockHash();
+                connman.PushMessage(pfrom, NetMsgType::GETBLOCKTXN, req);
             }
         } else {
             if (fAlreadyInFlight) {
@@ -5871,8 +5901,14 @@ bool static ProcessMessage(CNode* pfrom, string strCommand, CDataStream& vRecv, 
         }
         } // cs_main
 
-        if (fBlockReconstructed)
-            return ProcessMessage(pfrom, NetMsgType::BLOCKTXN, blockTxnMsg, nTimeReceived, chainparams, connman);
+        if (fBlockRead) {
+            bool fNewBlock = false;
+            // Since we requested this block (it was in mapBlocksInFlight), force it to be processed,
+            // even if it would not be a candidate for new tip (missing previous block, chain not long enough, etc)
+            ProcessNewBlock(chainparams, &block, true, NULL, &fNewBlock);
+            if (fNewBlock)
+                pfrom->nLastBlockTime = GetTime();
+        }
     }
 
     else if (strCommand == NetMsgType::BLOCKTXN && !fImporting && !fReindex) // Ignore blocks received while importing
