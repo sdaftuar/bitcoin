@@ -531,12 +531,11 @@ void MaybeSetPeerAsAnnouncingHeaderAndIDs(const CNodeState* nodestate, CNode* pf
         if (lNodesAnnouncingHeaderAndIDs.size() >= 3) {
             // As per BIP152, we only get 3 of our peers to announce
             // blocks using compact encodings.
-            bool found = connman.ForNode(lNodesAnnouncingHeaderAndIDs.front(), [&connman, fAnnounceUsingCMPCTBLOCK, nCMPCTBLOCKVersion](CNode* pnodeStop){
+            connman.ForNode(lNodesAnnouncingHeaderAndIDs.front(), [&connman, fAnnounceUsingCMPCTBLOCK, nCMPCTBLOCKVersion](CNode* pnodeStop){
                 connman.PushMessage(pnodeStop, NetMsgType::SENDCMPCT, fAnnounceUsingCMPCTBLOCK, nCMPCTBLOCKVersion);
                 return true;
             });
-            if(found)
-                lNodesAnnouncingHeaderAndIDs.pop_front();
+            lNodesAnnouncingHeaderAndIDs.pop_front();
         }
         fAnnounceUsingCMPCTBLOCK = true;
         connman.PushMessage(pfrom, NetMsgType::SENDCMPCT, fAnnounceUsingCMPCTBLOCK, nCMPCTBLOCKVersion);
@@ -2466,7 +2465,6 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
 
     CCheckQueueControl<CScriptCheck> control(fScriptChecks && nScriptCheckThreads ? &scriptcheckqueue : NULL);
 
-    std::vector<uint256> vOrphanErase;
     std::vector<int> prevheights;
     CAmount nFees = 0;
     int nInputs = 0;
@@ -2495,17 +2493,6 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
             prevheights.resize(tx.vin.size());
             for (size_t j = 0; j < tx.vin.size(); j++) {
                 prevheights[j] = view.AccessCoins(tx.vin[j].prevout.hash)->nHeight;
-            }
-
-            // Which orphan pool entries must we evict?
-            for (size_t j = 0; j < tx.vin.size(); j++) {
-                auto itByPrev = mapOrphanTransactionsByPrev.find(tx.vin[j].prevout);
-                if (itByPrev == mapOrphanTransactionsByPrev.end()) continue;
-                for (auto mi = itByPrev->second.begin(); mi != itByPrev->second.end(); ++mi) {
-                    const CTransaction& orphanTx = (*mi)->second.tx;
-                    const uint256& orphanHash = orphanTx.GetHash();
-                    vOrphanErase.push_back(orphanHash);
-                }
             }
 
             if (!SequenceLocks(tx, nLockTimeFlags, &prevheights, *pindex)) {
@@ -2597,14 +2584,6 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
     GetMainSignals().UpdatedTransaction(hashPrevBestCoinBase);
     hashPrevBestCoinBase = block.vtx[0]->GetHash();
 
-    // Erase orphan transactions include or precluded by this block
-    if (vOrphanErase.size()) {
-        int nErased = 0;
-        BOOST_FOREACH(uint256 &orphanHash, vOrphanErase) {
-            nErased += EraseOrphanTx(orphanHash);
-        }
-        LogPrint("mempool", "Erased %d orphan tx included or conflicted by block\n", nErased);
-    }
 
     int64_t nTime6 = GetTimeMicros(); nTimeCallbacks += nTime6 - nTime5;
     LogPrint("bench", "    - Callbacks: %.2fms [%.2fs]\n", 0.001 * (nTime6 - nTime5), nTimeCallbacks * 0.000001);
@@ -4861,6 +4840,34 @@ std::string GetWarnings(const std::string& strFor)
 PeerLogicValidation::PeerLogicValidation(CConnman* connmanIn) : connman(connmanIn) {
     // Initialize global variables that cannot be constructed at startup.
     recentRejects.reset(new CRollingBloomFilter(120000, 0.000001));
+}
+
+void PeerLogicValidation::SyncTransaction(const CTransaction& tx, const CBlockIndex* pindex, int nPosInBlock) {
+    if (nPosInBlock == CMainSignals::SYNC_TRANSACTION_NOT_IN_BLOCK)
+        return;
+
+    LOCK(cs_main);
+
+    std::vector<uint256> vOrphanErase;
+    // Which orphan pool entries must we evict?
+    for (size_t j = 0; j < tx.vin.size(); j++) {
+        auto itByPrev = mapOrphanTransactionsByPrev.find(tx.vin[j].prevout);
+        if (itByPrev == mapOrphanTransactionsByPrev.end()) continue;
+        for (auto mi = itByPrev->second.begin(); mi != itByPrev->second.end(); ++mi) {
+            const CTransaction& orphanTx = (*mi)->second.tx;
+            const uint256& orphanHash = orphanTx.GetHash();
+            vOrphanErase.push_back(orphanHash);
+        }
+    }
+
+    // Erase orphan transactions include or precluded by this block
+    if (vOrphanErase.size()) {
+        int nErased = 0;
+        BOOST_FOREACH(uint256 &orphanHash, vOrphanErase) {
+            nErased += EraseOrphanTx(orphanHash);
+        }
+        LogPrint("mempool", "Erased %d orphan tx included or conflicted by block\n", nErased);
+    }
 }
 
 void PeerLogicValidation::UpdatedBlockTip(const CBlockIndex *pindexNew, const CBlockIndex *pindexFork, bool fInitialDownload) {
