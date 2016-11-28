@@ -72,7 +72,7 @@ class DataLoggingTest(BitcoinTestFramework):
         # TODO: figure out how many headers we should actually get...
         allheaders = subprocess.check_output([ "dataprinter", self.options.tmpdir+"/headers."+today])
         hdrheaders = re.findall(b'CBlockHeader', allheaders)
-        if len(mpheaders) == 0:
+        if len(hdrheaders) == 0:
             raise AssertionError("Wrong number of blockheader entries, expected some, got %d" % len(hdrheaders))
 
 if __name__ == '__main__':
