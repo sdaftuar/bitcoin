@@ -1489,7 +1489,10 @@ bool AppInit2(boost::thread_group& threadGroup, CScheduler& scheduler)
             vImportFiles.push_back(strFile);
     }
 
-    threadGroup.create_thread(boost::bind(&ThreadImport, vImportFiles));
+    // Don't even start the importing thread if we're in sim mode.
+    if (!cclGlobals->IsSim()) {
+        threadGroup.create_thread(boost::bind(&ThreadImport, vImportFiles));
+    }
 
     // Wait for genesis block to be processed
     {

@@ -7182,10 +7182,12 @@ bool LoadMempool(void)
             CValidationState state;
             if (nTime + nExpiryTimeout > nNow) {
                 LOCK(cs_main);
-                AcceptToMemoryPoolWithTime(mempool, state, tx, true, NULL, nTime);
+                AcceptToMemoryPoolWithTime(mempool, state, tx, false, NULL, nTime);
                 if (state.IsValid()) {
                     ++count;
                 } else {
+                    LogPrint("mempoolrej", "%s was not accepted: %s\n", tx.GetHash().ToString(),
+                            FormatStateMessage(state));
                     ++failed;
                 }
             } else {
