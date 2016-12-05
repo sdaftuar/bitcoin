@@ -610,7 +610,8 @@ UniValue getblockhash(const JSONRPCRequest& request)
             "getblockhash height\n"
             "\nReturns hash of block in best-block-chain at height provided.\n"
             "\nArguments:\n"
-            "1. height         (numeric, required) The height index\n"
+            "1. height        (numeric, optional) The block index. 0 is the genesis block. Negative blocks count back\n"
+            "                 from the current tip. -1 is the current best block.\n"
             "\nResult:\n"
             "\"hash\"         (string) The block hash\n"
             "\nExamples:\n"
@@ -621,23 +622,31 @@ UniValue getblockhash(const JSONRPCRequest& request)
     LOCK(cs_main);
 
     int nHeight = request.params[0].get_int();
-    if (nHeight < 0 || nHeight > chainActive.Height())
+    if (abs(nHeight) > chainActive.Height())
         throw JSONRPCError(RPC_INVALID_PARAMETER, "Block height out of range");
 
+    if (nHeight < 0) {
+        // Negative index indicates block depth, ie counting back from the current tip.
+        // Height -1 indicates the current best block.
+        nHeight += chainActive.Height() + 1;
+    }
     CBlockIndex* pblockindex = chainActive[nHeight];
     return pblockindex->GetBlockHash().GetHex();
 }
 
 UniValue getblockheader(const JSONRPCRequest& request)
 {
-    if (request.fHelp || request.params.size() < 1 || request.params.size() > 2)
+    if (request.fHelp || request.params.size() < 1 || request.params.size() > 3)
         throw runtime_error(
             "getblockheader \"hash\" ( verbose )\n"
             "\nIf verbose is false, returns a string that is serialized, hex-encoded data for blockheader 'hash'.\n"
             "If verbose is true, returns an Object with information about blockheader <hash>.\n"
+            "\nOnly one of hash and height must be set. If searching by height, set hash to the empty string\"\".\n"
             "\nArguments:\n"
-            "1. \"hash\"          (string, required) The block hash\n"
+            "1. hash              (string, optional) The block hash\n"
             "2. verbose           (boolean, optional, default=true) true for a json object, false for the hex encoded data\n"
+            "3. height            (numeric, optional) The block index. 0 is the genesis block. Negative blocks count back\n"
+            "                     from the current tip. -1 is the current best block.\n"
             "\nResult (for verbose = true):\n"
             "{\n"
             "  \"hash\" : \"hash\",     (string) the block hash (same as provided)\n"
@@ -664,17 +673,43 @@ UniValue getblockheader(const JSONRPCRequest& request)
 
     LOCK(cs_main);
 
-    std::string strHash = request.params[0].get_str();
+    std::string strHash = "";
+    if (!request.params[0].isNull()) {
+        strHash = request.params[0].get_str();
+    }
     uint256 hash(uint256S(strHash));
 
     bool fVerbose = true;
-    if (request.params.size() > 1)
+    if (request.params.size() > 1 && !request.params[1].isNull()) {
         fVerbose = request.params[1].get_bool();
+    }
 
-    if (mapBlockIndex.count(hash) == 0)
-        throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Block not found");
+    CBlockIndex* pblockindex;
 
-    CBlockIndex* pblockindex = mapBlockIndex[hash];
+    if (request.params.size() > 2 && !request.params[2].isNull()) {
+        if (strHash != "") {
+            throw JSONRPCError(RPC_INVALID_REQUEST, "Only one of hash and height should be requested");
+        }
+
+        int nHeight = request.params[2].get_int();
+        if (abs(nHeight) > chainActive.Height()) {
+            throw JSONRPCError(RPC_INVALID_PARAMETER, "Block height out of range");
+        }
+
+        if (nHeight < 0) {
+            // Negative index indicates block depth, ie counting back from the current tip.
+            // Height -1 indicates the current best block.
+            nHeight += chainActive.Height() + 1;
+        }
+        pblockindex = chainActive[nHeight];
+    } else {
+        // No height parameter given - search for block by hash.
+        if (mapBlockIndex.count(hash) == 0) {
+            throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Block not found");
+        }
+
+        pblockindex = mapBlockIndex[hash];
+    }
 
     if (!fVerbose)
     {
@@ -689,14 +724,17 @@ UniValue getblockheader(const JSONRPCRequest& request)
 
 UniValue getblock(const JSONRPCRequest& request)
 {
-    if (request.fHelp || request.params.size() < 1 || request.params.size() > 2)
+    if (request.fHelp || request.params.size() < 1 || request.params.size() > 3)
         throw runtime_error(
             "getblock \"blockhash\" ( verbose )\n"
             "\nIf verbose is false, returns a string that is serialized, hex-encoded data for block 'hash'.\n"
             "If verbose is true, returns an Object with information about block <hash>.\n"
+            "\nOnly one of hash and height must be set. If searching by height, set hash to the empty string\"\".\n"
             "\nArguments:\n"
-            "1. \"blockhash\"          (string, required) The block hash\n"
-            "2. verbose                (boolean, optional, default=true) true for a json object, false for the hex encoded data\n"
+            "1. \"blockhash\'     (string, optional) The block hash\n"
+            "2. verbose           (boolean, optional, default=true) true for a json object, false for the hex encoded data\n"
+            "3. height            (numeric, optional) The block index. 0 is the genesis block. Negative blocks count back\n"
+            "                     from the current tip. -1 is the current best block.\n"
             "\nResult (for verbose = true):\n"
             "{\n"
             "  \"hash\" : \"hash\",     (string) the block hash (same as provided)\n"
@@ -730,18 +768,44 @@ UniValue getblock(const JSONRPCRequest& request)
 
     LOCK(cs_main);
 
-    std::string strHash = request.params[0].get_str();
+    std::string strHash = "";
+    if (!request.params[0].isNull()) {
+        strHash = request.params[0].get_str();
+    }
     uint256 hash(uint256S(strHash));
 
     bool fVerbose = true;
-    if (request.params.size() > 1)
+    if (request.params.size() > 1 && !request.params[1].isNull()) {
         fVerbose = request.params[1].get_bool();
-
-    if (mapBlockIndex.count(hash) == 0)
-        throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Block not found");
+    }
 
     CBlock block;
-    CBlockIndex* pblockindex = mapBlockIndex[hash];
+    CBlockIndex* pblockindex;
+
+    if (request.params.size() > 2 && !request.params[2].isNull()) {
+        if (strHash != "") {
+            throw JSONRPCError(RPC_INVALID_REQUEST, "Only one of hash and height should be requested");
+        }
+
+        int nHeight = request.params[2].get_int();
+        if (abs(nHeight) > chainActive.Height()) {
+            throw JSONRPCError(RPC_INVALID_PARAMETER, "Block height out of range");
+        }
+
+        if (nHeight < 0) {
+            // Negative index indicates block depth, ie counting back from the current tip.
+            // Height -1 indicates the current best block.
+            nHeight += chainActive.Height() + 1;
+        }
+        pblockindex = chainActive[nHeight];
+    } else {
+        // No height parameter given - search for block by hash.
+        if (mapBlockIndex.count(hash) == 0) {
+            throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Block not found");
+        }
+
+        pblockindex = mapBlockIndex[hash];
+    }
 
     if (fHavePruned && !(pblockindex->nStatus & BLOCK_HAVE_DATA) && pblockindex->nTx > 0)
         throw JSONRPCError(RPC_INTERNAL_ERROR, "Block not available (pruned data)");
@@ -1372,9 +1436,9 @@ static const CRPCCommand commands[] =
     { "blockchain",         "getblockchaininfo",      &getblockchaininfo,      true,  {} },
     { "blockchain",         "getbestblockhash",       &getbestblockhash,       true,  {} },
     { "blockchain",         "getblockcount",          &getblockcount,          true,  {} },
-    { "blockchain",         "getblock",               &getblock,               true,  {"blockhash","verbose"} },
+    { "blockchain",         "getblock",               &getblock,               true,  {"blockhash","verbose","height"} },
     { "blockchain",         "getblockhash",           &getblockhash,           true,  {"height"} },
-    { "blockchain",         "getblockheader",         &getblockheader,         true,  {"blockhash","verbose"} },
+    { "blockchain",         "getblockheader",         &getblockheader,         true,  {"blockhash","verbose","height"} },
     { "blockchain",         "getchaintips",           &getchaintips,           true,  {} },
     { "blockchain",         "getdifficulty",          &getdifficulty,          true,  {} },
     { "blockchain",         "getmempoolancestors",    &getmempoolancestors,    true,  {"txid","verbose"} },
