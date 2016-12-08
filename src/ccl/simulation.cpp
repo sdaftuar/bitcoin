@@ -3,7 +3,8 @@
 
 #include "chainparams.h"
 #include "init.h"
-#include "main.h"
+#include "validation.h"
+#include "net_processing.h"
 #include "consensus/validation.h"
 #include "primitives/transaction.h"
 #include "primitives/block.h"
@@ -112,22 +113,14 @@ void Simulation::operator()()
             SetMockTime(nextEvent->timeMicros / 1000000);
 
             if (nextEvent == &txEvent) {
-                ProcessTransaction(txEvent.obj);
+                ProcessTransaction(*(txEvent.obj));
                 txEvent.reset();
             } else if (nextEvent == &blockEvent) {
-                ProcessNewBlock(Params(), &blockEvent.obj, true, NULL, NULL);
+                ProcessNewBlock(Params(), blockEvent.obj, true, NULL, NULL);
                 blockEvent.reset();
             } else if (nextEvent == &headersEvent) {
-                CValidationState state;
-                for (size_t i=0; i<headersEvent.obj.size(); ++i) {
-                    // The 3rd argument to AcceptBlockHeader is only
-                    // used for catching misbehaving nodes.  This could
-                    // cause a sim-live discrepancy where
-                    if (!AcceptBlockHeader(headersEvent.obj[i], state, NULL)) {
-                        int nDoS;
-                        if (state.IsInvalid(nDoS)) break;
-                    }
-                }
+                CValidationState dummy;
+                ProcessNewBlockHeaders(*(headersEvent.obj), dummy, Params(), NULL);
                 headersEvent.reset();
             } else if (nextEvent == &cmpctblockEvent) {
                 // TODO: add a compactblock handler!

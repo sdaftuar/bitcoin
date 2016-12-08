@@ -26,7 +26,7 @@ void print(HeadersEvent &);
 
 void printTime(int64_t timeMicros);
 
-enum DataType { BLOCK, MEMPOOL, TX, HEADERS, INVALID };
+enum DataType { BLOCK, TX, HEADERS, INVALID };
 
 int main(int argc, char **argv)
 {
@@ -43,13 +43,11 @@ int main(int argc, char **argv)
     // Try to figure out the data type from the name of the file...
     if (ifName.stem().compare("block") == 0) dataType = BLOCK;
     else if (ifName.stem().compare("tx") == 0) dataType = TX;
-    else if (ifName.stem().compare("mempool") == 0) dataType = MEMPOOL;
     else if (ifName.stem().compare("headers") == 0) dataType = HEADERS;
 
     if (argc >= 3) {
         if (strcmp(argv[2], "BLOCK") == 0) dataType = BLOCK;
         else if (strcmp(argv[2], "TX") == 0) dataType = TX;
-        else if (strcmp(argv[2], "MEMPOOL") == 0) dataType = MEMPOOL;
         else if (strcmp(argv[2], "HEADERS") == 0) dataType = HEADERS;
         else {
             printf("Invalid data type (%s) given\n", argv[2]);
@@ -90,24 +88,6 @@ int main(int argc, char **argv)
                     else eof=true;
                     break;
                 }
-            case MEMPOOL:
-                {
-                    MyCTxMemPoolEntry e;
-                    CTransaction tx;
-
-                    try {
-                        filein >> tx;
-                        filein >> e.nFee;
-                        filein >> e.nTime;
-                        filein >> e.dPriority;
-                        filein >> e.nHeight;
-                        e.tx = &tx;
-                        print(e);
-                    } catch (std::ios_base::failure) {
-                        eof = true;
-                    }
-                    break;
-                }
             case INVALID:
                 break;
         }
@@ -126,7 +106,7 @@ void print(BlockEvent &blockEvent)
 {
     printTime(blockEvent.timeMicros);
 
-    CBlock &block = blockEvent.obj;
+    CBlock &block = *blockEvent.obj;
     printf("CBlock(hash=%s, ver=%d, hashPrevBlock=%s, hashMerkleRoot=%s, nTime=%u, nBits=%08x, nNonce=%u, vtx=%lu)\n",
             block.GetHash().ToString().c_str(),
             block.nVersion,
@@ -142,15 +122,15 @@ void print(BlockEvent &blockEvent)
 void print(TxEvent &txEvent)
 {
     printTime(txEvent.timeMicros);
-    printf("%s", txEvent.obj.ToString().c_str());
+    printf("%s", txEvent.obj->ToString().c_str());
 }
 
 void print(HeadersEvent &headersEvent)
 {
     printTime(headersEvent.timeMicros);
     printf("\n");
-    for (size_t i=0;i <headersEvent.obj.size(); ++i) {
-        CBlockHeader &block = headersEvent.obj[i];
+    for (size_t i=0;i <headersEvent.obj->size(); ++i) {
+        CBlockHeader &block = (*headersEvent.obj)[i];
         printf("[%lu] CBlockHeader(hash=%s, ver=%d, hashPrevBlock=%s, hashMerkleRoot=%s, nTime=%u, nBits=%08x, nNonce=%u)\n",
                 i, block.GetHash().ToString().c_str(),
                 block.nVersion,
@@ -158,11 +138,4 @@ void print(HeadersEvent &headersEvent)
                 block.hashMerkleRoot.ToString().c_str(),
                 block.nTime, block.nBits, block.nNonce);
     }
-}
-
-void print(MyCTxMemPoolEntry &entry)
-{
-    printf("%s\n", entry.tx->ToString().c_str());
-    printf("nFee= %lu nTime= %ld dPriority= %g nHeight= %d\n",
-            entry.nFee, entry.nTime, entry.dPriority, entry.nHeight);
 }

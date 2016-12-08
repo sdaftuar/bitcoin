@@ -34,27 +34,32 @@ struct CCLEvent {
 
 struct BlockEvent : public CCLEvent {
     BlockEvent() : CCLEvent() { }
-    CBlock obj;
+    std::shared_ptr<CBlock> obj;
+    void reset_shared_ptr() { obj.reset(new CBlock); }
 };
 
 struct TxEvent : public CCLEvent {
     TxEvent() : CCLEvent() {}
-    CTransaction obj;
+    std::shared_ptr<CTransaction> obj;
+    void reset_shared_ptr() { obj.reset(new CTransaction); }
 };
 
 struct HeadersEvent : public CCLEvent {
     HeadersEvent() : CCLEvent() {}
-    vector<CBlockHeader> obj;
+    std::shared_ptr<vector<CBlockHeader>> obj;
+    void reset_shared_ptr() { obj.reset(new vector<CBlockHeader>); }
 };
 
 struct CompactBlockEvent : public CCLEvent {
     CompactBlockEvent() : CCLEvent() {}
-    CBlockHeaderAndShortTxIDs obj;
+    std::shared_ptr<CBlockHeaderAndShortTxIDs> obj;
+    void reset_shared_ptr() { obj.reset(new CBlockHeaderAndShortTxIDs); }
 };
 
 struct BlockTransactionsEvent : public CCLEvent {
     BlockTransactionsEvent() : CCLEvent() {}
-    BlockTransactions obj;
+    std::shared_ptr<BlockTransactions> obj;
+    void reset_shared_ptr() { obj.reset(new BlockTransactions); }
 };
 
 /**
@@ -109,7 +114,22 @@ bool Simulation::ReadEvent(CAutoFile &input, T *event)
 {
     try {
         input >> event->timeMicros;
-        input >> event->obj;
+        event->reset_shared_ptr();
+        input >> *(event->obj);
+        event->valid = true;
+    } catch (std::ios_base::failure) {
+        event->reset();
+        return false;
+    }
+    return true;
+}
+
+template<>
+inline bool Simulation::ReadEvent<TxEvent>(CAutoFile &input, TxEvent *event)
+{
+    try {
+        input >> event->timeMicros;
+        event->obj.reset(new CTransaction(deserialize, input));
         event->valid = true;
     } catch (std::ios_base::failure) {
         event->reset();

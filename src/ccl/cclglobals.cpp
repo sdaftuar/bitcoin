@@ -5,9 +5,11 @@
 #include "arith_uint256.h"
 #include "uint256.h"
 #include "util.h"
-#include "main.h"
+#include "validation.h"
+#include "net_processing.h"
 
 #include <string>
+#include <boost/date_time/posix_time/conversion.hpp>
 
 CCLGlobals *cclGlobals = new CCLGlobals;
 
@@ -77,7 +79,8 @@ bool CCLGlobals::Init(CTxMemPool *pool)
             // so set the mocktime to be from where the simulation would start.
             boost::gregorian::date sdate = boost::gregorian::from_undelimited_string(startdate);
             boost::posix_time::ptime simStart(sdate);
-            SetMockTime(boost::posix_time::to_time_t(simStart));
+            boost::posix_time::time_duration dur = simStart - boost::posix_time::ptime(boost::gregorian::date(1970,1,1));
+            SetMockTime(std::time_t(dur.total_seconds()));
             LoadMempool();
         }
     }

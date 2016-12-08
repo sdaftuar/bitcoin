@@ -3,7 +3,7 @@
 #include "dbwrapper.h"
 #include "uint256.h"
 #include "coins.h"
-#include "main.h"
+#include "validation.h"
 #include "hash.h"
 
 using namespace std;
