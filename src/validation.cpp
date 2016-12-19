@@ -3095,6 +3095,10 @@ static bool AcceptBlock(const std::shared_ptr<const CBlock>& pblock, CValidation
         return error("%s: %s", __func__, FormatStateMessage(state));
     }
 
+    // Header is valid/has work, merkle tree and segwit merkle tree are good...RELAY NOW
+    if (!IsInitialBlockDownload())
+        GetMainSignals().NewPoWValidBlock(pindex, pblock);
+
     int nHeight = pindex->nHeight;
 
     // Write block to history file
