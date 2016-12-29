@@ -1906,10 +1906,19 @@ bool static ProcessMessage(CNode* pfrom, string strCommand, CDataStream& vRecv, 
         std::pair<BlockDownloadMap::iterator, BlockDownloadMap::iterator> rangeInFlight = mmapBlocksInFlight.equal_range(pindex->GetBlockHash());
         bool fAlreadyInFlight = rangeInFlight.first != rangeInFlight.second;
         bool fInFlightFromSamePeer = false;
+        bool fPeerWasFirstRequest = true;
+        bool peerFound = false;
+        size_t countPartialBlocksStarted = 0;
         while (rangeInFlight.first != rangeInFlight.second) {
-            if (rangeInFlight.first->second.first == pfrom->GetId())
+            if (rangeInFlight.first->second.first == pfrom->GetId()) {
                 fInFlightFromSamePeer = true;
+                peerFound = true;
+            }
+            if (rangeInFlight.first->second.second->partialBlock)
+                countPartialBlocksStarted++;
             rangeInFlight.first++;
+            if (!peerFound)
+                fPeerWasFirstRequest = false;
         }
 
         if (pindex->nStatus & BLOCK_HAVE_DATA) // Nothing to do here
@@ -1918,11 +1927,16 @@ bool static ProcessMessage(CNode* pfrom, string strCommand, CDataStream& vRecv, 
         if (pindex->nChainWork <= chainActive.Tip()->nChainWork || // We know something better
                 pindex->nTx != 0) { // We had this block at some point, but pruned it
             if (fInFlightFromSamePeer) {
-                // We requested this block for some reason, but our mempool will probably be useless
-                // so we just grab the block via normal getdata
-                std::vector<CInv> vInv(1);
-                vInv[0] = CInv(MSG_BLOCK | GetFetchFlags(pfrom, pindex->pprev, chainparams.GetConsensus()), cmpctblock.header.GetHash());
-                connman.PushMessage(pfrom, msgMaker.Make(NetMsgType::GETDATA, vInv));
+                if (fPeerWasFirstRequest) {
+                    // We requested this block for some reason, but our mempool will probably be useless
+                    // so we just grab the block via normal getdata, but only allow first peer request to be for a full block
+                    std::vector<CInv> vInv(1);
+                    vInv[0] = CInv(MSG_BLOCK | GetFetchFlags(pfrom, pindex->pprev, chainparams.GetConsensus()), cmpctblock.header.GetHash());
+                    connman.PushMessage(pfrom, msgMaker.Make(NetMsgType::GETDATA, vInv));
+                } else {
+                    // Let first peer request full block, just update inflight state
+                    MarkBlockAsNotInFlight(pindex->GetBlockHash(), pfrom->GetId());
+                }
             }
             return true;
         }
@@ -1942,8 +1956,7 @@ bool static ProcessMessage(CNode* pfrom, string strCommand, CDataStream& vRecv, 
         // We want to be a bit conservative just to be extra careful about DoS
         // possibilities in compact block processing...
         if (pindex->nHeight <= chainActive.Height() + 2) {
-            if ((!fAlreadyInFlight && nodestate->nBlocksInFlight < MAX_BLOCKS_IN_TRANSIT_PER_PEER) ||
-                 fInFlightFromSamePeer) {
+            if ((countPartialBlocksStarted < MAX_CMPCTBLOCKS_INFLIGHT_PER_BLOCK && nodestate->nBlocksInFlight < MAX_BLOCKS_IN_TRANSIT_PER_PEER)) {
                 list<QueuedBlock>::iterator *queuedBlockIt = NULL;
                 if (!MarkBlockAsInFlight(pfrom->GetId(), pindex->GetBlockHash(), chainparams.GetConsensus(), pindex, &queuedBlockIt)) {
                     if (!(*queuedBlockIt)->partialBlock)
@@ -1964,6 +1977,7 @@ bool static ProcessMessage(CNode* pfrom, string strCommand, CDataStream& vRecv, 
                     return true;
                 } else if (status == READ_STATUS_FAILED) {
                     // Duplicate txindexes, the block is now in-flight, so just request it
+                    // NOTE: This is the one place two full block requests can be outstanding
                     std::vector<CInv> vInv(1);
                     vInv[0] = CInv(MSG_BLOCK | GetFetchFlags(pfrom, pindex->pprev, chainparams.GetConsensus()), cmpctblock.header.GetHash());
                     connman.PushMessage(pfrom, msgMaker.Make(NetMsgType::GETDATA, vInv));
@@ -1986,9 +2000,14 @@ bool static ProcessMessage(CNode* pfrom, string strCommand, CDataStream& vRecv, 
                     connman.PushMessage(pfrom, msgMaker.Make(NetMsgType::GETBLOCKTXN, req));
                 }
             } else {
-                // This block is either already in flight from a different
-                // peer, or this peer has too many blocks outstanding to
+                // This block is either already in flight from too many other
+                // peers, or this peer has too many blocks outstanding to
                 // download from.
+                if (fInFlightFromSamePeer) {
+                    // We had requested a cmpctblock from this peer, but are not
+                    // pursuing further requests.
+                    MarkBlockAsNotInFlight(pindex->GetBlockHash(), pfrom->GetId());
+                }
                 // Optimistically try to reconstruct anyway since we might be
                 // able to without any round trips.
                 PartiallyDownloadedBlock tempBlock(&mempool);
@@ -2005,13 +2024,21 @@ bool static ProcessMessage(CNode* pfrom, string strCommand, CDataStream& vRecv, 
             }
         } else {
             if (fInFlightFromSamePeer) {
-                // We requested this block, but its far into the future, so our
-                // mempool will probably be useless - request the block normally
-                std::vector<CInv> vInv(1);
-                vInv[0] = CInv(MSG_BLOCK | GetFetchFlags(pfrom, pindex->pprev, chainparams.GetConsensus()), cmpctblock.header.GetHash());
-                connman.PushMessage(pfrom, msgMaker.Make(NetMsgType::GETDATA, vInv));
-                return true;
-            } else {
+                if (fPeerWasFirstRequest) {
+                    // We requested this block, but its far into the future, so our
+                    // mempool will probably be useless - request the block normally
+                    // Only allow a the first peer to request a full block
+                    std::vector<CInv> vInv(1);
+                    vInv[0] = CInv(MSG_BLOCK | GetFetchFlags(pfrom, pindex->pprev, chainparams.GetConsensus()), cmpctblock.header.GetHash());
+                    connman.PushMessage(pfrom, msgMaker.Make(NetMsgType::GETDATA, vInv));
+                    return true;
+                } else  {
+                    // Let first peer request full block, just update inflight state
+                    MarkBlockAsNotInFlight(pindex->GetBlockHash(), pfrom->GetId());
+                }
+            }
+            else if (!fAlreadyInFlight) {
+                // If block already in flight, we've already processed headers
                 // If this was an announce-cmpctblock, we want the same treatment as a header message
                 // Dirty hack to process as if it were just a headers message (TODO: move message handling into their own functions)
                 std::vector<CBlock> headers;

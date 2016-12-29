@@ -9,6 +9,9 @@
 #include "net.h"
 #include "validationinterface.h"
 
+/** Maximum number of outstanding CMPCTBLOCK requests for the same block. */
+static const int MAX_CMPCTBLOCKS_INFLIGHT_PER_BLOCK = 2;
+
 /** Register with a network node to receive its signals */
 void RegisterNodeSignals(CNodeSignals& nodeSignals);
 /** Unregister a network node */
