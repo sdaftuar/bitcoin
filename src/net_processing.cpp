@@ -1923,7 +1923,7 @@ bool static ProcessMessage(CNode* pfrom, string strCommand, CDataStream& vRecv, 
 
         if (pindex->nStatus & BLOCK_HAVE_DATA) // Nothing to do here
             return true;
-
+        LogPrintf("ChainWork check at height %d new: %s  tip: %s\n",pindex->nHeight,pindex->nChainWork.GetHex(),chainActive.Tip()->nChainWork.GetHex());
         if (pindex->nChainWork <= chainActive.Tip()->nChainWork || // We know something better
                 pindex->nTx != 0) { // We had this block at some point, but pruned it
             if (fInFlightFromSamePeer) {
@@ -2021,6 +2021,9 @@ bool static ProcessMessage(CNode* pfrom, string strCommand, CDataStream& vRecv, 
                 if (status == READ_STATUS_OK) {
                     fBlockReconstructed = true;
                 }
+            }
+            if (pindex->nHeight == 165) {
+                LogPrintf("Here we are should have just requested the reorg tip\n");
             }
         } else {
             if (fInFlightFromSamePeer) {
