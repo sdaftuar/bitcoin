@@ -53,7 +53,7 @@ public:
     DataLogger(string pathPrefix);
     ~DataLogger();
 
-    void OnNewTransaction(CTransaction &tx);
+    void OnNewTransaction(const CTransaction &tx);
     void OnNewBlock(CBlock &block);
     void OnNewHeaders(vector<CBlockHeader> &headers);
     void OnNewCompactBlock(CBlockHeaderAndShortTxIDs &cmpctblock);

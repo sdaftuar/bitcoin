@@ -1,4 +1,4 @@
-// Copyright (c) 2009-2015 The Bitcoin Core developers
+// Copyright (c) 2009-2016 The Bitcoin Core developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
@@ -168,9 +168,9 @@ void TxToUniv(const CTransaction& tx, const uint256& hashBlock, UniValue& entry)
             o.pushKV("asm", ScriptToAsmStr(txin.scriptSig, true));
             o.pushKV("hex", HexStr(txin.scriptSig.begin(), txin.scriptSig.end()));
             in.pushKV("scriptSig", o);
-            if (!tx.wit.IsNull() && i < tx.wit.vtxinwit.size() && !tx.wit.vtxinwit[i].IsNull()) {
+            if (!tx.vin[i].scriptWitness.IsNull()) {
                 UniValue txinwitness(UniValue::VARR);
-                for (const auto& item : tx.wit.vtxinwit[i].scriptWitness.stack) {
+                for (const auto& item : tx.vin[i].scriptWitness.stack) {
                     txinwitness.push_back(HexStr(item.begin(), item.end()));
                 }
                 in.pushKV("txinwitness", txinwitness);

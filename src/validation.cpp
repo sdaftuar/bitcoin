@@ -34,6 +34,7 @@
 #include "utilstrencodings.h"
 #include "validationinterface.h"
 #include "versionbits.h"
+#include "warnings.h"
 
 #include <atomic>
 #include <sstream>
@@ -446,7 +447,7 @@ int64_t GetTransactionSigOpCost(const CTransaction& tx, const CCoinsViewCache& i
     for (unsigned int i = 0; i < tx.vin.size(); i++)
     {
         const CTxOut &prevout = inputs.GetOutputFor(tx.vin[i]);
-        nSigOps += CountWitnessSigOps(tx.vin[i].scriptSig, prevout.scriptPubKey, i < tx.wit.vtxinwit.size() ? &tx.wit.vtxinwit[i].scriptWitness : NULL, flags);
+        nSigOps += CountWitnessSigOps(tx.vin[i].scriptSig, prevout.scriptPubKey, &tx.vin[i].scriptWitness, flags);
     }
     return nSigOps;
 }
@@ -524,10 +525,23 @@ std::string FormatStateMessage(const CValidationState &state)
         state.GetRejectCode());
 }
 
-bool AcceptToMemoryPoolWorker(CTxMemPool& pool, CValidationState& state, const CTransaction& tx, bool fLimitFree,
+static bool IsCurrentForFeeEstimation()
+{
+    AssertLockHeld(cs_main);
+    if (IsInitialBlockDownload())
+        return false;
+    if (chainActive.Tip()->GetBlockTime() < (GetTime() - MAX_FEE_ESTIMATION_TIP_AGE))
+        return false;
+    if (chainActive.Height() < pindexBestHeader->nHeight - 1)
+        return false;
+    return true;
+}
+
+bool AcceptToMemoryPoolWorker(CTxMemPool& pool, CValidationState& state, const CTransactionRef& ptx, bool fLimitFree,
                               bool* pfMissingInputs, int64_t nAcceptTime, bool fOverrideMempoolLimit, const CAmount& nAbsurdFee,
                               std::vector<uint256>& vHashTxnToUncache)
 {
+    const CTransaction& tx = *ptx;
     const uint256 hash = tx.GetHash();
     AssertLockHeld(cs_main);
     if (pfMissingInputs)
@@ -542,7 +556,7 @@ bool AcceptToMemoryPoolWorker(CTxMemPool& pool, CValidationState& state, const C
 
     // Reject transactions with witness before segregated witness activates (override with -prematurewitness)
     bool witnessEnabled = IsWitnessEnabled(chainActive.Tip(), Params().GetConsensus());
-    if (!GetBoolArg("-prematurewitness",false) && !tx.wit.IsNull() && !witnessEnabled) {
+    if (!GetBoolArg("-prematurewitness",false) && tx.HasWitness() && !witnessEnabled) {
         return state.DoS(0, false, REJECT_NONSTANDARD, "no-witness-yet", true);
     }
 
@@ -664,7 +678,7 @@ bool AcceptToMemoryPoolWorker(CTxMemPool& pool, CValidationState& state, const C
             return state.Invalid(false, REJECT_NONSTANDARD, "bad-txns-nonstandard-inputs");
 
         // Check for non-standard witness in P2WSH
-        if (!tx.wit.IsNull() && fRequireStandard && !IsWitnessStandard(tx, view))
+        if (tx.HasWitness() && fRequireStandard && !IsWitnessStandard(tx, view))
             return state.DoS(0, false, REJECT_NONSTANDARD, "bad-witness-nonstandard", true);
 
         int64_t nSigOpsCost = GetTransactionSigOpCost(tx, view, STANDARD_SCRIPT_VERIFY_FLAGS);
@@ -690,7 +704,8 @@ bool AcceptToMemoryPoolWorker(CTxMemPool& pool, CValidationState& state, const C
             }
         }
 
-        CTxMemPoolEntry entry(tx, nFees, nAcceptTime, dPriority, chainActive.Height(), pool.HasNoInputsOf(tx), inChainInputValue, fSpendsCoinbase, nSigOpsCost, lp);
+        CTxMemPoolEntry entry(ptx, nFees, nAcceptTime, dPriority, chainActive.Height(),
+                              inChainInputValue, fSpendsCoinbase, nSigOpsCost, lp);
         unsigned int nSize = entry.GetTxSize();
 
         // Check that the transaction doesn't have an excessive number of
@@ -904,7 +919,7 @@ bool AcceptToMemoryPoolWorker(CTxMemPool& pool, CValidationState& state, const C
             // SCRIPT_VERIFY_CLEANSTACK requires SCRIPT_VERIFY_WITNESS, so we
             // need to turn both off, and compare against just turning off CLEANSTACK
             // to see if the failure is specifically due to witness validation.
-            if (tx.wit.IsNull() && CheckInputs(tx, state, view, true, scriptVerifyFlags & ~(SCRIPT_VERIFY_WITNESS | SCRIPT_VERIFY_CLEANSTACK), true, txdata) &&
+            if (!tx.HasWitness() && CheckInputs(tx, state, view, true, scriptVerifyFlags & ~(SCRIPT_VERIFY_WITNESS | SCRIPT_VERIFY_CLEANSTACK), true, txdata) &&
                 !CheckInputs(tx, state, view, true, scriptVerifyFlags & ~SCRIPT_VERIFY_CLEANSTACK, true, txdata)) {
                 // Only the witness is missing, so the transaction itself may be fine.
                 state.SetCorruptionPossible();
@@ -938,8 +953,13 @@ bool AcceptToMemoryPoolWorker(CTxMemPool& pool, CValidationState& state, const C
         }
         pool.RemoveStaged(allConflicting, false);
 
+        // This transaction should only count for fee estimation if
+        // the node is not behind and it is not dependent on any other
+        // transactions in the mempool
+        bool validForFeeEstimation = IsCurrentForFeeEstimation() && pool.HasNoInputsOf(tx);
+
         // Store transaction in memory
-        pool.addUnchecked(hash, entry, setAncestors, !IsInitialBlockDownload());
+        pool.addUnchecked(hash, entry, setAncestors, validForFeeEstimation);
 
         // trim mempool and check if tx was trimmed
         if (!fOverrideMempoolLimit) {
@@ -954,7 +974,7 @@ bool AcceptToMemoryPoolWorker(CTxMemPool& pool, CValidationState& state, const C
     return true;
 }
 
-bool AcceptToMemoryPoolWithTime(CTxMemPool& pool, CValidationState &state, const CTransaction &tx, bool fLimitFree,
+bool AcceptToMemoryPoolWithTime(CTxMemPool& pool, CValidationState &state, const CTransactionRef &tx, bool fLimitFree,
                         bool* pfMissingInputs, int64_t nAcceptTime, bool fOverrideMempoolLimit, const CAmount nAbsurdFee)
 {
     std::vector<uint256> vHashTxToUncache;
@@ -969,7 +989,7 @@ bool AcceptToMemoryPoolWithTime(CTxMemPool& pool, CValidationState &state, const
     return res;
 }
 
-bool AcceptToMemoryPool(CTxMemPool& pool, CValidationState &state, const CTransaction &tx, bool fLimitFree,
+bool AcceptToMemoryPool(CTxMemPool& pool, CValidationState &state, const CTransactionRef &tx, bool fLimitFree,
                         bool* pfMissingInputs, bool fOverrideMempoolLimit, const CAmount nAbsurdFee)
 {
     return AcceptToMemoryPoolWithTime(pool, state, tx, fLimitFree, pfMissingInputs, GetTime(), fOverrideMempoolLimit, nAbsurdFee);
@@ -1141,8 +1161,6 @@ bool IsInitialBlockDownload()
     return false;
 }
 
-bool fLargeWorkForkFound = false;
-bool fLargeWorkInvalidChainFound = false;
 CBlockIndex *pindexBestForkTip = NULL, *pindexBestForkBase = NULL;
 
 static void AlertNotify(const std::string& strMessage)
@@ -1177,7 +1195,7 @@ void CheckForkWarningConditions()
 
     if (pindexBestForkTip || (pindexBestInvalid && pindexBestInvalid->nChainWork > chainActive.Tip()->nChainWork + (GetBlockProof(*chainActive.Tip()) * 6)))
     {
-        if (!fLargeWorkForkFound && pindexBestForkBase)
+        if (!GetfLargeWorkForkFound() && pindexBestForkBase)
         {
             std::string warning = std::string("'Warning: Large-work fork detected, forking after block ") +
                 pindexBestForkBase->phashBlock->ToString() + std::string("'");
@@ -1188,18 +1206,18 @@ void CheckForkWarningConditions()
             LogPrintf("%s: Warning: Large valid fork found\n  forking the chain at height %d (%s)\n  lasting to height %d (%s).\nChain state database corruption likely.\n", __func__,
                    pindexBestForkBase->nHeight, pindexBestForkBase->phashBlock->ToString(),
                    pindexBestForkTip->nHeight, pindexBestForkTip->phashBlock->ToString());
-            fLargeWorkForkFound = true;
+            SetfLargeWorkForkFound(true);
         }
         else
         {
             LogPrintf("%s: Warning: Found invalid chain at least ~6 blocks longer than our best chain.\nChain state database corruption likely.\n", __func__);
-            fLargeWorkInvalidChainFound = true;
+            SetfLargeWorkInvalidChainFound(true);
         }
     }
     else
     {
-        fLargeWorkForkFound = false;
-        fLargeWorkInvalidChainFound = false;
+        SetfLargeWorkForkFound(false);
+        SetfLargeWorkInvalidChainFound(false);
     }
 }
 
@@ -1296,7 +1314,7 @@ void UpdateCoins(const CTransaction& tx, CCoinsViewCache& inputs, int nHeight)
 
 bool CScriptCheck::operator()() {
     const CScript &scriptSig = ptxTo->vin[nIn].scriptSig;
-    const CScriptWitness *witness = (nIn < ptxTo->wit.vtxinwit.size()) ? &ptxTo->wit.vtxinwit[nIn].scriptWitness : NULL;
+    const CScriptWitness *witness = &ptxTo->vin[nIn].scriptWitness;
     if (!VerifyScript(scriptSig, scriptPubKey, witness, nFlags, CachingTransactionSignatureChecker(ptxTo, nIn, amount, cacheStore, *txdata), &error)) {
         return false;
     }
@@ -1475,7 +1493,7 @@ bool UndoReadFromDisk(CBlockUndo& blockundo, const CDiskBlockPos& pos, const uin
 /** Abort with a message */
 bool AbortNode(const std::string& strMessage, const std::string& userMessage="")
 {
-    strMiscWarning = strMessage;
+    SetMiscWarning(strMessage);
     LogPrintf("*** %s\n", strMessage);
     uiInterface.ThreadSafeMessageBox(
         userMessage.empty() ? _("Error: A fatal internal error occurred, see debug.log for details") : userMessage,
@@ -1499,7 +1517,7 @@ bool AbortNode(CValidationState& state, const std::string& strMessage, const std
  * @param out The out point that corresponds to the tx input.
  * @return True on success.
  */
-static bool ApplyTxInUndo(const CTxInUndo& undo, CCoinsViewCache& view, const COutPoint& out)
+bool ApplyTxInUndo(const CTxInUndo& undo, CCoinsViewCache& view, const COutPoint& out)
 {
     bool fClean = true;
 
@@ -1917,6 +1935,7 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
  * or always and in all cases if we're in prune mode and are deleting files.
  */
 bool static FlushStateToDisk(CValidationState &state, FlushStateMode mode) {
+    int64_t nMempoolUsage = mempool.DynamicMemoryUsage();
     const CChainParams& chainparams = Params();
     LOCK2(cs_main, cs_LastBlockFile);
     static int64_t nLastWrite = 0;
@@ -1947,11 +1966,13 @@ bool static FlushStateToDisk(CValidationState &state, FlushStateMode mode) {
     if (nLastSetChain == 0) {
         nLastSetChain = nNow;
     }
-    size_t cacheSize = pcoinsTip->DynamicMemoryUsage();
-    // The cache is large and close to the limit, but we have time now (not in the middle of a block processing).
-    bool fCacheLarge = mode == FLUSH_STATE_PERIODIC && cacheSize * (10.0/9) > nCoinCacheUsage;
+    int64_t nMempoolSizeMax = GetArg("-maxmempool", DEFAULT_MAX_MEMPOOL_SIZE) * 1000000;
+    int64_t cacheSize = pcoinsTip->DynamicMemoryUsage();
+    int64_t nTotalSpace = nCoinCacheUsage + std::max<int64_t>(nMempoolSizeMax - nMempoolUsage, 0);
+    // The cache is large and we're within 10% and 100 MiB of the limit, but we have time now (not in the middle of a block processing).
+    bool fCacheLarge = mode == FLUSH_STATE_PERIODIC && cacheSize > std::max((9 * nTotalSpace) / 10, nTotalSpace - 100 * 1024 * 1024);
     // The cache is over the limit, we have to write now.
-    bool fCacheCritical = mode == FLUSH_STATE_IF_NEEDED && cacheSize > nCoinCacheUsage;
+    bool fCacheCritical = mode == FLUSH_STATE_IF_NEEDED && cacheSize > nTotalSpace;
     // It's been a while since we wrote the block index to disk. Do this frequently, so we don't need to redownload after a crash.
     bool fPeriodicWrite = mode == FLUSH_STATE_PERIODIC && nNow > nLastWrite + (int64_t)DATABASE_WRITE_INTERVAL * 1000000;
     // It's been very long since we flushed the cache. Do this infrequently, to optimize cache usage.
@@ -2044,9 +2065,10 @@ void static UpdateTip(CBlockIndex *pindexNew, const CChainParams& chainParams) {
             ThresholdState state = checker.GetStateFor(pindex, chainParams.GetConsensus(), warningcache[bit]);
             if (state == THRESHOLD_ACTIVE || state == THRESHOLD_LOCKED_IN) {
                 if (state == THRESHOLD_ACTIVE) {
-                    strMiscWarning = strprintf(_("Warning: unknown new rules activated (versionbit %i)"), bit);
+                    std::string strWarning = strprintf(_("Warning: unknown new rules activated (versionbit %i)"), bit);
+                    SetMiscWarning(strWarning);
                     if (!fWarned) {
-                        AlertNotify(strMiscWarning);
+                        AlertNotify(strWarning);
                         fWarned = true;
                     }
                 } else {
@@ -2066,10 +2088,11 @@ void static UpdateTip(CBlockIndex *pindexNew, const CChainParams& chainParams) {
             warningMessages.push_back(strprintf("%d of last 100 blocks have unexpected version", nUpgraded));
         if (nUpgraded > 100/2)
         {
-            // strMiscWarning is read by GetWarnings(), called by Qt and the JSON-RPC code to warn the user:
-            strMiscWarning = _("Warning: Unknown block versions being mined! It's possible unknown rules are in effect");
+            std::string strWarning = _("Warning: Unknown block versions being mined! It's possible unknown rules are in effect");
+            // notify GetWarnings(), called by Qt and the JSON-RPC code to warn the user:
+            SetMiscWarning(strWarning);
             if (!fWarned) {
-                AlertNotify(strMiscWarning);
+                AlertNotify(strWarning);
                 fWarned = true;
             }
         }
@@ -2115,7 +2138,7 @@ bool static DisconnectTip(CValidationState& state, const CChainParams& chainpara
             const CTransaction& tx = *it;
             // ignore validation errors in resurrected transactions
             CValidationState stateDummy;
-            if (tx.IsCoinBase() || !AcceptToMemoryPool(mempool, stateDummy, tx, false, NULL, true)) {
+            if (tx.IsCoinBase() || !AcceptToMemoryPool(mempool, stateDummy, it, false, NULL, true)) {
                 mempool.removeRecursive(tx);
             } else if (mempool.exists(tx.GetHash())) {
                 vHashUpdate.push_back(tx.GetHash());
@@ -2201,7 +2224,7 @@ bool static ConnectTip(CValidationState& state, const CChainParams& chainparams,
     int64_t nTime5 = GetTimeMicros(); nTimeChainState += nTime5 - nTime4;
     LogPrint("bench", "  - Writing chainstate: %.2fms [%.2fs]\n", (nTime5 - nTime4) * 0.001, nTimeChainState * 0.000001);
     // Remove conflicting transactions from the mempool.;
-    mempool.removeForBlock(blockConnecting.vtx, pindexNew->nHeight, !IsInitialBlockDownload());
+    mempool.removeForBlock(blockConnecting.vtx, pindexNew->nHeight);
     // Update chainActive & related variables.
     UpdateTip(pindexNew, chainparams);
 
@@ -2834,11 +2857,10 @@ void UpdateUncommittedBlockStructures(CBlock& block, const CBlockIndex* pindexPr
 {
     int commitpos = GetWitnessCommitmentIndex(block);
     static const std::vector<unsigned char> nonce(32, 0x00);
-    if (commitpos != -1 && IsWitnessEnabled(pindexPrev, consensusParams) && block.vtx[0]->wit.IsEmpty()) {
+    if (commitpos != -1 && IsWitnessEnabled(pindexPrev, consensusParams) && !block.vtx[0]->HasWitness()) {
         CMutableTransaction tx(*block.vtx[0]);
-        tx.wit.vtxinwit.resize(1);
-        tx.wit.vtxinwit[0].scriptWitness.stack.resize(1);
-        tx.wit.vtxinwit[0].scriptWitness.stack[0] = nonce;
+        tx.vin[0].scriptWitness.stack.resize(1);
+        tx.vin[0].scriptWitness.stack[0] = nonce;
         block.vtx[0] = MakeTransactionRef(std::move(tx));
     }
 }
@@ -2946,10 +2968,10 @@ bool ContextualCheckBlock(const CBlock& block, CValidationState& state, const Co
             // The malleation check is ignored; as the transaction tree itself
             // already does not permit it, it is impossible to trigger in the
             // witness tree.
-            if (block.vtx[0]->wit.vtxinwit.size() != 1 || block.vtx[0]->wit.vtxinwit[0].scriptWitness.stack.size() != 1 || block.vtx[0]->wit.vtxinwit[0].scriptWitness.stack[0].size() != 32) {
+            if (block.vtx[0]->vin[0].scriptWitness.stack.size() != 1 || block.vtx[0]->vin[0].scriptWitness.stack[0].size() != 32) {
                 return state.DoS(100, false, REJECT_INVALID, "bad-witness-nonce-size", true, strprintf("%s : invalid witness nonce size", __func__));
             }
-            CHash256().Write(hashWitness.begin(), 32).Write(&block.vtx[0]->wit.vtxinwit[0].scriptWitness.stack[0][0], 32).Finalize(hashWitness.begin());
+            CHash256().Write(hashWitness.begin(), 32).Write(&block.vtx[0]->vin[0].scriptWitness.stack[0][0], 32).Finalize(hashWitness.begin());
             if (memcmp(hashWitness.begin(), &block.vtx[0]->vout[commitpos].scriptPubKey[6], 32)) {
                 return state.DoS(100, false, REJECT_INVALID, "bad-witness-merkle-match", true, strprintf("%s : witness merkle commitment mismatch", __func__));
             }
@@ -2960,7 +2982,7 @@ bool ContextualCheckBlock(const CBlock& block, CValidationState& state, const Co
     // No witness data is allowed in blocks that don't commit to witness data, as this would otherwise leave room for spam
     if (!fHaveWitness) {
         for (size_t i = 0; i < block.vtx.size(); i++) {
-            if (!block.vtx[i]->wit.IsNull()) {
+            if (block.vtx[i]->HasWitness()) {
                 return state.DoS(100, false, REJECT_INVALID, "unexpected-witness", true, strprintf("%s : unexpected witness data found", __func__));
             }
         }
@@ -3116,7 +3138,7 @@ static bool AcceptBlock(const CBlock& block, CValidationState& state, const CCha
     return true;
 }
 
-bool ProcessNewBlock(const CChainParams& chainparams, const std::shared_ptr<const CBlock> pblock, bool fForceProcessing, const CDiskBlockPos* dbp, bool *fNewBlock)
+bool ProcessNewBlock(const CChainParams& chainparams, const std::shared_ptr<const CBlock> pblock, bool fForceProcessing, bool *fNewBlock)
 {
     {
         LOCK(cs_main);
@@ -3125,7 +3147,7 @@ bool ProcessNewBlock(const CChainParams& chainparams, const std::shared_ptr<cons
         CBlockIndex *pindex = NULL;
         if (fNewBlock) *fNewBlock = false;
         CValidationState state;
-        bool ret = AcceptBlock(*pblock, state, chainparams, &pindex, fForceProcessing, dbp, fNewBlock);
+        bool ret = AcceptBlock(*pblock, state, chainparams, &pindex, fForceProcessing, NULL, fNewBlock);
         CheckBlockIndex(chainparams.GetConsensus());
         if (!ret) {
             GetMainSignals().BlockChecked(*pblock, state);
@@ -3141,8 +3163,6 @@ bool ProcessNewBlock(const CChainParams& chainparams, const std::shared_ptr<cons
 
     return true;
 }
-
-bool static AlreadyHave(const CInv& inv);
 
 bool TestBlockValidity(CValidationState& state, const CChainParams& chainparams, const CBlock& block, CBlockIndex* pindexPrev, bool fCheckPOW, bool fCheckMerkleRoot)
 {
@@ -4012,51 +4032,10 @@ void static CheckBlockIndex(const Consensus::Params& consensusParams)
     assert(nNodes == forward.size());
 }
 
-std::string GetWarnings(const std::string& strFor)
+std::string CBlockFileInfo::ToString() const
 {
-    string strStatusBar;
-    string strRPC;
-    string strGUI;
-    const string uiAlertSeperator = "<hr />";
-
-    if (!CLIENT_VERSION_IS_RELEASE) {
-        strStatusBar = "This is a pre-release test build - use at your own risk - do not use for mining or merchant applications";
-        strGUI = _("This is a pre-release test build - use at your own risk - do not use for mining or merchant applications");
-    }
-
-    if (GetBoolArg("-testsafemode", DEFAULT_TESTSAFEMODE))
-        strStatusBar = strRPC = strGUI = "testsafemode enabled";
-
-    // Misc warnings like out of disk space and clock is wrong
-    if (strMiscWarning != "")
-    {
-        strStatusBar = strMiscWarning;
-        strGUI += (strGUI.empty() ? "" : uiAlertSeperator) + strMiscWarning;
-    }
-
-    if (fLargeWorkForkFound)
-    {
-        strStatusBar = strRPC = "Warning: The network does not appear to fully agree! Some miners appear to be experiencing issues.";
-        strGUI += (strGUI.empty() ? "" : uiAlertSeperator) + _("Warning: The network does not appear to fully agree! Some miners appear to be experiencing issues.");
-    }
-    else if (fLargeWorkInvalidChainFound)
-    {
-        strStatusBar = strRPC = "Warning: We do not appear to fully agree with our peers! You may need to upgrade, or other nodes may need to upgrade.";
-        strGUI += (strGUI.empty() ? "" : uiAlertSeperator) + _("Warning: We do not appear to fully agree with our peers! You may need to upgrade, or other nodes may need to upgrade.");
-    }
-
-    if (strFor == "gui")
-        return strGUI;
-    else if (strFor == "statusbar")
-        return strStatusBar;
-    else if (strFor == "rpc")
-        return strRPC;
-    assert(!"GetWarnings(): invalid parameter");
-    return "error";
+    return strprintf("CBlockFileInfo(blocks=%u, size=%u, heights=%u...%u, time=%s...%s)", nBlocks, nSize, nHeightFirst, nHeightLast, DateTimeStrFormat("%Y-%m-%d", nTimeFirst), DateTimeStrFormat("%Y-%m-%d", nTimeLast));
 }
- std::string CBlockFileInfo::ToString() const {
-     return strprintf("CBlockFileInfo(blocks=%u, size=%u, heights=%u...%u, time=%s...%s)", nBlocks, nSize, nHeightFirst, nHeightLast, DateTimeStrFormat("%Y-%m-%d", nTimeFirst), DateTimeStrFormat("%Y-%m-%d", nTimeLast));
- }
 
 ThresholdState VersionBitsTipState(const Consensus::Params& params, Consensus::DeploymentPos pos)
 {
@@ -4097,15 +4076,16 @@ bool LoadMempool(void)
         file >> num;
         double prioritydummy = 0;
         while (num--) {
+            CTransactionRef tx;
             int64_t nTime;
             int64_t nFeeDelta;
-            CTransaction tx(deserialize, file);
+            file >> tx;
             file >> nTime;
             file >> nFeeDelta;
 
             CAmount amountdelta = nFeeDelta;
             if (amountdelta) {
-                mempool.PrioritiseTransaction(tx.GetHash(), tx.GetHash().ToString(), prioritydummy, amountdelta);
+                mempool.PrioritiseTransaction(tx->GetHash(), tx->GetHash().ToString(), prioritydummy, amountdelta);
             }
             CValidationState state;
             if (nTime + nExpiryTimeout > nNow) {
@@ -4114,13 +4094,15 @@ bool LoadMempool(void)
                 if (state.IsValid()) {
                     ++count;
                 } else {
-                    LogPrint("mempoolrej", "%s was not accepted: %s\n", tx.GetHash().ToString(),
+                    LogPrint("mempoolrej", "%s was not accepted: %s\n", tx->GetHash().ToString(),
                             FormatStateMessage(state));
                     ++failed;
                 }
             } else {
                 ++skipped;
             }
+            if (ShutdownRequested())
+                return false;
         }
         std::map<uint256, CAmount> mapDeltas;
         file >> mapDeltas;

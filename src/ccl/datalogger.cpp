@@ -71,7 +71,7 @@ void DataLogger::InitAutoFile(unique_ptr<CAutoFile> &which, std::string prefix, 
 void DataLogger::Shutdown()
 { }
 
-void DataLogger::OnNewTransaction(CTransaction &tx)
+void DataLogger::OnNewTransaction(const CTransaction &tx)
 {
     if (!transactionLog->IsNull()) {
         if (day_clock::local_day() >= logRotateDate) {

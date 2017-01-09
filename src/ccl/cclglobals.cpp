@@ -44,26 +44,26 @@ bool CCLGlobals::Init(CTxMemPool *pool)
     mempool = pool;
 
     // DataLogger initialization
-    if (mapArgs.count("-dlogdir")) {
-	    this->dlog.reset(new DataLogger(mapArgs["-dlogdir"]));
+    if (IsArgSet("-dlogdir")) {
+	    this->dlog.reset(new DataLogger(GetArg("-dlogdir", "")));
     }
 
     // Simulation initialization
     std::string startdate, enddate, simdatadir="/chaincode/data";
-    if (mapArgs.count("-simulation")) {
-        if (mapArgs.count("-start")) {
-            startdate = mapArgs["-start"];
+    if (IsArgSet("-simulation")) {
+        if (IsArgSet("-start")) {
+            startdate = GetArg("-start", "");
         } else {
             LogPrintf("CCLGlobals::Init: Must specify -start (date) for simulation\n");
             return false;
         }
-        if (mapArgs.count("-end")) {
-            enddate = mapArgs["-end"];
+        if (IsArgSet("-end")) {
+            enddate = GetArg("-end", "");
         } else {
             enddate = startdate;
         }
-        if (mapArgs.count("-simdatadir")) {
-            simdatadir = mapArgs["-simdatadir"];
+        if (IsArgSet("-simdatadir")) {
+            simdatadir = GetArg("-simdatadir", "");
         }
         simulation.reset(new
             Simulation(boost::gregorian::from_undelimited_string(startdate),

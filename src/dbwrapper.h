@@ -1,4 +1,4 @@
-// Copyright (c) 2012-2015 The Bitcoin Core developers
+// Copyright (c) 2012-2016 The Bitcoin Core developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
@@ -53,38 +53,41 @@ private:
     const CDBWrapper &parent;
     leveldb::WriteBatch batch;
 
+    CDataStream ssKey;
+    CDataStream ssValue;
+
 public:
     /**
      * @param[in] _parent   CDBWrapper that this batch is to be submitted to
      */
-    CDBBatch(const CDBWrapper &_parent) : parent(_parent) { };
+    CDBBatch(const CDBWrapper &_parent) : parent(_parent), ssKey(SER_DISK, CLIENT_VERSION), ssValue(SER_DISK, CLIENT_VERSION) { };
 
     template <typename K, typename V>
     void Write(const K& key, const V& value)
     {
-        CDataStream ssKey(SER_DISK, CLIENT_VERSION);
         ssKey.reserve(DBWRAPPER_PREALLOC_KEY_SIZE);
         ssKey << key;
-        leveldb::Slice slKey(&ssKey[0], ssKey.size());
+        leveldb::Slice slKey(ssKey.data(), ssKey.size());
 
-        CDataStream ssValue(SER_DISK, CLIENT_VERSION);
         ssValue.reserve(DBWRAPPER_PREALLOC_VALUE_SIZE);
         ssValue << value;
         ssValue.Xor(dbwrapper_private::GetObfuscateKey(parent));
-        leveldb::Slice slValue(&ssValue[0], ssValue.size());
+        leveldb::Slice slValue(ssValue.data(), ssValue.size());
 
         batch.Put(slKey, slValue);
+        ssKey.clear();
+        ssValue.clear();
     }
 
     template <typename K>
     void Erase(const K& key)
     {
-        CDataStream ssKey(SER_DISK, CLIENT_VERSION);
         ssKey.reserve(DBWRAPPER_PREALLOC_KEY_SIZE);
         ssKey << key;
-        leveldb::Slice slKey(&ssKey[0], ssKey.size());
+        leveldb::Slice slKey(ssKey.data(), ssKey.size());
 
         batch.Delete(slKey);
+        ssKey.clear();
     }
 };
 
@@ -112,7 +115,7 @@ public:
         CDataStream ssKey(SER_DISK, CLIENT_VERSION);
         ssKey.reserve(DBWRAPPER_PREALLOC_KEY_SIZE);
         ssKey << key;
-        leveldb::Slice slKey(&ssKey[0], ssKey.size());
+        leveldb::Slice slKey(ssKey.data(), ssKey.size());
         piter->Seek(slKey);
     }
 
@@ -205,7 +208,7 @@ public:
         CDataStream ssKey(SER_DISK, CLIENT_VERSION);
         ssKey.reserve(DBWRAPPER_PREALLOC_KEY_SIZE);
         ssKey << key;
-        leveldb::Slice slKey(&ssKey[0], ssKey.size());
+        leveldb::Slice slKey(ssKey.data(), ssKey.size());
 
         std::string strValue;
         leveldb::Status status = pdb->Get(readoptions, slKey, &strValue);
@@ -239,7 +242,7 @@ public:
         CDataStream ssKey(SER_DISK, CLIENT_VERSION);
         ssKey.reserve(DBWRAPPER_PREALLOC_KEY_SIZE);
         ssKey << key;
-        leveldb::Slice slKey(&ssKey[0], ssKey.size());
+        leveldb::Slice slKey(ssKey.data(), ssKey.size());
 
         std::string strValue;
         leveldb::Status status = pdb->Get(readoptions, slKey, &strValue);

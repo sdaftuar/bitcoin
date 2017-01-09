@@ -1,5 +1,5 @@
 // Copyright (c) 2010 Satoshi Nakamoto
-// Copyright (c) 2009-2015 The Bitcoin Core developers
+// Copyright (c) 2009-2016 The Bitcoin Core developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
@@ -169,9 +169,9 @@ UniValue getbestblockhash(const JSONRPCRequest& request)
         throw runtime_error(
             "getbestblockhash\n"
             "\nReturns the hash of the best (tip) block in the longest blockchain.\n"
-            "\nResult\n"
+            "\nResult:\n"
             "\"hex\"      (string) the block hash hex encoded\n"
-            "\nExamples\n"
+            "\nExamples:\n"
             + HelpExampleCli("getbestblockhash", "")
             + HelpExampleRpc("getbestblockhash", "")
         );
@@ -204,7 +204,7 @@ UniValue waitfornewblock(const JSONRPCRequest& request)
             "  \"hash\" : {       (string) The blockhash\n"
             "  \"height\" : {     (int) Block height\n"
             "}\n"
-            "\nExamples\n"
+            "\nExamples:\n"
             + HelpExampleCli("waitfornewblock", "1000")
             + HelpExampleRpc("waitfornewblock", "1000")
         );
@@ -243,7 +243,7 @@ UniValue waitforblock(const JSONRPCRequest& request)
             "  \"hash\" : {       (string) The blockhash\n"
             "  \"height\" : {     (int) Block height\n"
             "}\n"
-            "\nExamples\n"
+            "\nExamples:\n"
             + HelpExampleCli("waitforblock", "\"0000000000079f8ef3d2c688c244eb7a4570b24c9ed7b4a8c619eb02596f8862\", 1000")
             + HelpExampleRpc("waitforblock", "\"0000000000079f8ef3d2c688c244eb7a4570b24c9ed7b4a8c619eb02596f8862\", 1000")
         );
@@ -286,7 +286,7 @@ UniValue waitforblockheight(const JSONRPCRequest& request)
             "  \"hash\" : {       (string) The blockhash\n"
             "  \"height\" : {     (int) Block height\n"
             "}\n"
-            "\nExamples\n"
+            "\nExamples:\n"
             + HelpExampleCli("waitforblockheight", "\"100\", 1000")
             + HelpExampleRpc("waitforblockheight", "\"100\", 1000")
         );
@@ -331,7 +331,7 @@ UniValue getdifficulty(const JSONRPCRequest& request)
 
 std::string EntryDescriptionString()
 {
-    return "    \"size\" : n,             (numeric) transaction size in bytes\n"
+    return "    \"size\" : n,             (numeric) virtual transaction size as defined in BIP 141. This is different from actual serialized size for witness transactions as witness data is discounted.\n"
            "    \"fee\" : n,              (numeric) transaction fee in " + CURRENCY_UNIT + "\n"
            "    \"modifiedfee\" : n,      (numeric) transaction fee with fee deltas used for mining priority\n"
            "    \"time\" : n,             (numeric) local time transaction entered pool in seconds since 1 Jan 1970 GMT\n"
@@ -339,10 +339,10 @@ std::string EntryDescriptionString()
            "    \"startingpriority\" : n, (numeric) priority when transaction entered pool\n"
            "    \"currentpriority\" : n,  (numeric) transaction priority now\n"
            "    \"descendantcount\" : n,  (numeric) number of in-mempool descendant transactions (including this one)\n"
-           "    \"descendantsize\" : n,   (numeric) size of in-mempool descendants (including this one)\n"
+           "    \"descendantsize\" : n,   (numeric) virtual transaction size of in-mempool descendants (including this one)\n"
            "    \"descendantfees\" : n,   (numeric) modified fees (see above) of in-mempool descendants (including this one)\n"
            "    \"ancestorcount\" : n,    (numeric) number of in-mempool ancestor transactions (including this one)\n"
-           "    \"ancestorsize\" : n,     (numeric) size of in-mempool ancestors (including this one)\n"
+           "    \"ancestorsize\" : n,     (numeric) virtual transaction size of in-mempool ancestors (including this one)\n"
            "    \"ancestorfees\" : n,     (numeric) modified fees (see above) of in-mempool ancestors (including this one)\n"
            "    \"depends\" : [           (array) unconfirmed transactions used as inputs for this transaction\n"
            "        \"transactionid\",    (string) parent transaction id\n"
@@ -430,7 +430,7 @@ UniValue getrawmempool(const JSONRPCRequest& request)
             + EntryDescriptionString()
             + "  }, ...\n"
             "}\n"
-            "\nExamples\n"
+            "\nExamples:\n"
             + HelpExampleCli("getrawmempool", "true")
             + HelpExampleRpc("getrawmempool", "true")
         );
@@ -462,7 +462,7 @@ UniValue getmempoolancestors(const JSONRPCRequest& request)
             + EntryDescriptionString()
             + "  }, ...\n"
             "}\n"
-            "\nExamples\n"
+            "\nExamples:\n"
             + HelpExampleCli("getmempoolancestors", "\"mytxid\"")
             + HelpExampleRpc("getmempoolancestors", "\"mytxid\"")
             );
@@ -526,7 +526,7 @@ UniValue getmempooldescendants(const JSONRPCRequest& request)
             + EntryDescriptionString()
             + "  }, ...\n"
             "}\n"
-            "\nExamples\n"
+            "\nExamples:\n"
             + HelpExampleCli("getmempooldescendants", "\"mytxid\"")
             + HelpExampleRpc("getmempooldescendants", "\"mytxid\"")
             );
@@ -582,7 +582,7 @@ UniValue getmempoolentry(const JSONRPCRequest& request)
             "{                           (json object)\n"
             + EntryDescriptionString()
             + "}\n"
-            "\nExamples\n"
+            "\nExamples:\n"
             + HelpExampleCli("getmempoolentry", "\"mytxid\"")
             + HelpExampleRpc("getmempoolentry", "\"mytxid\"")
         );
@@ -703,7 +703,7 @@ UniValue getblock(const JSONRPCRequest& request)
             "  \"confirmations\" : n,   (numeric) The number of confirmations, or -1 if the block is not on the main chain\n"
             "  \"size\" : n,            (numeric) The block size\n"
             "  \"strippedsize\" : n,    (numeric) The block size excluding witness data\n"
-            "  \"weight\" : n           (numeric) The block weight (BIP 141)\n"
+            "  \"weight\" : n           (numeric) The block weight as defined in BIP 141\n"
             "  \"height\" : n,          (numeric) The block height or index\n"
             "  \"version\" : n,         (numeric) The block version\n"
             "  \"versionHex\" : \"00000000\", (string) The block version formatted in hexadecimal\n"
@@ -1240,7 +1240,7 @@ UniValue getmempoolinfo(const JSONRPCRequest& request)
             "\nResult:\n"
             "{\n"
             "  \"size\": xxxxx,               (numeric) Current tx count\n"
-            "  \"bytes\": xxxxx,              (numeric) Sum of all tx sizes\n"
+            "  \"bytes\": xxxxx,              (numeric) Sum of all virtual transaction sizes as defined in BIP 141. Differs from actual serialized size because witness data is discounted\n"
             "  \"usage\": xxxxx,              (numeric) Total memory usage for the mempool\n"
             "  \"maxmempool\": xxxxx,         (numeric) Maximum memory usage for the mempool\n"
             "  \"mempoolminfee\": xxxxx       (numeric) Minimum fee for tx to be accepted\n"

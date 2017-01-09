@@ -113,10 +113,10 @@ void Simulation::operator()()
             SetMockTime(nextEvent->timeMicros / 1000000);
 
             if (nextEvent == &txEvent) {
-                ProcessTransaction(*(txEvent.obj));
+                ProcessTransaction(txEvent.obj);
                 txEvent.reset();
             } else if (nextEvent == &blockEvent) {
-                ProcessNewBlock(Params(), blockEvent.obj, true, NULL, NULL);
+                ProcessNewBlock(Params(), blockEvent.obj, true, NULL);
                 blockEvent.reset();
             } else if (nextEvent == &headersEvent) {
                 CValidationState dummy;

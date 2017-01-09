@@ -6,6 +6,7 @@ src/bitcoind
 src/bitcoin-cli
 src/bitcoin-tx
 src/test/test_bitcoin
+src/test/test_bitcoin_fuzzy
 src/qt/test/test_bitcoin-qt
 src/printdb
 src/dataprinter
@@ -57,7 +58,6 @@ src/qt/test/moc*.cpp
 *.o
 *.o-*
 *.patch
-.bitcoin
 *.a
 *.pb.cc
 *.pb.h

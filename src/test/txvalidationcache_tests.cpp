@@ -1,4 +1,4 @@
-// Copyright (c) 2011-2015 The Bitcoin Core developers
+// Copyright (c) 2011-2016 The Bitcoin Core developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
@@ -23,7 +23,7 @@ ToMemPool(CMutableTransaction& tx)
     LOCK(cs_main);
 
     CValidationState state;
-    return AcceptToMemoryPool(mempool, state, tx, false, NULL, true, 0);
+    return AcceptToMemoryPool(mempool, state, MakeTransactionRef(tx), false, NULL, true, 0);
 }
 
 BOOST_FIXTURE_TEST_CASE(tx_mempool_block_doublespend, TestChain100Setup)
@@ -39,6 +39,7 @@ BOOST_FIXTURE_TEST_CASE(tx_mempool_block_doublespend, TestChain100Setup)
     spends.resize(2);
     for (int i = 0; i < 2; i++)
     {
+        spends[i].nVersion = 1;
         spends[i].vin.resize(1);
         spends[i].vin[0].prevout.hash = coinbaseTxns[0].GetHash();
         spends[i].vin[0].prevout.n = 0;

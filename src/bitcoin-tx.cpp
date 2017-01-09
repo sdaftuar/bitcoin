@@ -1,4 +1,4 @@
-// Copyright (c) 2009-2015 The Bitcoin Core developers
+// Copyright (c) 2009-2016 The Bitcoin Core developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
@@ -51,7 +51,7 @@ static int AppInitRawTx(int argc, char* argv[])
 
     fCreateBlank = GetBoolArg("-create", false);
 
-    if (argc<2 || mapArgs.count("-?") || mapArgs.count("-h") || mapArgs.count("-help"))
+    if (argc<2 || IsArgSet("-?") || IsArgSet("-h") || IsArgSet("-help"))
     {
         // First part of help message is specific to this utility
         std::string strUsage = strprintf(_("%s bitcoin-tx utility version"), _(PACKAGE_NAME)) + " " + FormatFullVersion() + "\n\n" +
@@ -494,7 +494,7 @@ static void MutateTxSign(CMutableTransaction& tx, const std::string& flagStr)
             sigdata = CombineSignatures(prevPubKey, MutableTransactionSignatureChecker(&mergedTx, i, amount), sigdata, DataFromTransaction(txv, i));
         UpdateTransaction(mergedTx, i, sigdata);
 
-        if (!VerifyScript(txin.scriptSig, prevPubKey, mergedTx.wit.vtxinwit.size() > i ? &mergedTx.wit.vtxinwit[i].scriptWitness : NULL, STANDARD_SCRIPT_VERIFY_FLAGS, MutableTransactionSignatureChecker(&mergedTx, i, amount)))
+        if (!VerifyScript(txin.scriptSig, prevPubKey, &txin.scriptWitness, STANDARD_SCRIPT_VERIFY_FLAGS, MutableTransactionSignatureChecker(&mergedTx, i, amount)))
             fComplete = false;
     }
 
