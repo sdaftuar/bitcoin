@@ -40,7 +40,11 @@ Simulation::Simulation(date sdate, date edate, string datadir)
 
 void Simulation::LoadFiles(date d)
 {
-    InitAutoFile(txfile, "tx.", d);
+    if (!GetBoolArg("-blocksonly", DEFAULT_BLOCKSONLY)) {
+        InitAutoFile(txfile, "tx.", d);
+    } else {
+        txfile.reset(new CAutoFile(NULL, SER_DISK, CLIENT_VERSION));
+    }
     InitAutoFile(blkfile, "block.", d);
     InitAutoFile(headersfile, "headers.", d);
     InitAutoFile(cmpctblockfile, "cmpctblock.", d);
@@ -81,7 +85,7 @@ void Simulation::operator()()
         BlockTransactionsEvent blocktxnEvent;
 
         while (!txEOF || !blkEOF || !hdrEOF || !cbEOF || !btEOF) {
-            if (!txEOF && !txEvent.valid) {
+            if (!txEOF && !txEvent.valid && !txfile->IsNull()) {
                 txEOF = !ReadEvent(*txfile, &txEvent);
             }
             if (!blkEOF && !blockEvent.valid) {
