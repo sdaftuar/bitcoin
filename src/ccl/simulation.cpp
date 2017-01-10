@@ -127,7 +127,9 @@ void Simulation::operator()()
                 ProcessNewBlockHeaders(*(headersEvent.obj), dummy, Params(), NULL);
                 headersEvent.reset();
             } else if (nextEvent == &cmpctblockEvent) {
-                // TODO: add a compactblock handler!
+                // Process cmpctblockEvent as a header message
+                CValidationState dummy;
+                ProcessNewBlockHeaders({cmpctblockEvent.obj->header}, dummy, Params(), NULL);
                 cmpctblockEvent.reset();
             } else if (nextEvent == &blocktxnEvent) {
                 // TODO: add a blocktxn handler
