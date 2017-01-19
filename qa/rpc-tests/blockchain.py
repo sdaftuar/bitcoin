@@ -27,6 +27,9 @@ class BlockchainTest(BitcoinTestFramework):
     Test blockchain-related RPC calls:
 
         - gettxoutsetinfo
+        - getblockhash
+        - getblock
+        - getblockheader
         - verifychain
 
     """
@@ -43,12 +46,11 @@ class BlockchainTest(BitcoinTestFramework):
         self.sync_all()
 
     def run_test(self):
-        self._test_gettxoutsetinfo()
-        self._test_getblockheader()
-        self.nodes[0].verifychain(4, 0)
-
-    def _test_gettxoutsetinfo(self):
         node = self.nodes[0]
+
+        # Test gettxoutsetinfo()
+        ########################
+
         res = node.gettxoutsetinfo()
 
         assert_equal(res['total_amount'], Decimal('8725.00000000'))
@@ -59,13 +61,25 @@ class BlockchainTest(BitcoinTestFramework):
         assert_equal(len(res['bestblock']), 64)
         assert_equal(len(res['hash_serialized']), 64)
 
-    def _test_getblockheader(self):
-        node = self.nodes[0]
+        # Test getblockhash()
+        #####################
 
+        besthash = node.getbestblockhash()
+
+        # getblockhash(0, true) gets the hash of the best block.
+        assert_equal(besthash, node.getblockhash(0, True))
+
+        # try to get a block higher than the best block (fails)
+        assert_raises(
+            JSONRPCException, lambda: node.getblockhash(201))
+
+        # Test getblock() and getblockheader()
+        ######################################
+
+        # try to get a block with a bad hash (fails)
         assert_raises(
             JSONRPCException, lambda: node.getblockheader('nonsense'))
 
-        besthash = node.getbestblockhash()
         secondbesthash = node.getblockhash(199)
         header = node.getblockheader(besthash)
 
@@ -84,6 +98,18 @@ class BlockchainTest(BitcoinTestFramework):
         assert isinstance(header['version'], int)
         assert isinstance(int(header['versionHex'], 16), int)
         assert isinstance(header['difficulty'], Decimal)
+
+        # get a block header by specifying a height
+        assert_equal(header, node.getblockheader(height=0, fromtip=True))
+
+        # try to get a block header by specifying a height and a hash (fails)
+        assert_raises(
+            JSONRPCException, lambda: node.getblockheader(blockhash=besthash, height=0, fromtip=True))
+
+        # Test verifychain()
+        ####################
+
+        self.nodes[0].verifychain(4, 0)
 
 if __name__ == '__main__':
     BlockchainTest().main()
