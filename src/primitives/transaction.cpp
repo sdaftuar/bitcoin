@@ -138,6 +138,15 @@ std::string CTransaction::ToString() const
     return str;
 }
 
+void CHashedTransaction::CalculateHashes() const {
+    if (!cacheReady) {
+        hashPrevouts = GetPrevoutHash(*this);
+        hashSequence = GetSequenceHash(*this);
+        hashOutputs = GetOutputsHash(*this);
+        cacheReady = true;
+    }
+}
+
 int64_t GetTransactionWeight(const CTransaction& tx)
 {
     return ::GetSerializeSize(tx, SER_NETWORK, PROTOCOL_VERSION | SERIALIZE_TRANSACTION_NO_WITNESS) * (WITNESS_SCALE_FACTOR -1) + ::GetSerializeSize(tx, SER_NETWORK, PROTOCOL_VERSION);
