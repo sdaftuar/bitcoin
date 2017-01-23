@@ -450,11 +450,61 @@ struct CMutableTransaction
     }
 };
 
-typedef std::shared_ptr<const CTransaction> CTransactionRef;
-static inline CTransactionRef MakeTransactionRef() { return std::make_shared<const CTransaction>(); }
-template <typename Tx> static inline CTransactionRef MakeTransactionRef(Tx&& txIn) { return std::make_shared<const CTransaction>(std::forward<Tx>(txIn)); }
+struct PrecomputedTransactionData
+{
+    uint256 hashPrevouts, hashSequence, hashOutputs;
+    bool cacheReady;
+
+    PrecomputedTransactionData() : cacheReady(false) {}
+    void Calculate(const CTransaction &tx);
+};
+
+class CHashedTransaction {
+private:
+    const CTransaction tx;
+    mutable PrecomputedTransactionData cache;
+
+public:
+    void CalculateCache() const { if (!cache.cacheReady) { cache.Calculate(tx); } }
+
+    const PrecomputedTransactionData &GetCache() const { return cache; }
+    const CTransaction &GetTx() const { return tx; }
+
+    CHashedTransaction() : tx() {}
+    CHashedTransaction(CMutableTransaction &&txIn) : tx(std::forward<CMutableTransaction>(txIn)) {}
+
+    template <typename Stream>
+    CHashedTransaction(deserialize_type, Stream& s) : tx(CMutableTransaction(deserialize, s)) {}
+
+    const uint256& GetHash() const { return tx.GetHash(); }
+    uint256 GetWitnessHash() const { return tx.GetWitnessHash(); }
+    std::string ToString() const { return tx.ToString(); }
+
+    template <typename Stream>
+    inline void Serialize(Stream& s) const {
+        SerializeTransaction(tx, s);
+    }
+
+    bool IsNull() const { return tx.IsNull(); }
+    bool IsCoinBase() const { return tx.IsCoinBase(); }
+    CAmount GetValueOut() const { return tx.GetValueOut(); }
+    unsigned int CalculateModifiedSize(unsigned int nTxSize=0) const { return tx.CalculateModifiedSize(nTxSize); }
+    bool HasWitness() const { return tx.HasWitness(); }
+
+    operator CTransaction() const { return tx; }
+
+};
+
+typedef std::shared_ptr<const CHashedTransaction> CTransactionRef;
+static inline CTransactionRef MakeTransactionRef() { return std::make_shared<const CHashedTransaction>(); }
+template <typename Tx> static inline CTransactionRef MakeTransactionRef(Tx&& txIn) { return std::make_shared<const CHashedTransaction>(std::forward<Tx>(txIn)); }
 
 /** Compute the weight of a transaction, as defined by BIP 141 */
 int64_t GetTransactionWeight(const CTransaction &tx);
+
+/** Segwit signature hash components */
+uint256 GetPrevoutHash(const CTransaction& txTo);
+uint256 GetSequenceHash(const CTransaction& txTo);
+uint256 GetOutputsHash(const CTransaction& txTo);
 
 #endif // BITCOIN_PRIMITIVES_TRANSACTION_H

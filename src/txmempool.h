@@ -117,7 +117,7 @@ public:
 
     CTxMemPoolEntry(const CTxMemPoolEntry& other);
 
-    const CTransaction& GetTx() const { return *this->tx; }
+    const CTransaction& GetTx() const { return this->tx->GetTx(); }
     CTransactionRef GetSharedTx() const { return this->tx; }
     /**
      * Fast calculation of lower bound of current priority as update

@@ -197,7 +197,7 @@ public:
 
     /** Helper conversion operator to allow passing CMerkleTx where CTransaction is expected.
      *  TODO: adapt callers and remove this operator. */
-    operator const CTransaction&() const { return *tx; }
+    operator const CTransaction&() const { return tx->GetTx(); }
 
     void Init()
     {
