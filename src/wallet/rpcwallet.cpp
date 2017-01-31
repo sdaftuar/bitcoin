@@ -2666,13 +2666,15 @@ UniValue fundrawtransaction(const JSONRPCRequest& request)
 
 // Calculate the size of the transaction assuming all signatures are max size
 // Use DummySignatureCreator, which inserts 72 byte signatures everywhere.
-// TODO: re-use this in CWalletTx::CreateTransaction (right now now
+// TODO: re-use this in CWallet::CreateTransaction (right now
 // CreateTransaction uses the constructed dummy-signed tx to do a priority
 // calculation, but we should be able to refactor after priority is removed).
+// NOTE: this requires that all inputs must be in mapWallet (eg the tx should
+// be IsAllFromMe).
 int64_t CalculateMaximumSignedTxSize(const CTransaction &tx)
 {
     CMutableTransaction txNew(tx);
-    std::vector<pair<CWalletTx *, int>> vCoins;
+    std::vector<pair<CWalletTx *, unsigned int>> vCoins;
     // Look up the inputs.  We should have already checked that this transaction
     // IsAllFromMe(ISMINE_SPENDABLE), so every input should already be in our
     // wallet, with a valid index into the vout array.
