@@ -168,12 +168,32 @@
         <translation>Potwierdź szyfrowanie portfela</translation>
     </message>
     <message>
+        <source>Warning: If you encrypt your wallet and lose your passphrase, you will &lt;b&gt;LOSE ALL OF YOUR BITCOINS&lt;/b&gt;!</source>
+        <translation>Uwaga: jeśli zaszyfrujesz swój portfel i zgubisz hasło &lt;b&gt;STRACISZ WSZYSTKIE SWOJE BITCOINY&lt;/b&gt;!</translation>
+    </message>
+    <message>
+        <source>Are you sure you wish to encrypt your wallet?</source>
+        <translation>Jesteś pewien, że chcesz zaszyfrować swój portfel?</translation>
+    </message>
+    <message>
         <source>Wallet encrypted</source>
         <translation>Portfel zaszyfrowany</translation>
     </message>
     <message>
+        <source>%1 will close now to finish the encryption process. Remember that encrypting your wallet cannot fully protect your bitcoins from being stolen by malware infecting your computer.</source>
+        <translation>%1 zamknie się aby dokończyć proces szyfrowania. Pamiętaj, że szyfrowanie portfela nie zabezpiecza w pełni Twoich bitcoinów przed kradzieżą przez wirusy lub trojany mogące zainfekować Twój komputer.</translation>
+    </message>
+    <message>
+        <source>IMPORTANT: Any previous backups you have made of your wallet file should be replaced with the newly generated, encrypted wallet file. For security reasons, previous backups of the unencrypted wallet file will become useless as soon as you start using the new, encrypted wallet.</source>
+        <translation>WAŻNE: Wszystkie wykonane wcześniej kopie pliku portfela powinny być zamienione na nowe, szyfrowane pliki. Z powodów bezpieczeństwa, poprzednie kopie nieszyfrowanych plików portfela staną się bezużyteczne jak tylko zaczniesz korzystać z nowego, szyfrowanego portfela.</translation>
+    </message>
+    <message>
         <source>Wallet encryption failed</source>
         <translation>Szyfrowanie portfela nie powiodło się</translation>
+    </message>
+    <message>
+        <source>Wallet encryption failed due to an internal error. Your wallet was not encrypted.</source>
+        <translation>Szyfrowanie portfela nie powiodło się z powodu wewnętrznego błędu. Twój portfel nie został zaszyfrowany.</translation>
     </message>
     <message>
         <source>The supplied passphrases do not match.</source>
@@ -408,10 +428,6 @@
     <message>
         <source>Processing blocks on disk...</source>
         <translation>Przetwarzanie blocks on disk...</translation>
-    </message>
-    <message>
-        <source>No block source available...</source>
-        <translation>Brak dostępnych źródeł bloków...</translation>
     </message>
     <message numerus="yes">
         <source>Processed %n block(s) of transaction history.</source>
@@ -1209,7 +1225,47 @@
         <source>Cannot start bitcoin: click-to-pay handler</source>
         <translation>Nie można uruchomić protokołu bitcoin: kliknij-by-zapłacić</translation>
     </message>
-    </context>
+    <message>
+        <source>URI handling</source>
+        <translation>Obsługa URI</translation>
+    </message>
+    <message>
+        <source>Payment request expired.</source>
+        <translation>Żądanie płatności upłynęło.</translation>
+    </message>
+    <message>
+        <source>Payment request is not initialized.</source>
+        <translation>Żądanie płatności nie jest zainicjowane.</translation>
+    </message>
+    <message>
+        <source>Unverified payment requests to custom payment scripts are unsupported.</source>
+        <translation>Niezweryfikowane żądania płatności do własnych skryptów płatności są niewspierane.</translation>
+    </message>
+    <message>
+        <source>Invalid payment request.</source>
+        <translation>Nieprawidłowe żądanie płatności</translation>
+    </message>
+    <message>
+        <source>Refund from %1</source>
+        <translation>Zwrot z %1</translation>
+    </message>
+    <message>
+        <source>Payment request cannot be parsed!</source>
+        <translation>Żądanie płatności nie może zostać przetworzone.</translation>
+    </message>
+    <message>
+        <source>Bad response from server %1</source>
+        <translation>Błędna odpowiedź z serwera %1</translation>
+    </message>
+    <message>
+        <source>Network request error</source>
+        <translation>Błąd żądania sieci</translation>
+    </message>
+    <message>
+        <source>Payment acknowledged</source>
+        <translation>Płatność potwierdzona</translation>
+    </message>
+</context>
 <context>
     <name>PeerTableModel</name>
     <message>
@@ -1220,7 +1276,15 @@
         <source>Node/Service</source>
         <translation>Węzeł/Usługi</translation>
     </message>
-    </context>
+    <message>
+        <source>NodeId</source>
+        <translation>Identyfikator węzła</translation>
+    </message>
+    <message>
+        <source>Ping</source>
+        <translation>Ping</translation>
+    </message>
+</context>
 <context>
     <name>QObject</name>
     <message>
@@ -1259,6 +1323,14 @@
         <source>%1 ms</source>
         <translation>%1 ms</translation>
     </message>
+    <message numerus="yes">
+        <source>%n second(s)</source>
+        <translation><numerusform>%n sekunda</numerusform><numerusform>%n sekund</numerusform><numerusform>%n sekund</numerusform></translation>
+    </message>
+    <message numerus="yes">
+        <source>%n minute(s)</source>
+        <translation><numerusform>%n minuta</numerusform><numerusform>%n minut</numerusform><numerusform>%n minut</numerusform></translation>
+    </message>
     <message>
         <source>%1 and %2</source>
         <translation>%1 i %2</translation>
@@ -1266,10 +1338,30 @@
     </context>
 <context>
     <name>QObject::QObject</name>
-    </context>
+    <message>
+        <source>Error: %1</source>
+        <translation>Błąd: %1</translation>
+    </message>
+</context>
 <context>
     <name>QRImageWidget</name>
-    </context>
+    <message>
+        <source>&amp;Save Image...</source>
+        <translation>&amp;Zapisz obraz...</translation>
+    </message>
+    <message>
+        <source>&amp;Copy Image</source>
+        <translation>&amp;Kopiuj obraz</translation>
+    </message>
+    <message>
+        <source>Save QR Code</source>
+        <translation>Zapisz Kod QR</translation>
+    </message>
+    <message>
+        <source>PNG Image (*.png)</source>
+        <translation>Obraz PNG (*.png)</translation>
+    </message>
+</context>
 <context>
     <name>RPCConsole</name>
     <message>
@@ -1429,6 +1521,10 @@
         <translation>Czas odpowiedzi</translation>
     </message>
     <message>
+        <source>Min Ping</source>
+        <translation>Minimalny czas odpowiedzi</translation>
+    </message>
+    <message>
         <source>Time Offset</source>
         <translation>Przesunięcie czasu</translation>
     </message>
@@ -1487,6 +1583,18 @@
     <message>
         <source>1 &amp;year</source>
         <translation>1 &amp;rok</translation>
+    </message>
+    <message>
+        <source>&amp;Disconnect</source>
+        <translation>&amp;Rozłącz</translation>
+    </message>
+    <message>
+        <source>Ban for</source>
+        <translation>Zbanuj na</translation>
+    </message>
+    <message>
+        <source>&amp;Unban</source>
+        <translation>&amp;Odblokuj</translation>
     </message>
     <message>
         <source>Welcome to the %1 RPC console.</source>
@@ -1620,8 +1728,16 @@
         <translation>Usuń</translation>
     </message>
     <message>
+        <source>Copy URI</source>
+        <translation>Kopiuj URI:</translation>
+    </message>
+    <message>
         <source>Copy label</source>
         <translation>Kopiuj etykietę</translation>
+    </message>
+    <message>
+        <source>Copy message</source>
+        <translation>Kopiuj wiadomość</translation>
     </message>
     <message>
         <source>Copy amount</source>
@@ -1647,12 +1763,32 @@
         <translation>&amp;Zapisz obraz...</translation>
     </message>
     <message>
+        <source>Request payment to %1</source>
+        <translation>Zażądaj płatności do %1</translation>
+    </message>
+    <message>
+        <source>Payment information</source>
+        <translation>Informacje o płatności</translation>
+    </message>
+    <message>
+        <source>URI</source>
+        <translation>URI</translation>
+    </message>
+    <message>
         <source>Address</source>
         <translation>Adres</translation>
     </message>
     <message>
+        <source>Amount</source>
+        <translation>Kwota</translation>
+    </message>
+    <message>
         <source>Label</source>
         <translation>Etykieta</translation>
+    </message>
+    <message>
+        <source>Message</source>
+        <translation>Wiadomość</translation>
     </message>
     </context>
 <context>
@@ -1666,10 +1802,22 @@
         <translation>Etykieta</translation>
     </message>
     <message>
+        <source>Message</source>
+        <translation>Wiadomość</translation>
+    </message>
+    <message>
         <source>(no label)</source>
         <translation>(brak etykiety)</translation>
     </message>
-    </context>
+    <message>
+        <source>(no message)</source>
+        <translation>(brak wiadomości)</translation>
+    </message>
+    <message>
+        <source>Requested</source>
+        <translation>Zażądano</translation>
+    </message>
+</context>
 <context>
     <name>SendCoinsDialog</name>
     <message>
@@ -1797,6 +1945,10 @@
         <translation>Pył:</translation>
     </message>
     <message>
+        <source>Confirmation time target:</source>
+        <translation>Docelowy czas potwierdzenia:</translation>
+    </message>
+    <message>
         <source>Clear &amp;All</source>
         <translation>Wyczyść &amp;wszystko</translation>
     </message>
@@ -1839,6 +1991,38 @@
     <message>
         <source>Copy change</source>
         <translation>Skopiuj resztę</translation>
+    </message>
+    <message>
+        <source>%1 to %2</source>
+        <translation>%1 do %2</translation>
+    </message>
+    <message>
+        <source>or</source>
+        <translation>lub</translation>
+    </message>
+    <message>
+        <source>The amount to pay must be larger than 0.</source>
+        <translation>Kwota do zapłacenia musi być większa od 0.</translation>
+    </message>
+    <message>
+        <source>Transaction creation failed!</source>
+        <translation>Utworzenie transakcji nie powiodło się!</translation>
+    </message>
+    <message>
+        <source>Payment request expired.</source>
+        <translation>Żądanie płatności upłynęło.</translation>
+    </message>
+    <message>
+        <source>Pay only the required fee of %1</source>
+        <translation>Zapłać tylko wymaganą opłatę w wysokości %1</translation>
+    </message>
+    <message>
+        <source>Warning: Invalid Bitcoin address</source>
+        <translation>Ostrzeżenie: nieprawidłowy adres Bitcoin</translation>
+    </message>
+    <message>
+        <source>Warning: Unknown change address</source>
+        <translation>Ostrzeżenie: Nieznany adres reszty</translation>
     </message>
     <message>
         <source>(no label)</source>
@@ -1926,7 +2110,11 @@
     </context>
 <context>
     <name>SendConfirmationDialog</name>
-    </context>
+    <message>
+        <source>Yes</source>
+        <translation>Tak</translation>
+    </message>
+</context>
 <context>
     <name>ShutdownWindow</name>
     <message>
@@ -2025,6 +2213,22 @@ Zwróć uwagę, że poprawnie zweryfikowana wiadomość potwierdza to, że nadaw
         <source>Reset all verify message fields</source>
         <translation>Resetuje wszystkie pola weryfikacji wiadomości</translation>
     </message>
+    <message>
+        <source>Wallet unlock was cancelled.</source>
+        <translation>Odblokowanie portfela zostało anulowane.</translation>
+    </message>
+    <message>
+        <source>Private key for the entered address is not available.</source>
+        <translation>Klucz prywatny dla podanego adresu nie jest dostępny.</translation>
+    </message>
+    <message>
+        <source>Message signing failed.</source>
+        <translation>Podpisanie wiadomości nie powiodło się.</translation>
+    </message>
+    <message>
+        <source>Message signed.</source>
+        <translation>Wiadomość podpisana.</translation>
+    </message>
     </context>
 <context>
     <name>SplashScreen</name>
@@ -2077,6 +2281,14 @@ Zwróć uwagę, że poprawnie zweryfikowana wiadomość potwierdza to, że nadaw
     <message>
         <source>label</source>
         <translation>etykieta</translation>
+    </message>
+    <message>
+        <source>Message</source>
+        <translation>Wiadomość</translation>
+    </message>
+    <message>
+        <source>Amount</source>
+        <translation>Kwota</translation>
     </message>
     </context>
 <context>
@@ -2249,10 +2461,6 @@ Zwróć uwagę, że poprawnie zweryfikowana wiadomość potwierdza to, że nadaw
     <message>
         <source>Prune: last wallet synchronisation goes beyond pruned data. You need to -reindex (download the whole blockchain again in case of pruned node)</source>
         <translation>Prune: ostatnia synchronizacja portfela jest za danymi. Muszisz -reindexować (pobrać cały ciąg bloków ponownie w przypadku przyciętego węzła)</translation>
-    </message>
-    <message>
-        <source>Reduce storage requirements by pruning (deleting) old blocks. This mode is incompatible with -txindex and -rescan. Warning: Reverting this setting requires re-downloading the entire blockchain. (default: 0 = disable pruning blocks, &gt;%u = target size in MiB to use for block files)</source>
-        <translation>Zredukuj wymaganą ilość miejsca na dysku poprzez usuwanie starych bloków. Ten tryb jest niekompatybilny z -txindex oraz -rescan. Ostrzeżenie: Wycofanie tego ustawienia wymaga ponownego pobrania całego łańcucha bloków. (domyślnie: 0 = wyłącz usuwanie bloków, &gt;%u = docelowy rozmiar w MiB jaki wykorzystać na pliki z blokami)</translation>
     </message>
     <message>
         <source>Rescans are not possible in pruned mode. You will need to use -reindex which will download the whole blockchain again.</source>
@@ -2583,6 +2791,10 @@ Zwróć uwagę, że poprawnie zweryfikowana wiadomość potwierdza to, że nadaw
         <translation>Uruchom polecenie przy otrzymaniu odpowiedniego powiadomienia lub gdy zobaczymy naprawdę długie rozgałęzienie (%s w poleceniu jest podstawiane za komunikat)</translation>
     </message>
     <message>
+        <source>Fees (in %s/kB) smaller than this are considered zero fee for relaying, mining and transaction creation (default: %s)</source>
+        <translation>Opłaty (w %s/Kb) mniejsze niż ta, będą traktowane jako zerowe przy tworzeniu, przesyłaniu i zatwierdzaniu transakcji (domyślnie: %s)</translation>
+    </message>
+    <message>
         <source>If paytxfee is not set, include enough fee so transactions begin confirmation on average within n blocks (default: %u)</source>
         <translation>Jeżeli nie ustawiono paytxfee, dołącz wystarczająca opłatę, aby transakcja mogła zostać zatwierdzona w ciągu średniej ilości n bloków (domyślnie: %u)</translation>
     </message>
@@ -2601,6 +2813,10 @@ Zwróć uwagę, że poprawnie zweryfikowana wiadomość potwierdza to, że nadaw
     <message>
         <source>The transaction amount is too small to send after the fee has been deducted</source>
         <translation>Zbyt niska kwota transakcji do wysłania po odjęciu opłaty</translation>
+    </message>
+    <message>
+        <source>Use hierarchical deterministic key generation (HD) after BIP32. Only has effect during wallet creation/first start</source>
+        <translation>Użyj hierarchicznej deterministycznej metody generowania kluczy (HD) zgodnie z BIP32. Ma znaczenie tylko podczas tworzenia portfela/pierwszego startu.</translation>
     </message>
     <message>
         <source>Whitelisted peers cannot be DoS banned and their transactions are always relayed, even if they are already in the mempool, useful e.g. for a gateway</source>

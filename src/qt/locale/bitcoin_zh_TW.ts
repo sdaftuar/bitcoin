@@ -330,6 +330,10 @@
         <translation>按一下就又會使用網路。</translation>
     </message>
     <message>
+        <source>Syncing Headers (%1%)...</source>
+        <translation>正在同步前導資料(%1%)中...</translation>
+    </message>
+    <message>
         <source>Reindexing blocks on disk...</source>
         <translation>正在為磁碟裡的區塊重建索引...</translation>
     </message>
@@ -441,10 +445,6 @@
         <source>Processing blocks on disk...</source>
         <translation>正在處理磁碟裡的區塊資料...</translation>
     </message>
-    <message>
-        <source>No block source available...</source>
-        <translation>沒有可用的區塊來源...</translation>
-    </message>
     <message numerus="yes">
         <source>Processed %n block(s) of transaction history.</source>
         <translation><numerusform>已經處理了 %n 個區塊的交易紀錄。</numerusform></translation>
@@ -484,6 +484,10 @@
     <message>
         <source>%1 client</source>
         <translation>%1 客戶端軟體</translation>
+    </message>
+    <message>
+        <source>Connecting to peers...</source>
+        <translation>正在跟其他節點連線中...</translation>
     </message>
     <message>
         <source>Catching up...</source>
@@ -2201,6 +2205,14 @@
         <translation>警告: 不明的找零位址</translation>
     </message>
     <message>
+        <source>Confirm custom change address</source>
+        <translation>自定找零位址確認</translation>
+    </message>
+    <message>
+        <source>The address you selected for change is not part of this wallet. Any or all funds in your wallet may be sent to this address. Are you sure?</source>
+        <translation>選擇的找零位址並不屬於這個錢包。部份或是全部的錢會被送到這個位址去。你確定嗎？</translation>
+    </message>
+    <message>
         <source>(no label)</source>
         <translation>(無標記)</translation>
     </message>
@@ -3019,10 +3031,6 @@
         <translation>修剪模式：錢包的最後同步狀態是在被修剪掉的區塊資料中。你需要用 -reindex 參數執行(會重新下載整個區塊鏈)</translation>
     </message>
     <message>
-        <source>Reduce storage requirements by pruning (deleting) old blocks. This mode is incompatible with -txindex and -rescan. Warning: Reverting this setting requires re-downloading the entire blockchain. (default: 0 = disable pruning blocks, &gt;%u = target size in MiB to use for block files)</source>
-        <translation>修剪(刪除)掉老舊區塊來減少需要的儲存空間。這種模式會關閉錢包功能，並且和 -txindex 及 -rescan 參數不相容。警告: 從這種模式還原會需要重新下載一整個區塊鏈。(預設值: 0 表示不修剪區塊，&gt;%u 表示為區塊檔案的目標大小，單位是百萬位元組 MiB)</translation>
-    </message>
-    <message>
         <source>Rescans are not possible in pruned mode. You will need to use -reindex which will download the whole blockchain again.</source>
         <translation>在修剪模式下沒辦法重新掃描區塊鏈。你需要配合使用 -reindex 參數來重新下載整個區塊鏈。</translation>
     </message>
@@ -3087,6 +3095,14 @@
         <translation>當錢包有交易改變時要執行的指令(指令中的 %s 會被取代成交易識別碼)</translation>
     </message>
     <message>
+        <source>Extra transactions to keep in memory for compact block reconstructions (default: %u)</source>
+        <translation>為了將摘要區塊完整回組而額外保留在記憶體中的交易數量(預設值: %u)</translation>
+    </message>
+    <message>
+        <source>If this block is in the chain assume that it and its ancestors are valid and potentially skip their script verification (0 to verify all, default: %s, testnet: %s)</source>
+        <translation>假設已經在區塊鏈中的區塊以及其先前的區塊都合法，因此對它們略過指令碼驗證(0 表示一律要驗證，預設值: %s, 測試網路: %s)</translation>
+    </message>
+    <message>
         <source>Maximum allowed median peer time offset adjustment. Local perspective of time may be influenced by peers forward or backward by this amount. (default: %u seconds)</source>
         <translation>跟其他節點的時間差最高可接受的中位數值。本機所認為的時間可能會被其他節點影響，往前或往後在這個值之內。(預設值: %u 秒)</translation>
     </message>
@@ -3101,6 +3117,14 @@
     <message>
         <source>Please contribute if you find %s useful. Visit %s for further information about the software.</source>
         <translation>如果你覺得 %s 有用，可以幫助我們。關於這個軟體的更多資訊請見 %s。</translation>
+    </message>
+    <message>
+        <source>Reduce storage requirements by enabling pruning (deleting) of old blocks. This allows the pruneblockchain RPC to be called to delete specific blocks, and enables automatic pruning of old blocks if a target size in MiB is provided. This mode is incompatible with -txindex and -rescan. Warning: Reverting this setting requires re-downloading the entire blockchain. (default: 0 = disable pruning blocks, 1 = allow manual pruning via RPC, &gt;%u = automatically prune block files to stay under the specified target size in MiB)</source>
+        <translation>修剪(刪除)掉老舊區塊以降低需要的儲存空間。這樣會增加一個 RPC 指令 pruneblockchain，可以使用它來刪除指定的區塊；也可以指定目標儲存空間大小，以啟用對老舊區塊的自動修剪功能。這個模式跟 -txindex 和 -rescan 參數不相容。警告: 還原回不修剪模式會需要重新下載一整個區塊鏈。(預設值: 0 表示不修剪區塊，1 表示允許使用 RPC 指令做修剪，&gt;%u 的值表示為區塊資料的目標大小，單位是百萬位元組，MiB)</translation>
+    </message>
+    <message>
+        <source>Set lowest fee rate (in %s/kB) for transactions to be included in block creation. (default: %s)</source>
+        <translation>設定製造區塊時，所要包含交易每千位元組的最低手續費(單位是 %s)。(預設值: %s)</translation>
     </message>
     <message>
         <source>Set the number of script verification threads (%u to %d, 0 = auto, &lt;0 = leave that many cores free, default: %d)</source>
@@ -3121,6 +3145,10 @@
     <message>
         <source>Use UPnP to map the listening port (default: 1 when listening and no -proxy)</source>
         <translation>是否要使用「通用即插即用」協定(UPnP)，來設定聽候連線的通訊埠的對應(預設值: 當有聽候連線且沒有指定 -proxy 參數時為 1)</translation>
+    </message>
+    <message>
+        <source>Username and hashed password for JSON-RPC connections. The field &lt;userpw&gt; comes in the format: &lt;USERNAME&gt;:&lt;SALT&gt;$&lt;HASH&gt;. A canonical python script is included in share/rpcuser. The client then connects normally using the rpcuser=&lt;USERNAME&gt;/rpcpassword=&lt;PASSWORD&gt; pair of arguments. This option can be specified multiple times</source>
+        <translation>JSON-RPC 連線要用的使用者名稱和雜湊密碼。&lt;userpw&gt; 的格式是：&lt;使用者名稱&gt;:&lt;調味值&gt;$&lt;雜湊值&gt;。在 share/rpcuser 目錄下有一個示範的 python 程式。之後客戶端程式就可以用這對參數正常連線：rpcuser=&lt;使用者名稱&gt; 和 rpcpassword=&lt;密碼&gt;。這個選項可以給很多次。</translation>
     </message>
     <message>
         <source>Wallet will not create transactions that violate mempool chain limits (default: %u)</source>
@@ -3368,7 +3396,7 @@
     </message>
     <message>
         <source>Use the test chain</source>
-        <translation>使用測試鏈</translation>
+        <translation>使用測試區塊鏈</translation>
     </message>
     <message>
         <source>User Agent comment (%s) contains unsafe characters.</source>
@@ -3701,10 +3729,6 @@
     <message>
         <source>Use separate SOCKS5 proxy to reach peers via Tor hidden services (default: %s)</source>
         <translation>使用另外的 SOCK5 代理伺服器，來透過 Tor 隱藏服務跟其他節點聯絡(預設值: %s)</translation>
-    </message>
-    <message>
-        <source>Username and hashed password for JSON-RPC connections. The field &lt;userpw&gt; comes in the format: &lt;USERNAME&gt;:&lt;SALT&gt;$&lt;HASH&gt;. A canonical python script is included in share/rpcuser. This option can be specified multiple times</source>
-        <translation>JSON-RPC 連線要用的使用者名稱和雜湊密碼。&lt;userpw&gt; 的格式是：&lt;使用者名稱&gt;:&lt;調味值&gt;$&lt;雜湊值&gt;。在 share/rpcuser 目錄下有一個示範的 python 程式。這個選項可以給很多次。</translation>
     </message>
     <message>
         <source>Warning: Unknown block versions being mined! It's possible unknown rules are in effect</source>

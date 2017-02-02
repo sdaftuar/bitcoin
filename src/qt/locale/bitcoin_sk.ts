@@ -277,10 +277,6 @@
         <source>Processing blocks on disk...</source>
         <translation>Spracovávam bloky na disku...</translation>
     </message>
-    <message>
-        <source>No block source available...</source>
-        <translation>Nedostupný zdroj blokov...</translation>
-    </message>
     <message numerus="yes">
         <source>Processed %n block(s) of transaction history.</source>
         <translation><numerusform>Spracovaných %n blok transakčnej histórie.</numerusform><numerusform>Spracovaných %n bloky transakčnej histórie.</numerusform><numerusform>Spracovaných %n blokov transakčnej histórie.</numerusform></translation>
@@ -2293,10 +2289,6 @@
     <message>
         <source>Use separate SOCKS5 proxy to reach peers via Tor hidden services (default: %s)</source>
         <translation>Použiť samostatný SOCKS5 proxy server na dosiahnutie počítačov cez skryté služby Tor (predvolené: %s)</translation>
-    </message>
-    <message>
-        <source>Username and hashed password for JSON-RPC connections. The field &lt;userpw&gt; comes in the format: &lt;USERNAME&gt;:&lt;SALT&gt;$&lt;HASH&gt;. A canonical python script is included in share/rpcuser. This option can be specified multiple times</source>
-        <translation>Užívateľské hash meno a heslo pre JSON-RPC pripojenia. Pole &lt;userpw&gt; je vo formáte &lt;USERNAME&gt;:&lt;SALT&gt;$&lt;HASH&gt;. Kanonický python skript je zahrnutý v share/rpcuser. Toto nastavenie môže byť špecifikované viac krát</translation>
     </message>
     <message>
         <source>Warning: Unknown block versions being mined! It's possible unknown rules are in effect</source>

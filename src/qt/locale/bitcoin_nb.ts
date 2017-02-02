@@ -265,10 +265,6 @@
         <source>%n active connection(s) to Bitcoin network</source>
         <translation><numerusform>%n aktiv forbindelse til Bitcoin-nettverket</numerusform><numerusform>%n aktive forbindelser til Bitcoin-nettverket</numerusform></translation>
     </message>
-    <message>
-        <source>No block source available...</source>
-        <translation>Ingen kilde for blokker tilgjengelig...</translation>
-    </message>
     <message numerus="yes">
         <source>Processed %n block(s) of transaction history.</source>
         <translation><numerusform>Lastet %n blokk med transaksjonshistorikk.</numerusform><numerusform>Lastet %n blokker med transaksjonshistorikk.</numerusform></translation>
@@ -1710,10 +1706,6 @@
         <translation>Beskjæring: siste lommeboksynkronisering går utenfor beskjærte data. Du må bruke -reindex (laster ned hele blokkjeden igjen for beskjærte noder)</translation>
     </message>
     <message>
-        <source>Reduce storage requirements by pruning (deleting) old blocks. This mode is incompatible with -txindex and -rescan. Warning: Reverting this setting requires re-downloading the entire blockchain. (default: 0 = disable pruning blocks, &gt;%u = target size in MiB to use for block files)</source>
-        <translation>Reduser lagringsbehovet ved beskjæring (sletting) av gamle blokker. Denne modusen er ikke kompatibel med -txindex og -rescan. Advarsel: Tilbakestilling av denne innstillingen krever at hele blokkjeden må lastes ned på nytt. (Standardverdi: 0 = deaktiver beskjæring av blokker, &gt;%u = mål for størrelse i MiB å bruke for blokkfiler)</translation>
-    </message>
-    <message>
         <source>Rescans are not possible in pruned mode. You will need to use -reindex which will download the whole blockchain again.</source>
         <translation>Omsøk er ikke mulig i beskjært modus. Du vil måtte bruke -reindex som vil laste nede hele blokkjeden på nytt.</translation>
     </message>
@@ -2200,10 +2192,6 @@
     <message>
         <source>Use separate SOCKS5 proxy to reach peers via Tor hidden services (default: %s)</source>
         <translation>Bruk separate SOCKS5 proxyer for å nå noder via Tor skjulte tjenester (standardverdi: %s)</translation>
-    </message>
-    <message>
-        <source>Username and hashed password for JSON-RPC connections. The field &lt;userpw&gt; comes in the format: &lt;USERNAME&gt;:&lt;SALT&gt;$&lt;HASH&gt;. A canonical python script is included in share/rpcuser. This option can be specified multiple times</source>
-        <translation>Brukernavn og hashet passord for JSON-RPC tilkoblinger. Feltet &lt;userpw&gt; kommer i formatet: &lt;USERNAME&gt;:&lt;SALT&gt;$&lt;HASH&gt;. Et Python-skript er inkludert i share/rpcuser. Dette alternativet kan angis flere ganger</translation>
     </message>
     <message>
         <source>(default: %s)</source>

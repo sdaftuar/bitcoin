@@ -330,6 +330,10 @@
         <translation>Klik for a aktivere netværksaktivitet igen.</translation>
     </message>
     <message>
+        <source>Syncing Headers (%1%)...</source>
+        <translation>Synkroniserer hoveder (%1%)…</translation>
+    </message>
+    <message>
         <source>Reindexing blocks on disk...</source>
         <translation>Genindekserer blokke på disken…</translation>
     </message>
@@ -441,10 +445,6 @@
         <source>Processing blocks on disk...</source>
         <translation>Bearbejder blokke på disken…</translation>
     </message>
-    <message>
-        <source>No block source available...</source>
-        <translation>Ingen blokkilde tilgængelig…</translation>
-    </message>
     <message numerus="yes">
         <source>Processed %n block(s) of transaction history.</source>
         <translation><numerusform>Bearbejdede %n blok med transaktionshistorik.</numerusform><numerusform>Bearbejdede %n blokke med transaktionshistorik.</numerusform></translation>
@@ -484,6 +484,10 @@
     <message>
         <source>%1 client</source>
         <translation>%1-klient</translation>
+    </message>
+    <message>
+        <source>Connecting to peers...</source>
+        <translation>Forbinder til knuder…</translation>
     </message>
     <message>
         <source>Catching up...</source>
@@ -2205,6 +2209,14 @@
         <translation>Advarsel: Ukendt byttepengeadresse</translation>
     </message>
     <message>
+        <source>Confirm custom change address</source>
+        <translation>Bekræft tilpasset byttepengeadresse</translation>
+    </message>
+    <message>
+        <source>The address you selected for change is not part of this wallet. Any or all funds in your wallet may be sent to this address. Are you sure?</source>
+        <translation>Den adresse, du har valgt til byttepenge, er ikke en del af denne tegnebog. Nogle af eller alle penge i din tegnebog kan blive sendt til denne adresse. Er du sikker?</translation>
+    </message>
+    <message>
         <source>(no label)</source>
         <translation>(ingen mærkat)</translation>
     </message>
@@ -3022,10 +3034,6 @@
         <translation>Beskæring: Seneste synkronisering rækker udover beskårne data. Du er nødt til at bruge -reindex (downloade hele blokkæden igen i fald af beskåret knude)</translation>
     </message>
     <message>
-        <source>Reduce storage requirements by pruning (deleting) old blocks. This mode is incompatible with -txindex and -rescan. Warning: Reverting this setting requires re-downloading the entire blockchain. (default: 0 = disable pruning blocks, &gt;%u = target size in MiB to use for block files)</source>
-        <translation>Reducér lagringskravene ved at beskære (slette) gamle blokke. Denne tilstand er ikke kompatibel med -txindex og -rescan. Advarsel: Fortrydelse af denne indstilling kræver gendownload af hele blokkæden. (standard: 0 = deaktivér beskæring af blokke, &gt;%u = målstørrelse i MiB der skal bruges på blokfiler)</translation>
-    </message>
-    <message>
         <source>Rescans are not possible in pruned mode. You will need to use -reindex which will download the whole blockchain again.</source>
         <translation>Genindlæsninger er ikke mulige i beskåret tilstand. Du er nødt til at bruge -reindex, hvilket vil downloade hele blokkæden igen.</translation>
     </message>
@@ -3090,6 +3098,14 @@
         <translation>Udfør kommando, når en transaktion i tegnebogen ændres (%s i kommandoen erstattes med TxID)</translation>
     </message>
     <message>
+        <source>Extra transactions to keep in memory for compact block reconstructions (default: %u)</source>
+        <translation>Ekstra transaktioner, der skal beholdes i hukommelsen til kompakte blokgenopbygninger (standard: %u)</translation>
+    </message>
+    <message>
+        <source>If this block is in the chain assume that it and its ancestors are valid and potentially skip their script verification (0 to verify all, default: %s, testnet: %s)</source>
+        <translation>Hvis denne blok er i kæden, så antag at den og dens forgængere er gyldige, og spring potentielt deres scriptverificering over (0 for at verificere alle, standard: %s, testnet: %s)</translation>
+    </message>
+    <message>
         <source>Maximum allowed median peer time offset adjustment. Local perspective of time may be influenced by peers forward or backward by this amount. (default: %u seconds)</source>
         <translation>Justering af maksimalt tilladt gennemsnitlig afvigelse fra peer-tid. Den lokale opfattelse af tid kan blive påvirket frem eller tilbage af peers med denne mængde tid. (standard: %u sekunder)</translation>
     </message>
@@ -3104,6 +3120,14 @@
     <message>
         <source>Please contribute if you find %s useful. Visit %s for further information about the software.</source>
         <translation>Overvej venligst at bidrage til udviklingen, hvis du finder %s brugbar. Besøg %s for yderligere information om softwaren.</translation>
+    </message>
+    <message>
+        <source>Reduce storage requirements by enabling pruning (deleting) of old blocks. This allows the pruneblockchain RPC to be called to delete specific blocks, and enables automatic pruning of old blocks if a target size in MiB is provided. This mode is incompatible with -txindex and -rescan. Warning: Reverting this setting requires re-downloading the entire blockchain. (default: 0 = disable pruning blocks, 1 = allow manual pruning via RPC, &gt;%u = automatically prune block files to stay under the specified target size in MiB)</source>
+        <translation>Reducér pladskravene ved at beskære (slette, "prune") gamle blokke. Dette tillader pruneblockchain-RPC'en at blive kaldt for at slette specifikke blokke, og det aktiverer automatisk beskæring af gamle blokke, hvis en målstørrelse i MiB er angivet. Denne tilstand er ikke kompatibel med -txindex og -rescan. Advarsel: Fortrydelse af denne indstilling kræver download af hele blokkæden igen. (standard: 0 = slå beskæring af blokke fra, 1 = tillad manuel beskæring via RPC, &gt;%u = beskær automatisk blokfiler for at bliver under den angivne målstørrelse i MiB)</translation>
+    </message>
+    <message>
+        <source>Set lowest fee rate (in %s/kB) for transactions to be included in block creation. (default: %s)</source>
+        <translation>Sæt den laveste gebyrrate (i %s/kB) for transaktioner, der skal inkluderes i blokoprettelse. (standard: %s)</translation>
     </message>
     <message>
         <source>Set the number of script verification threads (%u to %d, 0 = auto, &lt;0 = leave that many cores free, default: %d)</source>
@@ -3124,6 +3148,10 @@
     <message>
         <source>Use UPnP to map the listening port (default: 1 when listening and no -proxy)</source>
         <translation>Brug UPnP for at konfigurere den lyttende port (standard: 1 under lytning og ingen -proxy)</translation>
+    </message>
+    <message>
+        <source>Username and hashed password for JSON-RPC connections. The field &lt;userpw&gt; comes in the format: &lt;USERNAME&gt;:&lt;SALT&gt;$&lt;HASH&gt;. A canonical python script is included in share/rpcuser. The client then connects normally using the rpcuser=&lt;USERNAME&gt;/rpcpassword=&lt;PASSWORD&gt; pair of arguments. This option can be specified multiple times</source>
+        <translation>Brugernavn og hashet adgangskode for JSON-RPC-forbindelser. Feltet &lt;userpw&gt; er i formatet: &lt;BRUGERNAVN&gt;:&lt;SALT&gt;$&lt;HASH&gt;. Et kanonisk Python-skript er inkluderet i share/rpcuser. Klienten forbinder så normalt ved hjælp af argumentparret rpcuser=&lt;BRUGERNAVN&gt;/rpcpassword=&lt;ADGANGSKODE&gt;. Dette tilvalg kan angives flere gange</translation>
     </message>
     <message>
         <source>Wallet will not create transactions that violate mempool chain limits (default: %u)</source>
@@ -3704,10 +3732,6 @@
     <message>
         <source>Use separate SOCKS5 proxy to reach peers via Tor hidden services (default: %s)</source>
         <translation>Brug separat SOCS5-proxy for at nå knuder via skjulte Tor-tjenester (standard: %s)</translation>
-    </message>
-    <message>
-        <source>Username and hashed password for JSON-RPC connections. The field &lt;userpw&gt; comes in the format: &lt;USERNAME&gt;:&lt;SALT&gt;$&lt;HASH&gt;. A canonical python script is included in share/rpcuser. This option can be specified multiple times</source>
-        <translation>Brugernavn og hashet adgangskode for JSON-RPC-forbindelser. Feltet &lt;userpw&gt; er i formatet: &lt;BRUGERNAVN&gt;:&lt;SALT&gt;$&lt;HASH&gt;. Et kanonisk Python-skript inkluderes i share/rpcuser. Dette tilvalg kan angives flere gange</translation>
     </message>
     <message>
         <source>Warning: Unknown block versions being mined! It's possible unknown rules are in effect</source>

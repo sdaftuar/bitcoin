@@ -441,10 +441,6 @@
         <source>Processing blocks on disk...</source>
         <translation>Zpracovávám bloky na disku...</translation>
     </message>
-    <message>
-        <source>No block source available...</source>
-        <translation>Není dostupný žádný zdroj bloků...</translation>
-    </message>
     <message numerus="yes">
         <source>Processed %n block(s) of transaction history.</source>
         <translation><numerusform>Zpracován %n blok transakční historie.</numerusform><numerusform>Zpracovány %n bloky transakční historie.</numerusform><numerusform>Zpracováno %n bloků transakční historie.</numerusform></translation>
@@ -2205,6 +2201,14 @@
         <translation>Upozornění: Neznámá adresa pro drobné</translation>
     </message>
     <message>
+        <source>Confirm custom change address</source>
+        <translation>Potvrď vlastní adresu pro drobné</translation>
+    </message>
+    <message>
+        <source>The address you selected for change is not part of this wallet. Any or all funds in your wallet may be sent to this address. Are you sure?</source>
+        <translation>Adresa, kterou jsi zvolil pro drobné, není součástí této peněženky. Potenciálně všechny prostředky z tvé peněženky mohou být na tuto adresu odeslány. Souhlasíš, aby se tak stalo?</translation>
+    </message>
+    <message>
         <source>(no label)</source>
         <translation>(bez označení)</translation>
     </message>
@@ -3022,10 +3026,6 @@
         <translation>Prořezávání: poslední synchronizace peněženky proběhla před už prořezanými daty. Je třeba provést -reindex (tedy v případě prořezávacího režimu stáhnout znovu celý řetězec bloků)</translation>
     </message>
     <message>
-        <source>Reduce storage requirements by pruning (deleting) old blocks. This mode is incompatible with -txindex and -rescan. Warning: Reverting this setting requires re-downloading the entire blockchain. (default: 0 = disable pruning blocks, &gt;%u = target size in MiB to use for block files)</source>
-        <translation>Omezit nároky na úložný prostor prořezáváním (mazáním) starých bloků. Tento režim není slučitelný s -txindex ani -rescan. Upozornění: opětovná změna tohoto nastavení bude vyžadovat nové stažení celého řetězce bloků. (výchozí: 0 = bloky neprořezávat, &gt;%u = cílová velikost souborů s bloky, v MiB)</translation>
-    </message>
-    <message>
         <source>Rescans are not possible in pruned mode. You will need to use -reindex which will download the whole blockchain again.</source>
         <translation>V prořezávacím režimu není možné přeskenovávat řetězec bloků. Musíš provést -reindex, což znovu stáhne celý řetězec bloků.</translation>
     </message>
@@ -3124,6 +3124,10 @@
     <message>
         <source>Use UPnP to map the listening port (default: 1 when listening and no -proxy)</source>
         <translation>Použít UPnP k namapování naslouchacího portu (výchozí: 1, pokud naslouchá a nepoužívá -proxy)</translation>
+    </message>
+    <message>
+        <source>Username and hashed password for JSON-RPC connections. The field &lt;userpw&gt; comes in the format: &lt;USERNAME&gt;:&lt;SALT&gt;$&lt;HASH&gt;. A canonical python script is included in share/rpcuser. The client then connects normally using the rpcuser=&lt;USERNAME&gt;/rpcpassword=&lt;PASSWORD&gt; pair of arguments. This option can be specified multiple times</source>
+        <translation>Uživatelské jméno a zahašované heslo pro JSON-RPC spojení. Pole &lt;userpw&gt; má formát: &lt;UŽIVATELSKÉ_JMÉNO&gt;:&lt;SŮL&gt;$&lt;HAŠ&gt;. Pomocný pythonní skript je přiložen v share/rpcuser. Klient se pak už připojuje normálně pomocí páru argumentů rpcuser=&lt;UŽIVATELSKÉ_JMÉNO&gt;/rpcpassword=&lt;HESLO&gt;. Tuto volbu lze použít i vícekrát</translation>
     </message>
     <message>
         <source>Wallet will not create transactions that violate mempool chain limits (default: %u)</source>
@@ -3704,10 +3708,6 @@
     <message>
         <source>Use separate SOCKS5 proxy to reach peers via Tor hidden services (default: %s)</source>
         <translation>Použít samostatnou SOCKS5 proxy ke spojení s protějšky přes skryté služby v Toru (výchozí: %s)</translation>
-    </message>
-    <message>
-        <source>Username and hashed password for JSON-RPC connections. The field &lt;userpw&gt; comes in the format: &lt;USERNAME&gt;:&lt;SALT&gt;$&lt;HASH&gt;. A canonical python script is included in share/rpcuser. This option can be specified multiple times</source>
-        <translation>Uživatelské jméno a zahašované heslo pro JSON-RPC spojení. Pole &lt;userpw&gt; má formát: &lt;UŽIVATELSKÉ_JMÉNO&gt;:&lt;SŮL&gt;$&lt;HAŠ&gt;. Pomocný pythonní skript je přiložen v share/rpcuser. Tuto volbu lze použít i vícekrát</translation>
     </message>
     <message>
         <source>Warning: Unknown block versions being mined! It's possible unknown rules are in effect</source>

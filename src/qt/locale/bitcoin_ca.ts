@@ -441,10 +441,6 @@
         <source>Processing blocks on disk...</source>
         <translation>S'estan processant els blocs al disc...</translation>
     </message>
-    <message>
-        <source>No block source available...</source>
-        <translation>No hi ha cap font de bloc disponible...</translation>
-    </message>
     <message numerus="yes">
         <source>Processed %n block(s) of transaction history.</source>
         <translation><numerusform>S'ha processat %n bloc de l'historial de transacció.</numerusform><numerusform>S'han processat %n blocs de l'historial de transacció.</numerusform></translation>
@@ -2820,10 +2816,6 @@
     <message>
         <source>Prune: last wallet synchronisation goes beyond pruned data. You need to -reindex (download the whole blockchain again in case of pruned node)</source>
         <translation>Poda: la darrera sincronització del moneder va més enllà de les dades podades. Cal que activeu -reindex (baixeu tota la cadena de blocs de nou en cas de node podat)</translation>
-    </message>
-    <message>
-        <source>Reduce storage requirements by pruning (deleting) old blocks. This mode is incompatible with -txindex and -rescan. Warning: Reverting this setting requires re-downloading the entire blockchain. (default: 0 = disable pruning blocks, &gt;%u = target size in MiB to use for block files)</source>
-        <translation>Reduïu els requisits d'emmagatzematge podant (suprimint) els blocs antics. Aquest mode és incompatible amb -txindex i -rescan. Avís: la reversió d'aquest paràmetre implica haver de tornar a baixar la cadena de blocs sencera. (per defecte: 0 = inhabilita la poda de blocs, &gt;%u = mida objectiu en MiB per utilitzar en els fitxers de blocs)</translation>
     </message>
     <message>
         <source>Rescans are not possible in pruned mode. You will need to use -reindex which will download the whole blockchain again.</source>

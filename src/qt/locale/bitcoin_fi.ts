@@ -273,10 +273,6 @@
         <source>Processing blocks on disk...</source>
         <translation>Käsitellään lohkoja levyllä...</translation>
     </message>
-    <message>
-        <source>No block source available...</source>
-        <translation>Lohkojen lähdettä ei saatavilla...</translation>
-    </message>
     <message numerus="yes">
         <source>Processed %n block(s) of transaction history.</source>
         <translation><numerusform>Prosessoitu %n lohko rahansiirtohistoriasta.</numerusform><numerusform>Prosessoitu %n lohkoa rahansiirtohistoriasta.</numerusform></translation>
@@ -1756,10 +1752,6 @@
     <message>
         <source>Prune: last wallet synchronisation goes beyond pruned data. You need to -reindex (download the whole blockchain again in case of pruned node)</source>
         <translation>Karsinta: viime lompakon synkronisointi menee karsitun datan taakse. Sinun tarvitsee ajaa -reindex (lataa koko lohkoketju uudelleen tapauksessa jossa karsiva noodi)</translation>
-    </message>
-    <message>
-        <source>Reduce storage requirements by pruning (deleting) old blocks. This mode is incompatible with -txindex and -rescan. Warning: Reverting this setting requires re-downloading the entire blockchain. (default: 0 = disable pruning blocks, &gt;%u = target size in MiB to use for block files)</source>
-        <translation>Vähennä levytilan tarvetta karsimalla (poistamalla) vanhoja lohkoja. Tämä tila ei ole yhteensopiva -txindex ja -rescan -parametrien kanssa. Varoitus: Tämän asetuksen peruutus vaatii koko lohkoketjun uudelleenlataamisen. (oletus: 0 = poista karsinta käytöstä, &gt;%u = kohdekoko muodossa MiB jota käytetään lohkotiedostoille) </translation>
     </message>
     <message>
         <source>Rescans are not possible in pruned mode. You will need to use -reindex which will download the whole blockchain again.</source>
