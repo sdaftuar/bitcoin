@@ -3,10 +3,10 @@
 
 #include "blockencodings.h"
 #include "streams.h"
-#include "txmempool.h"
 #include "util.h"
 #include <string>
 #include <memory>
+#include "boost/date_time/gregorian/gregorian.hpp"
 
 using namespace std;
 
@@ -19,10 +19,8 @@ class CBlockHeader;
  *
  * Usage: Pass in directory name to hold the log files in to the constructor.
  *        Will create block.<date> and tx.<date> files that store blocks
- *        received and transactions received on that date.  Also creates
- *        mempool.<date> representing the state of the mempool at the beginning
- *        of the date (midnight NYC time).
- *        Will load up the previous mempool at startup.
+ *        received and transactions received on that date.
+ *
  *        Requires bitcoind to call OnNewTransaction and OnNewBlock methods.
  */
 
@@ -30,7 +28,6 @@ class DataLogger {
 private:
     unique_ptr<CAutoFile> transactionLog;
     unique_ptr<CAutoFile> blockLog;
-    unique_ptr<CAutoFile> mempoolLog;
     unique_ptr<CAutoFile> headersLog;
     unique_ptr<CAutoFile> cmpctblockLog;
     unique_ptr<CAutoFile> blocktxnLog;
@@ -44,7 +41,6 @@ private:
 
     void InitAutoFile(unique_ptr<CAutoFile> &which, std::string prefix, std::string curdate);
     void RollDate();
-    void LoadOldMempool();
 
 public:
     void Shutdown();

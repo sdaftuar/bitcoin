@@ -1538,7 +1538,7 @@ bool AppInitMain(boost::thread_group& threadGroup, CScheduler& scheduler)
         mempool.ReadFeeEstimates(est_filein);
     fFeeEstimatesInitialized = true;
 
-    if (!cclGlobals->Init(&mempool)) {
+    if (!cclGlobals->Init()) {
         return false;
     }
 

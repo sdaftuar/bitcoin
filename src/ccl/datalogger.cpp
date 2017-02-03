@@ -4,7 +4,6 @@
 
 #include "primitives/block.h"
 #include "primitives/transaction.h"
-#include "boost/date_time/gregorian/gregorian.hpp" //include all types plus i/o
 
 using namespace boost::gregorian;
 using namespace boost::posix_time;

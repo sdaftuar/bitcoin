@@ -4,9 +4,8 @@
 #include "streams.h"
 #include "primitives/block.h"
 #include "primitives/transaction.h"
-#include "txmempool.h"
 #include "blockencodings.h"
-#include "boost/date_time/gregorian/gregorian.hpp" //include all types plus i/o
+#include "boost/date_time/gregorian/gregorian.hpp"
 #include "boost/filesystem.hpp"
 
 #include <string>
@@ -97,7 +96,6 @@ private:
 
     unique_ptr<CAutoFile> blkfile;
     unique_ptr<CAutoFile> txfile;
-    unique_ptr<CAutoFile> mempoolfile;
     unique_ptr<CAutoFile> headersfile;
     unique_ptr<CAutoFile> cmpctblockfile;
     unique_ptr<CAutoFile> blocktxnfile;
