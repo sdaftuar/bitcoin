@@ -122,13 +122,9 @@ class PrioritiseTransactionTest(BitcoinTestFramework):
         tx2_hex = self.nodes[0].signrawtransaction(raw_tx2)["hex"]
         tx2_id = self.nodes[0].decoderawtransaction(tx2_hex)["txid"]
 
-        try:
-            self.nodes[0].sendrawtransaction(tx2_hex)
-        except JSONRPCException as exp:
-            assert_equal(exp.error['code'], -26) # insufficient fee
-            assert(tx2_id not in self.nodes[0].getrawmempool())
-        else:
-            assert(False)
+        # This will raise an exception due to insufficient priority
+        assert_raises_jsonrpc(-26, "insufficient priority", self.nodes[0].sendrawtransaction, tx2_hex)
+        assert(tx2_id not in self.nodes[0].getrawmempool())
 
         # This is a less than 1000-byte transaction, so just set the fee
         # to be the minimum for a 1000 byte transaction and check that it is
