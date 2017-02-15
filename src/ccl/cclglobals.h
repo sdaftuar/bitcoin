@@ -36,7 +36,7 @@ public:
 
     // Global stuff -- for using the class at all
     void UpdateUsage(string &strUsage);
-    bool Init(CTxMemPool *pool);
+    bool Init();
     bool IsSim(); // true if running in historical sim mode
     bool Run(boost::thread_group &threadGroup);
     void Shutdown();
@@ -45,9 +45,6 @@ public:
 
     unique_ptr<DataLogger> dlog;
     unique_ptr<Simulation> simulation;
-
-    // Try to reduce reliance on global namespace
-    CTxMemPool * mempool;
 
 private:
     std::string outputFileName;

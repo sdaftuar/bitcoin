@@ -139,6 +139,6 @@ void Simulation::operator()()
         curdate += days(1);
         LoadFiles(curdate);
     }
-    LogPrintf("Simulation exiting, mempool size: %lu\n", cclGlobals->mempool->size());
+    LogPrintf("Simulation exiting");
     StartShutdown();
 }
