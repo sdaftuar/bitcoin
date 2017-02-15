@@ -10,17 +10,7 @@
 
 using namespace std;
 
-// TODO: Update this to match txmempool entry
-struct MyCTxMemPoolEntry {
-    CTransaction *tx;
-    CAmount nFee;
-    int64_t nTime;
-    double dPriority;
-    unsigned int nHeight;
-};
-
 void print(BlockEvent &);
-void print(MyCTxMemPoolEntry &);
 void print(TxEvent &);
 void print(HeadersEvent &);
 
@@ -31,7 +21,7 @@ enum DataType { BLOCK, TX, HEADERS, INVALID };
 int main(int argc, char **argv)
 {
     if (argc < 2) {
-        printf("Usage: %s <data file> [<data type (one of BLOCK, MEMPOOL, TX, HEADERS)>]\n", argv[0]);
+        printf("Usage: %s <data file> [<data type (one of BLOCK, TX, HEADERS)>]\n", argv[0]);
         exit(1);
     }
 

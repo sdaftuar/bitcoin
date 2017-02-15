@@ -14,7 +14,7 @@
 CCLGlobals *cclGlobals = new CCLGlobals;
 
 CCLGlobals::CCLGlobals()
-    : mempool(NULL), rnd(301)
+    : rnd(301)
 {
 }
 
@@ -39,10 +39,8 @@ void CCLGlobals::UpdateUsage(std::string &strUsage)
 
 }
 
-bool CCLGlobals::Init(CTxMemPool *pool)
+bool CCLGlobals::Init()
 {
-    mempool = pool;
-
     // DataLogger initialization
     if (IsArgSet("-dlogdir")) {
 	    this->dlog.reset(new DataLogger(GetArg("-dlogdir", "")));
