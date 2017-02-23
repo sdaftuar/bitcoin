@@ -49,6 +49,7 @@ class DataLoggingTest(BitcoinTestFramework):
                                                             min_fee, min_fee, 20)
         sync_mempools(self.nodes)
         stop_nodes(self.nodes)
+        self.nodes = []
 
         # Need to wait for files to be written out
         while (os.path.isfile(self.options.tmpdir+"/node0/regtest/bitcoind.pid")):
