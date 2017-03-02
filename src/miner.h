@@ -178,6 +178,8 @@ private:
     void resetBlock();
     /** Add a tx to the block */
     void AddToBlock(CTxMemPool::txiter iter);
+    /** Remove recent transactions from a block, including any descendants */
+    void RemoveRecentTransactionsFromBlock(int64_t timeCutoff);
 
     // Methods for how to add transactions to a block.
     /** Add transactions based on feerate including unconfirmed ancestors

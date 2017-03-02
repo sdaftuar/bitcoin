@@ -286,6 +286,44 @@ void BlockAssembler::AddToBlock(CTxMemPool::txiter iter)
     }
 }
 
+void BlockAssembler::RemoveRecentTransactionsFromBlock(int64_t timeCutoff)
+{
+    std::vector<CTransactionRef> vtxCopy(pblocktemplate->block.vtx.size());
+    std::vector<CAmount> vTxFeesCopy(vtxCopy.size());
+    std::vector<int64_t> vTxSigOpsCostCopy(vtxCopy.size());
+
+    size_t index=0;
+    CTxMemPool::setEntries skippedTransactions;
+    CTxMemPool::setEntries descendantTransactions;
+    for (CTransactionRef ptx : pblocktemplate->block.vtx) {
+        CTxMemPool::txiter it = mempool.mapTx.find(ptx->GetHash());
+        assert(it != mempool.mapTx.end());
+        if (it->GetTime() < timeCutoff && descendantTransactions.count(it) == 0) {
+            vtxCopy[index] = ptx;
+            vTxFeesCopy[index] = it->GetFee();
+            vTxSigOpsCostCopy[index] = it->GetSigOpCost();
+            index++;
+        } else {
+            skippedTransactions.insert(it);
+            // Update block statistics for transactions being skipped.
+            if (fNeedSizeAccounting) {
+                nBlockSize -= ::GetSerializeSize(*ptx, SER_NETWORK, PROTOCOL_VERSION);
+            }
+            nBlockWeight -= it->GetTxWeight();
+            --nBlockTx;
+            nBlockSigOpsCost -= it->GetSigOpCost();
+            inBlock.erase(it);
+            // Update descendantTransactions to include this tx's descendants
+            mempool.CalculateDescendants(it, descendantTransactions);
+        }
+    }
+
+    // Now we have a new version of the block.  Swap out with what is stored.
+    std::swap(pblocktemplate->block.vtx, vtxCopy);
+    std::swap(pblocktemplate->vTxFees, vTxFeesCopy);
+    std::swap(pblocktemplate->vTxSigOpsCost, vTxSigOpsCostCopy);
+}
+
 int BlockAssembler::UpdatePackagesForAdded(const CTxMemPool::setEntries& alreadyAdded,
         indexed_modified_transaction_set &mapModifiedTx)
 {
