@@ -205,6 +205,45 @@ UniValue getpeerinfo(const JSONRPCRequest& request)
     return ret;
 }
 
+UniValue updatenode(const JSONRPCRequest& request)
+{
+    if (request.fHelp || request.params.size() > 2 || request.params.size() == 0)
+        throw runtime_error(
+            "updatenode\n"
+            "\nUpdate settings for a network node.\n"
+            "\nReturns updated information about the node. See getpeerinfo() for the format of the returned object."
+            "\nArguments:\n"
+            "1. \"node\"         (string, required) The node id (see getpeerinfo for a list of nodes with their ids)\n"
+            "2. \"whitelisted\"  (bool, optional) whether the node is whitelisted\n"
+            "\nExamples:\n"
+            + HelpExampleCli("updatepeer", "0 true")
+            + HelpExampleRpc("updatepeer", "0, true")
+        );
+
+    if(!g_connman) {
+        throw JSONRPCError(RPC_CLIENT_P2P_DISABLED, "Error: Peer-to-peer functionality missing or disabled");
+    }
+
+    LOCK(cs_main);
+
+    int nodeid = request.params[0].get_int();
+
+    if (request.params.size() >= 2) {
+        RPCTypeCheckArgument(request.params[1], UniValue::VBOOL);
+        if (!g_connman->SetWhitelisted(nodeid, request.params[1].isTrue()))
+            throw JSONRPCError(RPC_MISC_ERROR, "Failed to update node RelayTxes");
+    }
+
+    UniValue entry(UniValue::VOBJ);
+    CNodeStats stats;
+
+    if (g_connman->GetNodeStats(nodeid, stats)) {
+        NodeStatsToJSON(stats, entry);
+    }
+
+    return entry;
+}
+
 UniValue addnode(const JSONRPCRequest& request)
 {
     string strCommand;
@@ -634,6 +673,7 @@ static const CRPCCommand commands[] =
     { "network",            "listbanned",             &listbanned,             true,  {} },
     { "network",            "clearbanned",            &clearbanned,            true,  {} },
     { "network",            "setnetworkactive",       &setnetworkactive,       true,  {"state"} },
+    { "network",            "updatenode",             &updatenode,             true,  {"node", "whitelisted"} },
 };
 
 void RegisterNetRPCCommands(CRPCTable &t)

@@ -254,6 +254,7 @@ public:
     unsigned int GetSendBufferSize() const;
 
     void AddWhitelistedRange(const CSubNet &subnet);
+    bool SetWhitelisted(NodeId id, bool fWhitelisted);
 
     ServiceFlags GetLocalServices() const;
 
