@@ -134,24 +134,29 @@ struct update_for_parent_inclusion
 class BlockAssembler
 {
 private:
-    // The constructed block template
-    std::unique_ptr<CBlockTemplate> pblocktemplate;
-    // A convenience pointer that always refers to the CBlock in pblocktemplate
-    CBlock* pblock;
+    struct WorkingState {
+        // The state associated with construction of a block.
+        // The constructed block template
+        std::unique_ptr<CBlockTemplate> pblocktemplate;
+        // A convenience pointer that always refers to the CBlock in pblocktemplate
+        CBlock* pblock;
+
+        // Information on the current status of the block
+        uint64_t nBlockWeight;
+        uint64_t nBlockSize;
+        uint64_t nBlockTx;
+        uint64_t nBlockSigOpsCost;
+        CAmount nFees;
+        CTxMemPool::setEntries inBlock;
+    };
+
+    WorkingState workState;
 
     // Configuration parameters for the block size
     bool fIncludeWitness;
     unsigned int nBlockMaxWeight, nBlockMaxSize;
     bool fNeedSizeAccounting;
     CFeeRate blockMinFeeRate;
-
-    // Information on the current status of the block
-    uint64_t nBlockWeight;
-    uint64_t nBlockSize;
-    uint64_t nBlockTx;
-    uint64_t nBlockSigOpsCost;
-    CAmount nFees;
-    CTxMemPool::setEntries inBlock;
 
     // Chain context for the block
     int nHeight;
