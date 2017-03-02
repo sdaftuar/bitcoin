@@ -150,8 +150,6 @@ private:
         CTxMemPool::setEntries inBlock;
     };
 
-    WorkingState workState;
-
     // Configuration parameters for the block size
     bool fIncludeWitness;
     unsigned int nBlockMaxWeight, nBlockMaxSize;
@@ -180,11 +178,11 @@ public:
 private:
     // utility functions
     /** Clear the block's state and prepare for assembling a new block */
-    void resetBlock();
+    void resetBlock(WorkingState &workState);
     /** Add a tx to the block */
-    void AddToBlock(CTxMemPool::txiter iter);
+    void AddToBlock(WorkingState &workState, CTxMemPool::txiter iter);
     /** Remove recent transactions from a block, including any descendants */
-    void RemoveRecentTransactionsFromBlock(int64_t timeCutoff);
+    void RemoveRecentTransactionsFromBlock(WorkingState &workState, int64_t timeCutoff);
 
     // Methods for how to add transactions to a block.
     /** Add transactions based on feerate including unconfirmed ancestors
@@ -192,21 +190,21 @@ private:
       * statistics from the package selection (for logging statistics).
      *  mapModifiedTx will track the updated ancestor feerate score of
      *  not-in-block transactions that have parents in the block */
-    void addPackageTxs(int &nPackagesSelected, int &nDescendantsUpdated, bool fIncludeRecentTransactions, indexed_modified_transaction_set &mapModifiedTx);
+    void addPackageTxs(WorkingState &workState, int &nPackagesSelected, int &nDescendantsUpdated, bool fIncludeRecentTransactions, indexed_modified_transaction_set &mapModifiedTx);
 
     // helper functions for addPackageTxs()
     /** Remove confirmed (inBlock) entries from given set */
-    void onlyUnconfirmed(CTxMemPool::setEntries& testSet);
+    void onlyUnconfirmed(WorkingState &workState, CTxMemPool::setEntries& testSet);
     /** Test if a new package would "fit" in the block */
-    bool TestPackage(uint64_t packageSize, int64_t packageSigOpsCost);
+    bool TestPackage(WorkingState &workState, uint64_t packageSize, int64_t packageSigOpsCost);
     /** Perform checks on each transaction in a package:
       * locktime, premature-witness, serialized size (if necessary)
       * These checks should always succeed, and they're here
       * only as an extra check in case of suboptimal node configuration */
-    bool TestPackageTransactions(const CTxMemPool::setEntries& package);
+    bool TestPackageTransactions(WorkingState &workState, const CTxMemPool::setEntries& package);
     /** Return true if given transaction from mapTx has already been evaluated,
       * or if the transaction's cached data in mapTx is incorrect. */
-    bool SkipMapTxEntry(CTxMemPool::txiter it, indexed_modified_transaction_set &mapModifiedTx, CTxMemPool::setEntries &failedTx, bool fOnlyOlderTransactions);
+    bool SkipMapTxEntry(WorkingState &workState, CTxMemPool::txiter it, indexed_modified_transaction_set &mapModifiedTx, CTxMemPool::setEntries &failedTx, bool fOnlyOlderTransactions);
     /** Sort the package in an order that is valid to appear in a block */
     void SortForBlock(const CTxMemPool::setEntries& package, CTxMemPool::txiter entry, std::vector<CTxMemPool::txiter>& sortedEntries);
     /** Add descendants of given transactions to mapModifiedTx with ancestor

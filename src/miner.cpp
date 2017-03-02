@@ -113,7 +113,7 @@ static BlockAssembler::Options DefaultOptions(const CChainParams& params)
 
 BlockAssembler::BlockAssembler(const CChainParams& params) : BlockAssembler(params, DefaultOptions(params)) {}
 
-void BlockAssembler::resetBlock()
+void BlockAssembler::resetBlock(WorkingState &workState)
 {
     workState.inBlock.clear();
 
@@ -132,7 +132,9 @@ std::unique_ptr<CBlockTemplate> BlockAssembler::CreateNewBlock(const CScript& sc
 {
     int64_t nTimeStart = GetTimeMicros();
 
-    resetBlock();
+    WorkingState workState;
+
+    resetBlock(workState);
 
     workState.pblocktemplate.reset(new CBlockTemplate());
 
@@ -176,7 +178,7 @@ std::unique_ptr<CBlockTemplate> BlockAssembler::CreateNewBlock(const CScript& sc
 
     int nPackagesSelected = 0;
     int nDescendantsUpdated = 0;
-    addPackageTxs(nPackagesSelected, nDescendantsUpdated, true, mapModifiedTx);
+    addPackageTxs(workState, nPackagesSelected, nDescendantsUpdated, true, mapModifiedTx);
 
     int64_t nTime1 = GetTimeMicros();
 
@@ -217,7 +219,7 @@ std::unique_ptr<CBlockTemplate> BlockAssembler::CreateNewBlock(const CScript& sc
     return std::move(workState.pblocktemplate);
 }
 
-void BlockAssembler::onlyUnconfirmed(CTxMemPool::setEntries& testSet)
+void BlockAssembler::onlyUnconfirmed(WorkingState &workState, CTxMemPool::setEntries& testSet)
 {
     for (CTxMemPool::setEntries::iterator iit = testSet.begin(); iit != testSet.end(); ) {
         // Only test txs not already in the block
@@ -230,7 +232,7 @@ void BlockAssembler::onlyUnconfirmed(CTxMemPool::setEntries& testSet)
     }
 }
 
-bool BlockAssembler::TestPackage(uint64_t packageSize, int64_t packageSigOpsCost)
+bool BlockAssembler::TestPackage(WorkingState &workState, uint64_t packageSize, int64_t packageSigOpsCost)
 {
     // TODO: switch to weight-based accounting for packages instead of vsize-based accounting.
     if (workState.nBlockWeight + WITNESS_SCALE_FACTOR * packageSize >= nBlockMaxWeight)
@@ -245,7 +247,7 @@ bool BlockAssembler::TestPackage(uint64_t packageSize, int64_t packageSigOpsCost
 // - premature witness (in case segwit transactions are added to mempool before
 //   segwit activation)
 // - serialized size (in case -blockmaxsize is in use)
-bool BlockAssembler::TestPackageTransactions(const CTxMemPool::setEntries& package)
+bool BlockAssembler::TestPackageTransactions(WorkingState &workState, const CTxMemPool::setEntries& package)
 {
     uint64_t nPotentialBlockSize = workState.nBlockSize; // only used with fNeedSizeAccounting
     BOOST_FOREACH (const CTxMemPool::txiter it, package) {
@@ -264,7 +266,7 @@ bool BlockAssembler::TestPackageTransactions(const CTxMemPool::setEntries& packa
     return true;
 }
 
-void BlockAssembler::AddToBlock(CTxMemPool::txiter iter)
+void BlockAssembler::AddToBlock(WorkingState &workState, CTxMemPool::txiter iter)
 {
     workState.pblock->vtx.emplace_back(iter->GetSharedTx());
     workState.pblocktemplate->vTxFees.push_back(iter->GetFee());
@@ -286,7 +288,7 @@ void BlockAssembler::AddToBlock(CTxMemPool::txiter iter)
     }
 }
 
-void BlockAssembler::RemoveRecentTransactionsFromBlock(int64_t timeCutoff)
+void BlockAssembler::RemoveRecentTransactionsFromBlock(WorkingState &workState, int64_t timeCutoff)
 {
     std::vector<CTransactionRef> vtxCopy(workState.pblocktemplate->block.vtx.size());
     std::vector<CAmount> vTxFeesCopy(vtxCopy.size());
@@ -361,7 +363,7 @@ int BlockAssembler::UpdatePackagesForAdded(const CTxMemPool::setEntries& already
 // failedTx and avoid re-evaluation, since the re-evaluation would be using
 // cached size/sigops/fee values that are not actually correct.
 // Also, skip transactions that are recently received, if asked to do so.
-bool BlockAssembler::SkipMapTxEntry(CTxMemPool::txiter it, indexed_modified_transaction_set &mapModifiedTx, CTxMemPool::setEntries &failedTx, bool fOnlyOlderTransactions)
+bool BlockAssembler::SkipMapTxEntry(WorkingState &workState, CTxMemPool::txiter it, indexed_modified_transaction_set &mapModifiedTx, CTxMemPool::setEntries &failedTx, bool fOnlyOlderTransactions)
 {
     assert (it != mempool.mapTx.end());
     if (mapModifiedTx.count(it) || workState.inBlock.count(it) || failedTx.count(it)) {
@@ -397,7 +399,7 @@ void BlockAssembler::SortForBlock(const CTxMemPool::setEntries& package, CTxMemP
 // Each time through the loop, we compare the best transaction in
 // mapModifiedTxs with the next transaction in the mempool to decide what
 // transaction package to work on next.
-void BlockAssembler::addPackageTxs(int &nPackagesSelected, int &nDescendantsUpdated, bool fIncludeRecentTransactions, indexed_modified_transaction_set &mapModifiedTx)
+void BlockAssembler::addPackageTxs(WorkingState &workState, int &nPackagesSelected, int &nDescendantsUpdated, bool fIncludeRecentTransactions, indexed_modified_transaction_set &mapModifiedTx)
 {
     // Keep track of entries that failed inclusion, to avoid duplicate work
     CTxMemPool::setEntries failedTx;
@@ -415,7 +417,7 @@ void BlockAssembler::addPackageTxs(int &nPackagesSelected, int &nDescendantsUpda
     {
         // First try to find a new transaction in mapTx to evaluate.
         if (mi != mempool.mapTx.get<ancestor_score>().end() &&
-                SkipMapTxEntry(mempool.mapTx.project<0>(mi), mapModifiedTx, failedTx, !fIncludeRecentTransactions)) {
+                SkipMapTxEntry(workState, mempool.mapTx.project<0>(mi), mapModifiedTx, failedTx, !fIncludeRecentTransactions)) {
             ++mi;
             continue;
         }
@@ -464,7 +466,7 @@ void BlockAssembler::addPackageTxs(int &nPackagesSelected, int &nDescendantsUpda
             return;
         }
 
-        if (!TestPackage(packageSize, packageSigOpsCost)) {
+        if (!TestPackage(workState, packageSize, packageSigOpsCost)) {
             if (fUsingModified) {
                 // Since we always look at the best entry in mapModifiedTx,
                 // we must erase failed entries so that we can consider the
@@ -488,11 +490,11 @@ void BlockAssembler::addPackageTxs(int &nPackagesSelected, int &nDescendantsUpda
         std::string dummy;
         mempool.CalculateMemPoolAncestors(*iter, ancestors, nNoLimit, nNoLimit, nNoLimit, nNoLimit, dummy, false);
 
-        onlyUnconfirmed(ancestors);
+        onlyUnconfirmed(workState, ancestors);
         ancestors.insert(iter);
 
         // Test if all tx's are Final
-        if (!TestPackageTransactions(ancestors)) {
+        if (!TestPackageTransactions(workState, ancestors)) {
             if (fUsingModified) {
                 mapModifiedTx.get<ancestor_score>().erase(modit);
                 failedTx.insert(iter);
@@ -508,7 +510,7 @@ void BlockAssembler::addPackageTxs(int &nPackagesSelected, int &nDescendantsUpda
         SortForBlock(ancestors, iter, sortedEntries);
 
         for (size_t i=0; i<sortedEntries.size(); ++i) {
-            AddToBlock(sortedEntries[i]);
+            AddToBlock(workState, sortedEntries[i]);
             // Erase from the modified set, if present
             mapModifiedTx.erase(sortedEntries[i]);
         }
