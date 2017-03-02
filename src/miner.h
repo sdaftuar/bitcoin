@@ -135,6 +135,16 @@ class BlockAssembler
 {
 private:
     struct WorkingState {
+        WorkingState() : pblock(nullptr) {
+            // Reserve space for coinbase tx
+            nBlockSize = 1000;
+            nBlockWeight = 4000;
+            nBlockSigOpsCost = 400;
+
+            // These counters do not include coinbase tx
+            nBlockTx = 0;
+            nFees = 0;
+        };
         // The state associated with construction of a block.
         // The constructed block template
         std::unique_ptr<CBlockTemplate> pblocktemplate;

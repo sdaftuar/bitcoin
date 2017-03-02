@@ -113,28 +113,11 @@ static BlockAssembler::Options DefaultOptions(const CChainParams& params)
 
 BlockAssembler::BlockAssembler(const CChainParams& params) : BlockAssembler(params, DefaultOptions(params)) {}
 
-void BlockAssembler::resetBlock(WorkingState &workState)
-{
-    workState.inBlock.clear();
-
-    // Reserve space for coinbase tx
-    workState.nBlockSize = 1000;
-    workState.nBlockWeight = 4000;
-    workState.nBlockSigOpsCost = 400;
-    fIncludeWitness = false;
-
-    // These counters do not include coinbase tx
-    workState.nBlockTx = 0;
-    workState.nFees = 0;
-}
-
 std::unique_ptr<CBlockTemplate> BlockAssembler::CreateNewBlock(const CScript& scriptPubKeyIn, bool fMineWitnessTx)
 {
     int64_t nTimeStart = GetTimeMicros();
 
     WorkingState workState;
-
-    resetBlock(workState);
 
     workState.pblocktemplate.reset(new CBlockTemplate());
 
