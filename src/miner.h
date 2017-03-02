@@ -26,6 +26,13 @@ static const bool DEFAULT_PRINTPRIORITY = false;
 
 struct CBlockTemplate
 {
+    CBlockTemplate(const CBlockTemplate &tmpl) :
+        block(tmpl.block), block.vtx(tmpl.block.vtx), vTxFees(tmpl.vTxFees),
+        vTxSigOpsCost(tmpl.vTxSigOpsCost),
+        vchCoinbaseCommitment(tmpl.vchCoinbaseCommitment)
+    {
+    }
+
     CBlock block;
     std::vector<CAmount> vTxFees;
     std::vector<int64_t> vTxSigOpsCost;
@@ -145,6 +152,17 @@ private:
             nBlockTx = 0;
             nFees = 0;
         };
+
+        WorkingState(const WorkingState &ws) {
+            pblocktemplate.reset(new CBlockTemplate(*ws.pblocktemplate));
+            nBlockWeight = ws.nBlockWeight;
+            nBlockSize = ws.nBlockSize;
+            nBlockTx = ws.nBlockTx;
+            nBlockSigOpsCost = ws.nBlockSigOpsCost;
+            nFees = ws.nFees;
+            inBlock = ws.inBlock;
+        };
+
         // The state associated with construction of a block.
         // The constructed block template
         std::unique_ptr<CBlockTemplate> pblocktemplate;
