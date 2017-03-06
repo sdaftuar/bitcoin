@@ -12,6 +12,7 @@
 #include "uint256.h"
 
 static const int SERIALIZE_TRANSACTION_NO_WITNESS = 0x40000000;
+static const int SERIALIZE_TRANSACTION_NO_PRECOMPUTATION = 0x20000000;
 
 static const int WITNESS_SCALE_FACTOR = 4;
 
@@ -472,7 +473,7 @@ public:
     CHashedTransaction(CMutableTransaction &&tx, bool createCache);
 
     template<typename Stream>
-    CHashedTransaction(deserialize_type, Stream& s) : CHashedTransaction(CMutableTransaction(deserialize, s), true){}
+    CHashedTransaction(deserialize_type, Stream& s) : CHashedTransaction(CMutableTransaction(deserialize, s), !(s.GetVersion() & SERIALIZE_TRANSACTION_NO_PRECOMPUTATION)) {}
 
     const PrecomputedTransactionData cache;
 };
