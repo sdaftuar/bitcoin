@@ -450,6 +450,13 @@ struct CMutableTransaction
     }
 };
 
+struct PrecomputedTransactionData
+{
+    uint256 hashPrevouts, hashSequence, hashOutputs;
+
+    PrecomputedTransactionData(const CTransaction& tx);
+};
+
 class CHashedTransaction : public CTransaction
 {
 public:
@@ -459,12 +466,18 @@ public:
     CHashedTransaction(CMutableTransaction &&tx);
 
     template<typename Stream>
-    CHashedTransaction(deserialize_type, Stream& s) : CHashedTransaction(CMutableTransaction(deserialize, s)) {}
+    CHashedTransaction(deserialize_type, Stream& s) : CHashedTransaction(CMutableTransaction(deserialize, s)){}
+
+    const PrecomputedTransactionData cache;
 };
 
 typedef std::shared_ptr<const CHashedTransaction> CTransactionRef;
 static inline CTransactionRef MakeTransactionRef() { return std::make_shared<const CHashedTransaction>(); }
 template <typename Tx> static inline CTransactionRef MakeTransactionRef(Tx&& txIn) { return std::make_shared<const CHashedTransaction>(std::forward<Tx>(txIn)); }
+
+uint256 GetPrevoutHash(const CTransaction &txTo);
+uint256 GetSequenceHash(const CTransaction &txTo);
+uint256 GetOutputsHash(const CTransaction &txTo);
 
 /** Compute the weight of a transaction, as defined by BIP 141 */
 int64_t GetTransactionWeight(const CTransaction &tx);
