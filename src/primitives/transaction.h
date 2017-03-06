@@ -452,9 +452,14 @@ struct CMutableTransaction
 
 struct PrecomputedTransactionData
 {
+private:
     uint256 hashPrevouts, hashSequence, hashOutputs;
 
+public:
     PrecomputedTransactionData(const CTransaction& tx);
+    uint256 GetHashPrevouts(const CTransaction &tx) const;
+    uint256 GetHashSequence(const CTransaction &tx) const;
+    uint256 GetHashOutputs(const CTransaction &tx) const;
 };
 
 class CHashedTransaction : public CTransaction
