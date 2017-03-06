@@ -138,9 +138,9 @@ std::string CTransaction::ToString() const
     return str;
 }
 
-CHashedTransaction::CHashedTransaction() : CTransaction(), cache(*this) {}
-CHashedTransaction::CHashedTransaction(const CMutableTransaction &tx) : CTransaction(tx), cache(*this) {}
-CHashedTransaction::CHashedTransaction(CMutableTransaction &&tx) : CTransaction(tx), cache(*this) {}
+CHashedTransaction::CHashedTransaction() : CTransaction(), cache(*this, true) {}
+CHashedTransaction::CHashedTransaction(const CMutableTransaction &tx) : CTransaction(tx), cache(*this, true) {}
+CHashedTransaction::CHashedTransaction(CMutableTransaction &&tx, bool createCache) : CTransaction(tx), cache(*this, createCache) {}
 
 int64_t GetTransactionWeight(const CTransaction& tx)
 {
@@ -171,24 +171,39 @@ uint256 GetOutputsHash(const CTransaction& txTo) {
     return ss.GetHash();
 }
 
-PrecomputedTransactionData::PrecomputedTransactionData(const CTransaction& txTo)
+PrecomputedTransactionData::PrecomputedTransactionData(const CTransaction& txTo, bool createCache)
 {
-    hashPrevouts = GetPrevoutHash(txTo);
-    hashSequence = GetSequenceHash(txTo);
-    hashOutputs = GetOutputsHash(txTo);
+    if (createCache) {
+        hashPrevouts = GetPrevoutHash(txTo);
+        hashSequence = GetSequenceHash(txTo);
+        hashOutputs = GetOutputsHash(txTo);
+        cacheReady = true;
+    } else {
+        cacheReady = false;
+    }
+
 }
 
 uint256 PrecomputedTransactionData::GetHashPrevouts(const CTransaction &tx) const
 {
-    return hashPrevouts;
+    if (cacheReady) {
+        return hashPrevouts;
+    }
+    return GetPrevoutHash(tx);
 }
 
 uint256 PrecomputedTransactionData::GetHashSequence(const CTransaction &tx) const
 {
-    return hashSequence;
+    if (cacheReady) {
+        return hashSequence;
+    }
+    return GetSequenceHash(tx);
 }
 
 uint256 PrecomputedTransactionData::GetHashOutputs(const CTransaction &tx) const
 {
-    return hashOutputs;
+    if (cacheReady) {
+        return hashOutputs;
+    }
+    return GetOutputsHash(tx);
 }

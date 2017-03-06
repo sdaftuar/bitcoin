@@ -454,9 +454,10 @@ struct PrecomputedTransactionData
 {
 private:
     uint256 hashPrevouts, hashSequence, hashOutputs;
+    bool cacheReady;
 
 public:
-    PrecomputedTransactionData(const CTransaction& tx);
+    PrecomputedTransactionData(const CTransaction& tx, bool createCache);
     uint256 GetHashPrevouts(const CTransaction &tx) const;
     uint256 GetHashSequence(const CTransaction &tx) const;
     uint256 GetHashOutputs(const CTransaction &tx) const;
@@ -468,10 +469,10 @@ public:
     CHashedTransaction();
 
     CHashedTransaction(const CMutableTransaction &tx);
-    CHashedTransaction(CMutableTransaction &&tx);
+    CHashedTransaction(CMutableTransaction &&tx, bool createCache);
 
     template<typename Stream>
-    CHashedTransaction(deserialize_type, Stream& s) : CHashedTransaction(CMutableTransaction(deserialize, s)){}
+    CHashedTransaction(deserialize_type, Stream& s) : CHashedTransaction(CMutableTransaction(deserialize, s), true){}
 
     const PrecomputedTransactionData cache;
 };
