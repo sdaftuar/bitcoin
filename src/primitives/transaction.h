@@ -450,9 +450,21 @@ struct CMutableTransaction
     }
 };
 
-typedef std::shared_ptr<const CTransaction> CTransactionRef;
-static inline CTransactionRef MakeTransactionRef() { return std::make_shared<const CTransaction>(); }
-template <typename Tx> static inline CTransactionRef MakeTransactionRef(Tx&& txIn) { return std::make_shared<const CTransaction>(std::forward<Tx>(txIn)); }
+class CHashedTransaction : public CTransaction
+{
+public:
+    CHashedTransaction();
+
+    CHashedTransaction(const CMutableTransaction &tx);
+    CHashedTransaction(CMutableTransaction &&tx);
+
+    template<typename Stream>
+    CHashedTransaction(deserialize_type, Stream& s) : CHashedTransaction(CMutableTransaction(deserialize, s)) {}
+};
+
+typedef std::shared_ptr<const CHashedTransaction> CTransactionRef;
+static inline CTransactionRef MakeTransactionRef() { return std::make_shared<const CHashedTransaction>(); }
+template <typename Tx> static inline CTransactionRef MakeTransactionRef(Tx&& txIn) { return std::make_shared<const CHashedTransaction>(std::forward<Tx>(txIn)); }
 
 /** Compute the weight of a transaction, as defined by BIP 141 */
 int64_t GetTransactionWeight(const CTransaction &tx);
