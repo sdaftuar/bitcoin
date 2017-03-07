@@ -10,18 +10,20 @@
 
 using namespace std;
 
-void print(BlockEvent &);
 void print(TxEvent &);
+void print(BlockEvent &);
 void print(HeadersEvent &);
+void print(CompactBlockEvent &);
+void print(BlockTransactionsEvent &);
 
 void printTime(int64_t timeMicros);
 
-enum DataType { BLOCK, TX, HEADERS, INVALID };
+enum DataType { TX, BLOCK, HEADERS, CMPCTBLOCK, BLOCKTXN, INVALID };
 
 int main(int argc, char **argv)
 {
     if (argc < 2) {
-        printf("Usage: %s <data file> [<data type (one of BLOCK, TX, HEADERS)>]\n", argv[0]);
+        printf("Usage: %s <data file> [<data type (one of BLOCK, TX, HEADERS, CMPCTBLOCK, BLOCKTXN)>]\n", argv[0]);
         exit(1);
     }
 
@@ -34,11 +36,15 @@ int main(int argc, char **argv)
     if (ifName.stem().compare("block") == 0) dataType = BLOCK;
     else if (ifName.stem().compare("tx") == 0) dataType = TX;
     else if (ifName.stem().compare("headers") == 0) dataType = HEADERS;
+    else if (ifName.stem().compare("cmpctblock") == 0) dataType = CMPCTBLOCK;
+    else if (ifName.stem().compare("blocktxn") == 0) dataType = BLOCKTXN;
 
     if (argc >= 3) {
         if (strcmp(argv[2], "BLOCK") == 0) dataType = BLOCK;
         else if (strcmp(argv[2], "TX") == 0) dataType = TX;
         else if (strcmp(argv[2], "HEADERS") == 0) dataType = HEADERS;
+        else if (strcmp(argv[2], "CMPCTBLOCK") == 0) dataType = CMPCTBLOCK;
+        else if (strcmp(argv[2], "BLOCKTXN") == 0) dataType = BLOCKTXN;
         else {
             printf("Invalid data type (%s) given\n", argv[2]);
             exit(2);
@@ -55,6 +61,8 @@ int main(int argc, char **argv)
         TxEvent txEvent;
         BlockEvent blockEvent;
         HeadersEvent headersEvent;
+        CompactBlockEvent compactBlockEvent;
+        BlockTransactionsEvent blockTransactionsEvent;
 
         switch(dataType) {
             case BLOCK:
@@ -78,6 +86,20 @@ int main(int argc, char **argv)
                     else eof=true;
                     break;
                 }
+            case CMPCTBLOCK:
+                {
+                    if (Simulation::ReadEvent(filein, &compactBlockEvent))
+                        print(compactBlockEvent);
+                    else eof=true;
+                    break;
+                }
+            case BLOCKTXN:
+                {
+                    if (Simulation::ReadEvent(filein, &blockTransactionsEvent))
+                        print(blockTransactionsEvent);
+                    else eof=true;
+                    break;
+                }
             case INVALID:
                 break;
         }
@@ -90,6 +112,12 @@ void printTime(int64_t timestamp)
     int micros = timestamp % 1000000;
 
     printf("%s.%d ", DateTimeStrFormat("%Y%m%d %H:%M:%S", ts).c_str(), micros);
+}
+
+void print(TxEvent &txEvent)
+{
+    printTime(txEvent.timeMicros);
+    printf("%s", txEvent.obj->ToString().c_str());
 }
 
 void print(BlockEvent &blockEvent)
@@ -109,12 +137,6 @@ void print(BlockEvent &blockEvent)
     printf("\n");
 }
 
-void print(TxEvent &txEvent)
-{
-    printTime(txEvent.timeMicros);
-    printf("%s", txEvent.obj->ToString().c_str());
-}
-
 void print(HeadersEvent &headersEvent)
 {
     printTime(headersEvent.timeMicros);
@@ -129,3 +151,30 @@ void print(HeadersEvent &headersEvent)
                 block.nTime, block.nBits, block.nNonce);
     }
 }
+
+void print(CompactBlockEvent &compactBlockEvent)
+{
+    printTime(compactBlockEvent.timeMicros);
+
+    CBlockHeaderAndShortTxIDs &compactBlock = *compactBlockEvent.obj;
+    printf("CBlockHeaderAndShortTxIDs(hash=%s, ver=%d, hashPrevBlock=%s, hashMerkleRoot=%s, nTime=%u, nBits=%08x, nNonce=%u)\n",
+            compactBlock.header.GetHash().ToString().c_str(),
+            compactBlock.header.nVersion,
+            compactBlock.header.hashPrevBlock.ToString().c_str(),
+            compactBlock.header.hashMerkleRoot.ToString().c_str(),
+            compactBlock.header.nTime, compactBlock.header.nBits, compactBlock.header.nNonce);
+}
+
+void print(BlockTransactionsEvent &blockTransactionsEvent)
+{
+    printTime(blockTransactionsEvent.timeMicros);
+
+    BlockTransactions &blockTransactions = *blockTransactionsEvent.obj;
+    printf("BlockTransactions(hash=%s, txn=%lu)\n",
+            blockTransactions.blockhash.ToString().c_str(),
+            blockTransactions.txn.size());
+    for (unsigned int i = 0; i < blockTransactions.txn.size(); i++)
+        printf("[%d] %s\n", i, blockTransactions.txn[i]->ToString().c_str());
+    printf("\n");
+}
+
