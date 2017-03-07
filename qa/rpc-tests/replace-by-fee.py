@@ -129,12 +129,8 @@ class ReplaceByFeeTest(BitcoinTestFramework):
         tx1b.vout = [CTxOut(1*COIN, CScript([b'b']))]
         tx1b_hex = txToHex(tx1b)
 
-        try:
-            tx1b_txid = self.nodes[0].sendrawtransaction(tx1b_hex, True)
-        except JSONRPCException as exp:
-            assert_equal(exp.error['code'], -26) # insufficient fee
-        else:
-            assert(False)
+        # This will raise an exception due to insufficient fee
+        assert_raises_jsonrpc(-26, "insufficient fee", self.nodes[0].sendrawtransaction, tx1b_hex, True)
 
         # Extra 0.1 BTC fee
         tx1b = CTransaction()
@@ -176,12 +172,8 @@ class ReplaceByFeeTest(BitcoinTestFramework):
         dbl_tx.vout = [CTxOut(initial_nValue - 30*COIN, CScript([1]))]
         dbl_tx_hex = txToHex(dbl_tx)
 
-        try:
-            self.nodes[0].sendrawtransaction(dbl_tx_hex, True)
-        except JSONRPCException as exp:
-            assert_equal(exp.error['code'], -26) # insufficient fee
-        else:
-            assert(False) # transaction mistakenly accepted!
+        # This will raise an exception due to insufficient fee
+        assert_raises_jsonrpc(-26, "insufficient fee", self.nodes[0].sendrawtransaction, dbl_tx_hex, True)
 
         # Accepted with sufficient fee
         dbl_tx = CTransaction()
@@ -241,12 +233,8 @@ class ReplaceByFeeTest(BitcoinTestFramework):
         dbl_tx.vin = [CTxIn(tx0_outpoint, nSequence=0)]
         dbl_tx.vout = [CTxOut(initial_nValue - fee*n, CScript([1]))]
         dbl_tx_hex = txToHex(dbl_tx)
-        try:
-            self.nodes[0].sendrawtransaction(dbl_tx_hex, True)
-        except JSONRPCException as exp:
-            assert_equal(exp.error['code'], -26) # insufficient fee
-        else:
-            assert(False)
+        # This will raise an exception due to insufficient fee
+        assert_raises_jsonrpc(-26, "insufficient fee", self.nodes[0].sendrawtransaction, dbl_tx_hex, True)
 
         # 1 BTC fee is enough
         dbl_tx = CTransaction()
@@ -273,13 +261,8 @@ class ReplaceByFeeTest(BitcoinTestFramework):
             dbl_tx.vin = [CTxIn(tx0_outpoint, nSequence=0)]
             dbl_tx.vout = [CTxOut(initial_nValue - 2*fee*n, CScript([1]))]
             dbl_tx_hex = txToHex(dbl_tx)
-            try:
-                self.nodes[0].sendrawtransaction(dbl_tx_hex, True)
-            except JSONRPCException as exp:
-                assert_equal(exp.error['code'], -26)
-                assert_equal("too many potential replacements" in exp.error['message'], True)
-            else:
-                assert(False)
+            # This will raise an exception
+            assert_raises_jsonrpc(-26, "too many potential replacements", self.nodes[0].sendrawtransaction, dbl_tx_hex, True)
 
             for tx in tree_txs:
                 tx.rehash()
@@ -302,12 +285,8 @@ class ReplaceByFeeTest(BitcoinTestFramework):
         tx1b.vout = [CTxOut(int(0.001*COIN), CScript([b'a'*999000]))]
         tx1b_hex = txToHex(tx1b)
 
-        try:
-            tx1b_txid = self.nodes[0].sendrawtransaction(tx1b_hex, True)
-        except JSONRPCException as exp:
-            assert_equal(exp.error['code'], -26) # insufficient fee
-        else:
-            assert(False)
+        # This will raise an exception due to insufficient fee
+        assert_raises_jsonrpc(-26, "insufficient fee", self.nodes[0].sendrawtransaction, tx1b_hex, True)
 
     def test_spends_of_conflicting_outputs(self):
         """Replacements that spend conflicting tx outputs are rejected"""
@@ -329,12 +308,8 @@ class ReplaceByFeeTest(BitcoinTestFramework):
         tx2.vout = tx1a.vout
         tx2_hex = txToHex(tx2)
 
-        try:
-            tx2_txid = self.nodes[0].sendrawtransaction(tx2_hex, True)
-        except JSONRPCException as exp:
-            assert_equal(exp.error['code'], -26)
-        else:
-            assert(False)
+        # This will raise an exception
+        assert_raises_jsonrpc(-26, "bad-txns-spends-conflicting-tx", self.nodes[0].sendrawtransaction, tx2_hex, True)
 
         # Spend tx1a's output to test the indirect case.
         tx1b = CTransaction()
@@ -350,12 +325,8 @@ class ReplaceByFeeTest(BitcoinTestFramework):
         tx2.vout = tx1a.vout
         tx2_hex = txToHex(tx2)
 
-        try:
-            tx2_txid = self.nodes[0].sendrawtransaction(tx2_hex, True)
-        except JSONRPCException as exp:
-            assert_equal(exp.error['code'], -26)
-        else:
-            assert(False)
+        # This will raise an exception
+        assert_raises_jsonrpc(-26, "bad-txns-spends-conflicting-tx", self.nodes[0].sendrawtransaction, tx2_hex, True)
 
     def test_new_unconfirmed_inputs(self):
         """Replacements that add new unconfirmed inputs are rejected"""
@@ -373,12 +344,8 @@ class ReplaceByFeeTest(BitcoinTestFramework):
         tx2.vout = tx1.vout
         tx2_hex = txToHex(tx2)
 
-        try:
-            tx2_txid = self.nodes[0].sendrawtransaction(tx2_hex, True)
-        except JSONRPCException as exp:
-            assert_equal(exp.error['code'], -26)
-        else:
-            assert(False)
+        # This will raise an exception
+        assert_raises_jsonrpc(-26, "replacement-adds-unconfirmed", self.nodes[0].sendrawtransaction, tx2_hex, True)
 
     def test_too_many_replacements(self):
         """Replacements that evict too many transactions are rejected"""
@@ -423,13 +390,8 @@ class ReplaceByFeeTest(BitcoinTestFramework):
         double_tx.vout = [CTxOut(double_spend_value, CScript([b'a']))]
         double_tx_hex = txToHex(double_tx)
 
-        try:
-            self.nodes[0].sendrawtransaction(double_tx_hex, True)
-        except JSONRPCException as exp:
-            assert_equal(exp.error['code'], -26)
-            assert_equal("too many potential replacements" in exp.error['message'], True)
-        else:
-            assert(False)
+        # This will raise an exception
+        assert_raises_jsonrpc(-26, "too many potential replacements", self.nodes[0].sendrawtransaction, double_tx_hex, True)
 
         # If we remove an input, it should pass
         double_tx = CTransaction()
@@ -455,13 +417,8 @@ class ReplaceByFeeTest(BitcoinTestFramework):
         tx1b.vout = [CTxOut(int(0.9*COIN), CScript([b'b']))]
         tx1b_hex = txToHex(tx1b)
 
-        try:
-            tx1b_txid = self.nodes[0].sendrawtransaction(tx1b_hex, True)
-        except JSONRPCException as exp:
-            assert_equal(exp.error['code'], -26)
-        else:
-            print(tx1b_txid)
-            assert(False)
+        # This will raise an exception
+        assert_raises_jsonrpc(-26, "txn-mempool-conflict", self.nodes[0].sendrawtransaction, tx1b_hex, True)
 
         tx1_outpoint = make_utxo(self.nodes[0], int(1.1*COIN))
 
@@ -478,12 +435,8 @@ class ReplaceByFeeTest(BitcoinTestFramework):
         tx2b.vout = [CTxOut(int(0.9*COIN), CScript([b'b']))]
         tx2b_hex = txToHex(tx2b)
 
-        try:
-            tx2b_txid = self.nodes[0].sendrawtransaction(tx2b_hex, True)
-        except JSONRPCException as exp:
-            assert_equal(exp.error['code'], -26)
-        else:
-            assert(False)
+        # This will raise an exception
+        assert_raises_jsonrpc(-26, "txn-mempool-conflict", self.nodes[0].sendrawtransaction, tx2b_hex, True)
 
         # Now create a new transaction that spends from tx1a and tx2a
         # opt-in on one of the inputs
@@ -535,12 +488,7 @@ class ReplaceByFeeTest(BitcoinTestFramework):
         tx1b_hex = txToHex(tx1b)
 
         # Verify tx1b cannot replace tx1a.
-        try:
-            tx1b_txid = self.nodes[0].sendrawtransaction(tx1b_hex, True)
-        except JSONRPCException as exp:
-            assert_equal(exp.error['code'], -26)
-        else:
-            assert(False)
+        assert_raises_jsonrpc(-26, "insufficient fee", self.nodes[0].sendrawtransaction, tx1b_hex, True)
 
         # Use prioritisetransaction to set tx1a's fee to 0.
         self.nodes[0].prioritisetransaction(tx1a_txid, int(-0.1*COIN))
@@ -567,12 +515,7 @@ class ReplaceByFeeTest(BitcoinTestFramework):
         tx2b_hex = txToHex(tx2b)
 
         # Verify tx2b cannot replace tx2a.
-        try:
-            tx2b_txid = self.nodes[0].sendrawtransaction(tx2b_hex, True)
-        except JSONRPCException as exp:
-            assert_equal(exp.error['code'], -26)
-        else:
-            assert(False)
+        assert_raises_jsonrpc(-26, "insufficient fee", self.nodes[0].sendrawtransaction, tx2b_hex, True)
 
         # Now prioritise tx2b to have a higher modified fee
         self.nodes[0].prioritisetransaction(tx2b.hash, int(0.1*COIN))
