@@ -596,9 +596,9 @@ bool CBlockPolicyEstimator::Read(CAutoFile& filein)
         LOCK(cs_feeEstimator);
         int nVersionRequired, nVersionThatWrote, nFileBestSeenHeight;
         filein >> nVersionRequired >> nVersionThatWrote;
-        filein >> nFileBestSeenHeight;
         if (nVersionRequired > CLIENT_VERSION)
             return error("CBlockPolicyEstimator::Read(): up-version (%d) fee estimate file", nVersionRequired);
+        filein >> nFileBestSeenHeight;
         feeStats->Read(filein);
         nBestSeenHeight = nFileBestSeenHeight;
         // if nVersionThatWrote < 139900 then another TxConfirmStats (for priority) follows but can be ignored.
