@@ -206,8 +206,9 @@ void Shutdown()
 
     StopTorControl();
     UnregisterNodeSignals(GetNodeSignals());
-    if (fDumpMempoolLater)
+    if (fDumpMempoolLater && GetArg("-persistmempool", DEFAULT_PERSIST_MEMPOOL)) {
         DumpMempool();
+    }
 
     if (fFeeEstimatesInitialized)
     {
@@ -374,6 +375,7 @@ std::string HelpMessage(HelpMessageMode mode)
     strUsage += HelpMessageOpt("-maxtimeadjustment", strprintf(_("Maximum allowed median peer time offset adjustment. Local perspective of time may be influenced by peers forward or backward by this amount. (default: %u seconds)"), DEFAULT_MAX_TIME_ADJUSTMENT));
     strUsage += HelpMessageOpt("-onion=<ip:port>", strprintf(_("Use separate SOCKS5 proxy to reach peers via Tor hidden services (default: %s)"), "-proxy"));
     strUsage += HelpMessageOpt("-onlynet=<net>", _("Only connect to nodes in network <net> (ipv4, ipv6 or onion)"));
+    strUsage += HelpMessageOpt("-persistmempool", strprintf(_("Whether to save the mempool on shutdown and load on restart (default: %u)"), DEFAULT_PERSIST_MEMPOOL));
     strUsage += HelpMessageOpt("-permitbaremultisig", strprintf(_("Relay non-P2SH multisig (default: %u)"), DEFAULT_PERMIT_BAREMULTISIG));
     strUsage += HelpMessageOpt("-peerbloomfilters", strprintf(_("Support filtering of blocks and transaction with bloom filters (default: %u)"), DEFAULT_PEERBLOOMFILTERS));
     strUsage += HelpMessageOpt("-port=<port>", strprintf(_("Listen for connections on <port> (default: %u or testnet: %u)"), Params(CBaseChainParams::MAIN).GetDefaultPort(), Params(CBaseChainParams::TESTNET).GetDefaultPort()));
@@ -666,8 +668,10 @@ void ThreadImport(std::vector<boost::filesystem::path> vImportFiles)
         StartShutdown();
     }
     } // End scope of CImportingNow
-    LoadMempool();
-    fDumpMempoolLater = !fRequestShutdown;
+    if (GetArg("-persistmempool", DEFAULT_PERSIST_MEMPOOL)) {
+        LoadMempool();
+        fDumpMempoolLater = !fRequestShutdown;
+    }
 }
 
 /** Sanity checks
