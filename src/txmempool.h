@@ -201,7 +201,7 @@ struct mempoolentry_txid
         return entry.GetTx().GetHash();
     }
 
-    result_type operator() (CTransactionRef tx) const
+    result_type operator() (const CTransactionRef& tx) const
     {
         return tx->GetHash();
     }
@@ -741,7 +741,7 @@ struct DisconnectedBlockTransactions {
         return memusage::MallocUsage(sizeof(CTransactionRef) + 6 * sizeof(void*)) * queuedTx.size() + cachedInnerUsage;
     }
 
-    void addTransaction(CTransactionRef tx)
+    void addTransaction(const CTransactionRef& tx)
     {
         queuedTx.insert(tx);
         cachedInnerUsage += RecursiveDynamicUsage(tx);
