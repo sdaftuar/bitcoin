@@ -593,7 +593,7 @@ void ReacceptToMemoryPool(DisconnectedBlockTransactions &disconnectpool)
         if ((*it)->IsCoinBase() || !AcceptToMemoryPool(mempool, stateDummy, *it, false, NULL, NULL, true)) {
             // If the transaction doesn't make it in to the mempool, remove any
             // transactions that depend on it (which would now be orphans).
-            mempool.removeRecursive(**it);
+            mempool.removeRecursive(**it, MemPoolRemovalReason::REORG);
         } else if (mempool.exists((*it)->GetHash())) {
             vHashUpdate.push_back((*it)->GetHash());
         }
@@ -2219,7 +2219,7 @@ bool static DisconnectTip(CValidationState& state, const CChainParams& chainpara
         while (disconnectpool.DynamicMemoryUsage() > MAX_DISCONNECTED_TX_POOL_SIZE * 1000) {
             // Drop the earliest entry, and remove its children from the mempool.
             auto it = disconnectpool.queuedTx.get<insertion_order>().begin();
-            mempool.removeRecursive(**it);
+            mempool.removeRecursive(**it, MemPoolRemovalReason::REORG);
             disconnectpool.removeEntry(it);
         }
     }
