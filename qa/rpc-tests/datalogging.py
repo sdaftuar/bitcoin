@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-""" datalogging.py - datalogger and simulation test
+"""datalogger and simulation test
 
 DATALOGGER TEST:
 
@@ -17,16 +17,22 @@ DATALOGGER TEST:
 
 SIMULATION TEST:
 
- - start node3 with -simulation option, using the data files created by node2 earlier
- - assert that:
-     - the block height is 202
-     - the most recent block contains 13 transactions (= 12 + 1 coinbase transaction)
-     - the mempool contains 12 transactions.
-"""
+Test that a simulation node is able to replay the blocks and transactions logged by the datalogger.
+Start the node in simulation mode, wait for the simulation to complete and then grep the debug.log file
+for expected messages updating the tip and accepting transactions to the mempool.
+
+The debug.log file should contain the following lines:
+- the tip is updated to the most recent block
+- the block contains 13 transactions (coinbase + 12 from mempool)
+- 24 transactions have been accepted to the mempool
+- the simulation has finished
+
+Note that this test will break if the debug.log file format ever changes."""
 
 from test_framework.test_framework import BitcoinTestFramework
 from test_framework.util import *
 import os.path
+import re
 
 class DataLoggingTest(BitcoinTestFramework):
 
@@ -60,7 +66,8 @@ class DataLoggingTest(BitcoinTestFramework):
         sync_mempools(self.nodes)
 
         # Mine a block with node1 to confirm the transactions
-        mined_blocks.add(self.nodes[1].generate(1)[0])
+        best_block_hash = self.nodes[1].generate(1)[0]
+        mined_blocks.add(best_block_hash)
 
         # Send 12 random transactions. These aren't confirmed in a block and remain in the mempool
         [ random_transaction(txnodes, Decimal("1.1"), min_fee, min_fee, 20) for i in range(12)]
@@ -91,21 +98,39 @@ class DataLoggingTest(BitcoinTestFramework):
 
         # SIMULATION TEST
         #################
-        self.nodes.append(start_node(3, self.options.tmpdir,
-                            ["-simulation", "-simdatadir=" + self.options.tmpdir, "-start=" + today, "-debug"]))
 
-        # Test that a simulation node is able to replay the blocks and transactions logged by the datalogger.
-        # After the 200 block cache, there should be:
-        # 1 block
-        # 12 transactions (confirmed in next block)
-        # 1 block
-        # 12 transactions in mempool
-        assert_equal(self.nodes[0].getblockchaininfo()["blocks"], 202)
+        datadir = os.path.join(self.options.tmpdir, "node3")
+        args = [ os.getenv("BITCOIND", "bitcoind"), "-datadir="+datadir, "-server", "-keypool=1", "-discover=0", "-rest", "-mocktime="+str(get_mocktime()),"-simulation", "-simdatadir=" + self.options.tmpdir, "-start=" + today, "-debug"]
+        sim_process = subprocess.Popen(args)
 
-        best_block_hash = self.nodes[0].getbestblockhash()
-        assert_equal(len(self.nodes[0].getblock(best_block_hash)["tx"]), 13)
+        assert sim_process.wait() == 0
 
-        assert_equal(self.nodes[0].getmempoolinfo()["size"], 12)
+        block_accepted_match = "UpdateTip: new best=%s height=202" % str(best_block_hash)
+        all_block_txs_accepted_match = "Connect 13 transactions"
+        tx_accepted_match = "AcceptToMemoryPool"
+        simulation_ended_match = "Simulation exiting"
+
+        block_accepted, all_block_txs_accepted, number_txs_accepted, simulation_ended = False, False, 0, False
+
+        with open(os.path.join(datadir, "regtest", "debug.log"), 'r') as log:
+            for line in log.readlines():
+                if re.search(block_accepted_match, line):
+                    # These should be debug logs when #9768 is merged
+                    # print("found block %s" % best_block_hash)
+                    block_accepted = True
+                if re.search(all_block_txs_accepted_match, line):
+                    # print("found %s" % all_block_txs_accepted_match)
+                    all_block_txs_accepted = True
+                if re.search(tx_accepted_match, line):
+                    # print("found tx accepted: " + line)
+                    number_txs_accepted += 1
+                if re.search(simulation_ended_match, line):
+                    simulation_ended = True
+
+        assert block_accepted, "debug.log file did not contain the 'UpdateTip' line. Check whether debug.log file formats have changed."
+        assert all_block_txs_accepted, "debug.log file did not contain the 'Connect x transactions' line. Check whether debug.log file formats have changed."
+        assert number_txs_accepted == 24, "debug.log file did not contain the 'AcceptToMemoryPool' lines. Check whether debug.log file formats have changed."
+        assert simulation_ended, "debug.log file did not contain the 'Simulation exiting' line. Check whether debug.log file formats have changed."
 
 if __name__ == '__main__':
     DataLoggingTest().main()
