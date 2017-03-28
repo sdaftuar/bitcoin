@@ -2191,8 +2191,12 @@ void static UpdateTip(CBlockIndex *pindexNew, const CChainParams& chainParams) {
   * (ReacceptToMemoryPool), and for those not re-added, remove any in-mempool
   * dependents.  Also, you should call removeForReorg, and try to re-limit
   * the mempool size, all with cs_main held.
+  *
+  * If disconnectpool is NULL, then no disconnected transactions are added to
+  * disconnectpool (note that the caller is responsible for mempool consistency
+  * in any case).
   */
-bool static DisconnectTip(CValidationState& state, const CChainParams& chainparams, DisconnectedBlockTransactions &disconnectpool, bool fBare = false)
+bool static DisconnectTip(CValidationState& state, const CChainParams& chainparams, DisconnectedBlockTransactions *disconnectpool)
 {
     CBlockIndex *pindexDelete = chainActive.Tip();
     assert(pindexDelete);
@@ -2214,16 +2218,16 @@ bool static DisconnectTip(CValidationState& state, const CChainParams& chainpara
     if (!FlushStateToDisk(state, FLUSH_STATE_IF_NEEDED))
         return false;
 
-    if (!fBare) {
+    if (disconnectpool) {
         // Save transactions to re-add to mempool at end of reorg
         for (auto it = block.vtx.rbegin(); it != block.vtx.rend(); ++it) {
-            disconnectpool.addTransaction(*it);
+            disconnectpool->addTransaction(*it);
         }
-        while (disconnectpool.DynamicMemoryUsage() > MAX_DISCONNECTED_TX_POOL_SIZE * 1000) {
+        while (disconnectpool->DynamicMemoryUsage() > MAX_DISCONNECTED_TX_POOL_SIZE * 1000) {
             // Drop the earliest entry, and remove its children from the mempool.
-            auto it = disconnectpool.queuedTx.get<insertion_order>().begin();
+            auto it = disconnectpool->queuedTx.get<insertion_order>().begin();
             mempool.removeRecursive(**it, MemPoolRemovalReason::REORG);
-            disconnectpool.removeEntry(it);
+            disconnectpool->removeEntry(it);
         }
     }
 
@@ -2394,9 +2398,13 @@ static bool ActivateBestChainStep(CValidationState& state, const CChainParams& c
     bool fBlocksDisconnected = false;
     DisconnectedBlockTransactions disconnectpool;
     while (chainActive.Tip() && chainActive.Tip() != pindexFork) {
-        if (!DisconnectTip(state, chainparams, disconnectpool)) {
-            // The mempool will be inconsistent, but we're about to shutdown
-            // anyway as this is a fatal error.
+        if (!DisconnectTip(state, chainparams, &disconnectpool)) {
+            // This is likely a fatal error, but keep the mempool consistent,
+            // just in case.
+            ReacceptToMemoryPool(disconnectpool);
+
+            mempool.removeForReorg(pcoinsTip, chainActive.Tip()->nHeight + 1, STANDARD_LOCKTIME_VERIFY_FLAGS);
+            LimitMempoolSize(mempool, GetArg("-maxmempool", DEFAULT_MAX_MEMPOOL_SIZE) * 1000000, GetArg("-mempoolexpiry", DEFAULT_MEMPOOL_EXPIRY) * 60 * 60);
             return false;
         }
         fBlocksDisconnected = true;
@@ -2621,7 +2629,7 @@ bool InvalidateBlock(CValidationState& state, const CChainParams& chainparams, C
         setBlockIndexCandidates.erase(pindexWalk);
         // ActivateBestChain considers blocks already in chainActive
         // unconditionally valid already, so force disconnect away from it.
-        if (!DisconnectTip(state, chainparams, disconnectpool)) {
+        if (!DisconnectTip(state, chainparams, &disconnectpool)) {
             // It's probably hopeless to try to make the mempool consistent
             // here if DisconnectTip failed, but we can try.
             ReacceptToMemoryPool(disconnectpool);
@@ -3755,9 +3763,7 @@ bool RewindBlockIndex(const CChainParams& params)
             // of the blockchain).
             break;
         }
-        DisconnectedBlockTransactions dummypool;
-        // fBare=true means nothing will actually be added to dummypool
-        if (!DisconnectTip(state, params, dummypool, true)) {
+        if (!DisconnectTip(state, params, NULL)) {
             return error("RewindBlockIndex: unable to disconnect block at height %i", pindex->nHeight);
         }
         // Occasionally flush state to disk.
