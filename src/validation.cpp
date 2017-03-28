@@ -2455,11 +2455,11 @@ static bool ActivateBestChainStep(CValidationState& state, const CChainParams& c
         }
     }
 
-    // If any blocks were disconnected, disconnectpool may be non empty.  Add
-    // any disconnected transactions back to the mempool.
-    ReacceptToMemoryPool(disconnectpool);
-
     if (fBlocksDisconnected) {
+        // If any blocks were disconnected, disconnectpool may be non empty.  Add
+        // any disconnected transactions back to the mempool.
+        ReacceptToMemoryPool(disconnectpool);
+
         mempool.removeForReorg(pcoinsTip, chainActive.Tip()->nHeight + 1, STANDARD_LOCKTIME_VERIFY_FLAGS);
         LimitMempoolSize(mempool, GetArg("-maxmempool", DEFAULT_MAX_MEMPOOL_SIZE) * 1000000, GetArg("-mempoolexpiry", DEFAULT_MEMPOOL_EXPIRY) * 60 * 60);
     }
