@@ -732,6 +732,16 @@ struct DisconnectedBlockTransactions {
         >
     > indexed_disconnected_transactions;
 
+    // It's almost certainly a logic bug if we don't clear out queuedTx before
+    // destruction, as we add to it while disconnecting blocks, and then we
+    // need to re-process remaining transactions to ensure mempool consistency.
+    // For now, assert() that we've emptied out this object on destruction.
+    // This assert() can always be removed if the reorg-processing code were
+    // to be refactored such that this assumption is no longer true (for
+    // instance if there was some other way we cleaned up the mempool after a
+    // reorg, besides draining this object).
+    ~DisconnectedBlockTransactions() { assert(queuedTx.empty()); }
+
     indexed_disconnected_transactions queuedTx;
     uint64_t cachedInnerUsage = 0;
 
