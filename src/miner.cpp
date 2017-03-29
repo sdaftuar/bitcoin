@@ -372,7 +372,8 @@ void BlockAssembler::addPackageTxs(int &nPackagesSelected, int &nDescendantsUpda
     CTxMemPool::txiter iter;
 
     // Limit the number of attempts to add transactions to the block when it is
-    // close to full.
+    // close to full; this is just a simple heuristic to finish quickly if the
+    // mempool has a lot of entries.
     const int64_t MAX_CONSECUTIVE_FAILURES = 1000;
     int64_t nConsecutiveFailed = 0;
 
