@@ -26,11 +26,14 @@ static const bool DEFAULT_PRINTPRIORITY = false;
 
 struct CBlockTemplate
 {
+    CBlockTemplate() {}
+
     CBlockTemplate(const CBlockTemplate &tmpl) :
-        block(tmpl.block), block.vtx(tmpl.block.vtx), vTxFees(tmpl.vTxFees),
+        block(tmpl.block), vTxFees(tmpl.vTxFees),
         vTxSigOpsCost(tmpl.vTxSigOpsCost),
         vchCoinbaseCommitment(tmpl.vchCoinbaseCommitment)
     {
+        block.vtx = tmpl.block.vtx;
     }
 
     CBlock block;
@@ -137,6 +140,20 @@ struct update_for_parent_inclusion
     CTxMemPool::txiter iter;
 };
 
+struct update_for_parent_removal
+{
+    update_for_parent_removal(CTxMemPool::txiter it) : iter(it) {}
+
+    void operator() (CTxMemPoolModifiedEntry &e)
+    {
+        e.nModFeesWithAncestors += iter->GetFee();
+        e.nSizeWithAncestors += iter->GetTxSize();
+        e.nSigOpCostWithAncestors += iter->GetSigOpCost();
+    }
+
+    CTxMemPool::txiter iter;
+};
+
 /** Generate a new block, without valid proof-of-work */
 class BlockAssembler
 {
@@ -155,6 +172,7 @@ private:
 
         WorkingState(const WorkingState &ws) {
             pblocktemplate.reset(new CBlockTemplate(*ws.pblocktemplate));
+            pblock = &pblocktemplate->block;
             nBlockWeight = ws.nBlockWeight;
             nBlockSize = ws.nBlockSize;
             nBlockTx = ws.nBlockTx;
@@ -210,7 +228,7 @@ private:
     /** Add a tx to the block */
     void AddToBlock(WorkingState &workState, CTxMemPool::txiter iter);
     /** Remove recent transactions from a block, including any descendants */
-    void RemoveRecentTransactionsFromBlock(WorkingState &workState, int64_t timeCutoff);
+    void RemoveRecentTransactionsFromBlock(WorkingState &workState, int64_t timeCutoff, CTxMemPool::setEntries &skippedTransactions);
 
     // Methods for how to add transactions to a block.
     /** Add transactions based on feerate including unconfirmed ancestors
@@ -239,6 +257,7 @@ private:
       * state updated assuming given transactions are inBlock. Returns number
       * of updated descendants. */
     int UpdatePackagesForAdded(const CTxMemPool::setEntries& alreadyAdded, indexed_modified_transaction_set &mapModifiedTx);
+    void UpdatePackagesForRemoved(const CTxMemPool::setEntries& removed, indexed_modified_transaction_set &mapModifiedTx);
 };
 
 /** Modify the extranonce in a block */
