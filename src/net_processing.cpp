@@ -525,10 +525,11 @@ void FindNextBlocksToDownload(NodeId nodeid, unsigned int count, std::vector<con
                 // We consider the chain that this peer is on invalid.
                 return;
             }
-            if (!State(nodeid)->fHaveWitness && IsWitnessEnabled(pindex->pprev, consensusParams)) {
+            if (!State(nodeid)->fHaveWitness && IsWitnessEnabled(pindex->pprev, consensusParams) && pindex->fNeedsWitness) {
                 // We wouldn't download this block or its descendants from this peer.
                 return;
             }
+
             if (pindex->nStatus & BLOCK_HAVE_DATA || chainActive.Contains(pindex)) {
                 if (pindex->nChainTx)
                     state->pindexLastCommonBlock = pindex;
@@ -859,8 +860,18 @@ void PeerLogicValidation::BlockChecked(const CBlock& block, const CValidationSta
             assert (state.GetRejectCode() < REJECT_INTERNAL); // Blocks are never rejected with internal reject codes
             CBlockReject reject = {(unsigned char)state.GetRejectCode(), state.GetRejectReason().substr(0, MAX_REJECT_MESSAGE_LENGTH), hash};
             State(it->second.first)->rejects.push_back(reject);
-            if (nDoS > 0 && it->second.second)
+            if (nDoS > 0 && it->second.second && (State(it->second.first)->fHaveWitness || !state.IsBadWitness())) {
                 Misbehaving(it->second.first, nDoS);
+            }
+            if (state.IsBadWitness()) {
+                // This means the witness nonce is bad -- only download this
+                // block from a NODE_WITNESS peer.
+                LOCK(cs_main);
+                BlockMap::iterator it = mapBlockIndex.find(hash);
+                if (it != mapBlockIndex.end()) {
+                    it->second->fNeedsWitness = true;
+                }
+            }
         }
     }
     // Check that:
@@ -2320,8 +2331,7 @@ bool static ProcessMessage(CNode* pfrom, const std::string& strCommand, CDataStr
             // Calculate all the blocks we'd need to switch to pindexLast, up to a limit.
             while (pindexWalk && !chainActive.Contains(pindexWalk) && vToFetch.size() <= MAX_BLOCKS_IN_TRANSIT_PER_PEER) {
                 if (!(pindexWalk->nStatus & BLOCK_HAVE_DATA) &&
-                        !mapBlocksInFlight.count(pindexWalk->GetBlockHash()) &&
-                        (!IsWitnessEnabled(pindexWalk->pprev, chainparams.GetConsensus()) || State(pfrom->GetId())->fHaveWitness)) {
+                        !mapBlocksInFlight.count(pindexWalk->GetBlockHash())) {
                     // We don't have this block, and it's not yet in flight.
                     vToFetch.push_back(pindexWalk);
                 }

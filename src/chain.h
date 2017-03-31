@@ -205,6 +205,9 @@ public:
     //! (memory only) Maximum nTime in the chain upto and including this block.
     unsigned int nTimeMax;
 
+    //! (memory only) Whether this block must be downloaded with witness.
+    bool fNeedsWitness;
+
     void SetNull()
     {
         phashBlock = NULL;
@@ -226,6 +229,7 @@ public:
         nTime          = 0;
         nBits          = 0;
         nNonce         = 0;
+        fNeedsWitness = false;
     }
 
     CBlockIndex()

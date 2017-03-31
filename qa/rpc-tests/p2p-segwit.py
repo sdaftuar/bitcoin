@@ -1099,19 +1099,38 @@ class SegWitTest(BitcoinTestFramework):
             weight = 3*len(block.serialize(False)) + len(block.serialize(True))
             assert_equal(rpc_details["weight"], weight)
 
-            # Upgraded node should not ask for blocks from unupgraded
+            # Upgraded node should ask for blocks from unupgraded
             block4 = self.build_next_block(nVersion=4)
             block4.solve()
             self.old_node.getdataset = set()
+            # XXX: Comment below is obsolete
             # Blocks can be requested via direct-fetch (immediately upon processing the announcement)
             # or via parallel download (with an indeterminate delay from processing the announcement)
             # so to test that a block is NOT requested, we could guess a time period to sleep for,
             # and then check. We can avoid the sleep() by taking advantage of transaction getdata's
             # being processed after block getdata's, and announce a transaction as well,
             # and then check to see if that particular getdata has been received.
-            self.old_node.announce_block(block4, use_header=False)
+            # use_header must be True, because as of 0.14 bitcoind will respond to an inv
+            # only with a getheader, which our TestNode will ignore.  Sending a header
+            # should allow for block download, however.
+            self.old_node.announce_block(block4, use_header=True)
             self.old_node.announce_tx_and_wait_for_getdata(block4.vtx[0])
-            assert(block4.sha256 not in self.old_node.getdataset)
+            assert(block4.sha256 in self.old_node.getdataset)
+
+            # Upgraded node should only ask once for a segwit-block from
+            # unupgraded node.
+            block5 = self.build_next_block(nVersion=4)
+            self.update_witness_block_with_transactions(block5, [])
+            with mininode_lock:
+                self.old_node.getdataset = set()
+            self.old_node.announce_block(block5, use_header=True)
+            self.old_node.announce_tx_and_wait_for_getdata(block5.vtx[0])
+            assert(block5.sha256 in self.old_node.getdataset)
+            with mininode_lock:
+                self.old_node.getdataset = set()
+            self.old_node.test_witness_block(block5, accepted=False, with_witness=False)
+            time.sleep(5)
+            assert(block5.sha256 not in self.old_node.getdataset)
 
     # V0 segwit outputs should be standard after activation, but not before.
     def test_standardness_v0(self, segwit_activated):
