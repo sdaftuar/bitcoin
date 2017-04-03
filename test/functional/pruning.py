@@ -38,7 +38,6 @@ class PruneTest(BitcoinTestFramework):
 
     def setup_network(self):
         self.nodes = []
-        self.is_network_split = False
 
         # Create nodes 0 and 1 to mine
         self.nodes.append(start_node(0, self.options.tmpdir, ["-maxreceivebuffer=20000","-blockmaxsize=999000", "-checkblocks=5"], timewait=900))

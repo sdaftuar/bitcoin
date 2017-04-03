@@ -85,15 +85,15 @@ class BitcoinTestFramework(object):
         stop_nodes(self.nodes)
         self.setup_network(True)
 
-    def sync_all(self):
-        if self.is_network_split:
-            sync_blocks(self.nodes[:2])
-            sync_blocks(self.nodes[2:])
-            sync_mempools(self.nodes[:2])
-            sync_mempools(self.nodes[2:])
-        else:
-            sync_blocks(self.nodes)
-            sync_mempools(self.nodes)
+    def sync_all(self, node_groups=None):
+        if not node_groups:
+            if hasattr(self, "is_network_split") and self.is_network_split:
+                node_groups = [self.nodes[:2], self.nodes[2:]]
+            else:
+                node_groups = [self.nodes]
+
+        [sync_blocks(group) for group in node_groups]
+        [sync_mempools(group) for group in node_groups]
 
     def join_network(self):
         """

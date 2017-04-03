@@ -75,7 +75,6 @@ class ReplaceByFeeTest(BitcoinTestFramework):
                                                               "-limitdescendantcount=200",
                                                               "-limitdescendantsize=101"
                                                               ]))
-        self.is_network_split = False
 
     def run_test(self):
         make_utxo(self.nodes[0], 1*COIN)

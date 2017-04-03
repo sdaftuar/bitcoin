@@ -51,7 +51,6 @@ class WalletBackupTest(BitcoinTestFramework):
         connect_nodes(self.nodes[1], 3)
         connect_nodes(self.nodes[2], 3)
         connect_nodes(self.nodes[2], 0)
-        self.is_network_split=False
         self.sync_all()
 
     def one_send(self, from_node, to_address):

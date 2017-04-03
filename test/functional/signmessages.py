@@ -16,7 +16,6 @@ class SignMessagesTest(BitcoinTestFramework):
 
     def setup_network(self, split=False):
         self.nodes = start_nodes(self.num_nodes, self.options.tmpdir)
-        self.is_network_split = False
 
     def run_test(self):
         message = 'This is just a test message'

@@ -20,7 +20,6 @@ class BIP65Test(BitcoinTestFramework):
         self.nodes.append(start_node(2, self.options.tmpdir, ["-blockversion=4"]))
         connect_nodes(self.nodes[1], 0)
         connect_nodes(self.nodes[2], 0)
-        self.is_network_split = False
         self.sync_all()
 
     def run_test(self):

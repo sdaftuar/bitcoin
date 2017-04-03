@@ -26,7 +26,6 @@ class MerkleBlockTest(BitcoinTestFramework):
         connect_nodes(self.nodes[0], 2)
         connect_nodes(self.nodes[0], 3)
 
-        self.is_network_split = False
         self.sync_all()
 
     def run_test(self):

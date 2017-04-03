@@ -20,7 +20,6 @@ class MempoolCoinbaseTest(BitcoinTestFramework):
         args = ["-checkmempool"]
         self.nodes = []
         self.nodes.append(start_node(0, self.options.tmpdir, args))
-        self.is_network_split = False
 
     def run_test(self):
         node0_address = self.nodes[0].getnewaddress()

@@ -16,7 +16,6 @@ class SignRawTransactionsTest(BitcoinTestFramework):
 
     def setup_network(self, split=False):
         self.nodes = start_nodes(self.num_nodes, self.options.tmpdir)
-        self.is_network_split = False
 
     def successful_signing_test(self):
         """Create and sign a valid raw transaction with one input.
