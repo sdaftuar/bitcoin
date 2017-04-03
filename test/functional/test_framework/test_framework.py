@@ -75,25 +75,19 @@ class BitcoinTestFramework(object):
 
         connect_nodes_bi(self.nodes, 0, 1)
         connect_nodes_bi(self.nodes, 2, 3)
-        self.is_network_split = split
         self.sync_all()
 
     def split_network(self):
         """
         Split the network of four nodes into nodes 0/1 and 2/3.
         """
-        assert not self.is_network_split
         disconnect_nodes(self.nodes[1], 2)
         disconnect_nodes(self.nodes[2], 1)
-        self.is_network_split = True
-        self.sync_all()
+        self.sync_all([self.nodes[:2], self.nodes[2:]])
 
     def sync_all(self, node_groups=None):
         if not node_groups:
-            if hasattr(self, "is_network_split") and self.is_network_split:
-                node_groups = [self.nodes[:2], self.nodes[2:]]
-            else:
-                node_groups = [self.nodes]
+            node_groups = [self.nodes]
 
         [sync_blocks(group) for group in node_groups]
         [sync_mempools(group) for group in node_groups]
@@ -102,10 +96,8 @@ class BitcoinTestFramework(object):
         """
         Join the (previously split) network halves together.
         """
-        assert self.is_network_split
         connect_nodes_bi(self.nodes, 1, 2)
         self.sync_all()
-        self.is_network_split = False
 
     def main(self):
 
