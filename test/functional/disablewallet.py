@@ -19,10 +19,6 @@ class DisableWalletTest (BitcoinTestFramework):
         self.setup_clean_chain = True
         self.num_nodes = 1
 
-    def setup_network(self, split=False):
-        self.nodes = start_nodes(self.num_nodes, self.options.tmpdir, [['-disablewallet']])
-        self.sync_all()
-
     def run_test (self):
         x = self.nodes[0].validateaddress('3J98t1WpEZ73CNmQviecrnyiWrnqRhWNLy')
         assert(x['isvalid'] == False)

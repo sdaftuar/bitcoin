@@ -72,11 +72,10 @@ class P2PMempoolTests(BitcoinTestFramework):
         super().__init__()
         self.setup_clean_chain = True
         self.num_nodes = 2
+        self.extra_args = [["-peerbloomfilters=0"]]
 
     def setup_network(self):
-        # Start a node with maxuploadtarget of 200 MB (/24h)
-        self.nodes = []
-        self.nodes.append(start_node(0, self.options.tmpdir, ["-peerbloomfilters=0"]))
+        self.setup_nodes()
 
     def run_test(self):
         #connect a mininode

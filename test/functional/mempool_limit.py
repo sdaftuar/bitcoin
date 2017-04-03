@@ -9,20 +9,17 @@ from test_framework.util import *
 
 class MempoolLimitTest(BitcoinTestFramework):
 
-    def setup_network(self):
-        self.nodes = []
-        self.nodes.append(start_node(0, self.options.tmpdir, ["-maxmempool=5", "-spendzeroconfchange=0"]))
-        self.sync_all()
-        self.relayfee = self.nodes[0].getnetworkinfo()['relayfee']
-
     def __init__(self):
         super().__init__()
         self.setup_clean_chain = True
         self.num_nodes = 1
-
-        self.txouts = gen_return_txouts()
+        self.extra_args = [["-maxmempool=5", "-spendzeroconfchange=0"]]
 
     def run_test(self):
+        self.txouts = gen_return_txouts()
+
+        self.relayfee = self.nodes[0].getnetworkinfo()['relayfee']
+
         txids = []
         utxos = create_confirmed_utxos(self.relayfee, self.nodes[0], 91)
 

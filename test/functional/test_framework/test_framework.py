@@ -57,17 +57,19 @@ class BitcoinTestFramework(object):
         stop_node(self.nodes[num_node], num_node)
 
     def setup_nodes(self):
-        return start_nodes(self.num_nodes, self.options.tmpdir)
+        extra_args = None
+        if hasattr(self, "extra_args"):
+            extra_args = self.extra_args
+        self.nodes = start_nodes(self.num_nodes, self.options.tmpdir, extra_args)
 
     def setup_network(self):
-        self.nodes = self.setup_nodes()
+        self.setup_nodes()
 
         # Connect the nodes as a "chain".  This allows us
         # to split the network between nodes 1 and 2 to get
         # two halves that can work on competing chains.
-        connect_nodes_bi(self.nodes, 0, 1)
-        connect_nodes_bi(self.nodes, 1, 2)
-        connect_nodes_bi(self.nodes, 2, 3)
+        for i in range(self.num_nodes - 1):
+            connect_nodes_bi(self.nodes, i, i + 1)
         self.sync_all()
 
     def split_network(self):

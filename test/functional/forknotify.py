@@ -16,8 +16,6 @@ class ForkNotifyTest(BitcoinTestFramework):
         self.num_nodes = 2
         self.setup_clean_chain = False
 
-    alert_filename = None  # Set by setup_network
-
     def setup_network(self):
         self.nodes = []
         self.alert_filename = os.path.join(self.options.tmpdir, "alert.txt")
