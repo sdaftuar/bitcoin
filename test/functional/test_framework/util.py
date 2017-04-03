@@ -315,7 +315,7 @@ def start_node(i, dirname, extra_args=None, rpchost=None, timewait=None, binary=
     datadir = os.path.join(dirname, "node"+str(i))
     if binary is None:
         binary = os.getenv("BITCOIND", "bitcoind")
-    args = [binary, "-datadir=" + datadir, "-server", "-keypool=1", "-discover=0", "-rest", "-logtimemicros", "-debug", "-debugexclude=libevent", "-debugexclude=leveldb", "-mocktime=" + str(get_mocktime())]
+    args = [binary, "-datadir=" + datadir, "-server", "-keypool=1", "-discover=0", "-rest", "-logtimemicros", "-debug", "-debugexclude=libevent", "-debugexclude=leveldb", "-mocktime=" + str(get_mocktime()), "-uacomment=testnode%d" % i]
     if extra_args is not None: args.extend(extra_args)
     bitcoind_processes[i] = subprocess.Popen(args, stderr=stderr)
     logger.debug("initialize_chain: bitcoind started, waiting for RPC to come up")
@@ -384,6 +384,17 @@ def stop_nodes(nodes):
 def set_node_times(nodes, t):
     for node in nodes:
         node.setmocktime(t)
+
+def disconnect_nodes(from_connection, node_num):
+    timeout = 5
+    while True:
+        peer_ids = [peer['id'] for peer in from_connection.getpeerinfo() if "testnode%d" % node_num in peer['subver']]
+        if not peer_ids:
+            break
+        [from_connection.disconnectnode(nodeid=peer_id) for peer_id in peer_ids]
+        assert timeout > 0.1, "timed out waiting for disconnect"
+        time.sleep(0.1)
+        timeout -= 0.1
 
 def connect_nodes(from_connection, node_num):
     ip_port = "127.0.0.1:"+str(p2p_port(node_num))

@@ -17,6 +17,7 @@ from .util import (
     initialize_chain,
     start_nodes,
     connect_nodes_bi,
+    disconnect_nodes,
     sync_blocks,
     sync_mempools,
     stop_nodes,
@@ -82,8 +83,10 @@ class BitcoinTestFramework(object):
         Split the network of four nodes into nodes 0/1 and 2/3.
         """
         assert not self.is_network_split
-        stop_nodes(self.nodes)
-        self.setup_network(True)
+        disconnect_nodes(self.nodes[1], 2)
+        disconnect_nodes(self.nodes[2], 1)
+        self.is_network_split = True
+        self.sync_all()
 
     def sync_all(self, node_groups=None):
         if not node_groups:
@@ -100,8 +103,9 @@ class BitcoinTestFramework(object):
         Join the (previously split) network halves together.
         """
         assert self.is_network_split
-        stop_nodes(self.nodes)
-        self.setup_network(False)
+        connect_nodes_bi(self.nodes, 1, 2)
+        self.sync_all()
+        self.is_network_split = False
 
     def main(self):
 
