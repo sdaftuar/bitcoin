@@ -180,8 +180,12 @@ std::unique_ptr<CBlockTemplate> BlockAssembler::CreateNewBlock(const CScript& sc
     // Now compare and decide which block to use
     WorkingState *winner = &workState;
     // TODO: replace this with a configurable threshold
-    if (noRecentWorkState.nFees >= 0.99 * workState.nFees) {
+    CAmount blockSubsidy = GetBlockSubsidy(nHeight, chainparams.GetConsensus());
+    if (blockSubsidy + noRecentWorkState.nFees >= 0.99 * (workState.nFees + blockSubsidy)) {
         winner = &noRecentWorkState;
+        LogPrintf("CNB: using block without recent transactions (%ld vs %ld)", noRecentWorkState.nFees, workState.nFees);
+    } else {
+        LogPrintf("CNB: using block with recent transactions (%ld vs %ld)", noRecentWorkState.nFees, workState.nFees);
     }
 
     nLastBlockTx = winner->nBlockTx;
