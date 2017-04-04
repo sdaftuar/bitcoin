@@ -212,7 +212,7 @@ def FromHex(obj, hex_string):
 
 # Convert a binary-serializable object to hex (eg for submission via RPC)
 def ToHex(obj):
-    return bytes_to_hex_str(obj.serialize())
+    return bytes_to_hex_str(obj.serialize_with_witness())
 
 # Objects that map to bitcoind objects, which can be serialized/deserialized
 
@@ -608,6 +608,9 @@ class CBlock(CBlockHeader):
         else:
             r += ser_vector(self.vtx)
         return r
+
+    def serialize_with_witness(self):
+        return self.serialize(with_witness=True)
 
     # Calculate the merkle root given a vector of transaction hashes
     def get_merkle_root(self, hashes):
