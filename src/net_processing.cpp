@@ -1202,7 +1202,7 @@ void ProcessTransaction(const CTransactionRef& ptx)
                     int nDos = 0;
                     if (stateDummy.IsInvalid(nDos) && nDos > 0)
                     {
-                        LogPrint("mempool", "   invalid orphan tx %s\n", orphanHash.ToString());
+                        LogPrint(BCLog::MEMPOOL, "   invalid orphan tx %s\n", orphanHash.ToString());
                     }
                     // Has inputs but not accepted to mempool
                     // Probably non-standard or insufficient fee/priority
@@ -1232,7 +1232,7 @@ void ProcessTransaction(const CTransactionRef& ptx)
             unsigned int nMaxOrphanTx = (unsigned int)std::max((int64_t)0, GetArg("-maxorphantx", DEFAULT_MAX_ORPHAN_TRANSACTIONS));
             unsigned int nEvicted = LimitOrphanTxSize(nMaxOrphanTx);
             if (nEvicted > 0)
-                LogPrint("orphan", "mapOrphan overflow, removed %u tx\n", nEvicted);
+                LogPrint(BCLog::MEMPOOL, "mapOrphan overflow, removed %u tx\n", nEvicted);
         } else {
             LogPrint(BCLog::MEMPOOL, "not keeping orphan with rejected parents %s\n",tx.GetHash().ToString());
         }
