@@ -144,6 +144,8 @@ private:
     unsigned int nBlockMaxWeight, nBlockMaxSize;
     bool fNeedSizeAccounting;
     CFeeRate blockMinFeeRate;
+    int64_t nRecentTxWindow;
+    CAmount feeThreshold;
 
     // Information on the current status of the block
     uint64_t nBlockWeight;
@@ -164,6 +166,8 @@ public:
         size_t nBlockMaxWeight;
         size_t nBlockMaxSize;
         CFeeRate blockMinFeeRate;
+        int64_t nRecentTxWindow;
+        CAmount feeThreshold;
     };
 
     BlockAssembler(const CChainParams& params);
@@ -183,7 +187,7 @@ private:
     /** Add transactions based on feerate including unconfirmed ancestors
       * Increments nPackagesSelected / nDescendantsUpdated with corresponding
       * statistics from the package selection (for logging statistics). */
-    void addPackageTxs(int &nPackagesSelected, int &nDescendantsUpdated);
+    void addPackageTxs(int &nPackagesSelected, int &nDescendantsUpdated, int64_t nTimeCutoff);
 
     // helper functions for addPackageTxs()
     /** Remove confirmed (inBlock) entries from given set */

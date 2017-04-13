@@ -33,6 +33,8 @@ static BlockAssembler AssemblerForTest(const CChainParams& params) {
     options.nBlockMaxWeight = MAX_BLOCK_WEIGHT;
     options.nBlockMaxSize = MAX_BLOCK_SERIALIZED_SIZE;
     options.blockMinFeeRate = blockMinFeeRate;
+    options.nRecentTxWindow = 0;
+    options.feeThreshold = std::numeric_limits<CAmount>().max();
     return BlockAssembler(params, options);
 }
 

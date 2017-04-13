@@ -63,6 +63,8 @@ BlockAssembler::Options::Options() {
     blockMinFeeRate = CFeeRate(DEFAULT_BLOCK_MIN_TX_FEE);
     nBlockMaxWeight = DEFAULT_BLOCK_MAX_WEIGHT;
     nBlockMaxSize = DEFAULT_BLOCK_MAX_SIZE;
+    nRecentTxWindow = DEFAULT_RECENT_TX_WINDOW;
+    feeThreshold = DEFAULT_TX_FEE_THRESHOLD;
 }
 
 BlockAssembler::BlockAssembler(const CChainParams& params, const Options& options) : chainparams(params)
@@ -74,6 +76,8 @@ BlockAssembler::BlockAssembler(const CChainParams& params, const Options& option
     nBlockMaxSize = std::max<size_t>(1000, std::min<size_t>(MAX_BLOCK_SERIALIZED_SIZE - 1000, options.nBlockMaxSize));
     // Whether we need to account for byte usage (in addition to weight usage)
     fNeedSizeAccounting = (nBlockMaxSize < MAX_BLOCK_SERIALIZED_SIZE - 1000);
+    feeThreshold = options.feeThreshold;
+    nRecentTxWindow = options.nRecentTxWindow;
 }
 
 static BlockAssembler::Options DefaultOptions(const CChainParams& params)
@@ -104,6 +108,8 @@ static BlockAssembler::Options DefaultOptions(const CChainParams& params)
     } else {
         options.blockMinFeeRate = CFeeRate(DEFAULT_BLOCK_MIN_TX_FEE);
     }
+    options.nRecentTxWindow = GetArg("-recenttxwindow", DEFAULT_RECENT_TX_WINDOW);
+    options.feeThreshold = GetArg("-feethreshold", DEFAULT_TX_FEE_THRESHOLD);
     return options;
 }
 
@@ -168,7 +174,7 @@ std::unique_ptr<CBlockTemplate> BlockAssembler::CreateNewBlock(const CScript& sc
 
     int nPackagesSelected = 0;
     int nDescendantsUpdated = 0;
-    addPackageTxs(nPackagesSelected, nDescendantsUpdated);
+    addPackageTxs(nPackagesSelected, nDescendantsUpdated, GetTime()-nRecentTxWindow);
 
     int64_t nTime1 = GetTimeMicros();
 
@@ -343,7 +349,7 @@ void BlockAssembler::SortForBlock(const CTxMemPool::setEntries& package, CTxMemP
 // Each time through the loop, we compare the best transaction in
 // mapModifiedTxs with the next transaction in the mempool to decide what
 // transaction package to work on next.
-void BlockAssembler::addPackageTxs(int &nPackagesSelected, int &nDescendantsUpdated)
+void BlockAssembler::addPackageTxs(int &nPackagesSelected, int &nDescendantsUpdated, int64_t nTimeCutoff)
 {
     // mapModifiedTx will store sorted packages after they are modified
     // because some of their txs are already in the block
@@ -364,16 +370,24 @@ void BlockAssembler::addPackageTxs(int &nPackagesSelected, int &nDescendantsUpda
     {
         // First try to find a new transaction in mapTx to evaluate.
         if (mi != mempool.mapTx.get<ancestor_score>().end() &&
-                SkipMapTxEntry(mempool.mapTx.project<0>(mi), mapModifiedTx, failedTx)) {
+                (SkipMapTxEntry(mempool.mapTx.project<0>(mi), mapModifiedTx, failedTx) ||
+                (mi->GetTime() > nTimeCutoff && mi->GetModifiedFee() < feeThreshold))) {
             ++mi;
             continue;
         }
+
 
         // Now that mi is not stale, determine which transaction to evaluate:
         // the next entry from mapTx, or the best from mapModifiedTx?
         bool fUsingModified = false;
 
         modtxscoreiter modit = mapModifiedTx.get<ancestor_score>().begin();
+        if (modit != mapModifiedTx.get<ancestor_score>().end() &&
+                modit->iter->GetTime() > nTimeCutoff && modit->iter->GetModifiedFee() < feeThreshold) {
+            mapModifiedTx.get<ancestor_score>().erase(modit);
+            continue;
+        }
+
         if (mi == mempool.mapTx.get<ancestor_score>().end()) {
             // We're out of entries in mapTx; use the entry from mapModifiedTx
             iter = modit->iter;
@@ -458,6 +472,9 @@ void BlockAssembler::addPackageTxs(int &nPackagesSelected, int &nDescendantsUpda
 
         for (size_t i=0; i<sortedEntries.size(); ++i) {
             AddToBlock(sortedEntries[i]);
+            if (sortedEntries[i]->GetTime() > nTimeCutoff) {
+                LogPrintf("addPackageTxs: adding recent transaction %s, fee %ld\n", sortedEntries[i]->GetTx().GetHash().ToString(), sortedEntries[i]->GetModifiedFee());
+            }
             // Erase from the modified set, if present
             mapModifiedTx.erase(sortedEntries[i]);
         }
