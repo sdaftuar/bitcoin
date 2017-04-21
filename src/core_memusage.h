@@ -65,7 +65,7 @@ static inline size_t RecursiveDynamicUsage(const CBlockLocator& locator) {
 
 template<typename X>
 static inline size_t RecursiveDynamicUsage(const std::shared_ptr<X>& p) {
-    return RecursiveDynamicUsage(*p) + memusage::DynamicUsage(p);
+    return p ? memusage::DynamicUsage(p) + RecursiveDynamicUsage(*p) : 0;
 }
 
 #endif // BITCOIN_CORE_MEMUSAGE_H
