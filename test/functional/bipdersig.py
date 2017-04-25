@@ -12,7 +12,7 @@ class BIP66Test(BitcoinTestFramework):
         super().__init__()
         self.num_nodes = 3
         self.setup_clean_chain = False
-        self.extra_args = [["-blockversion=2"], ["-blockversion=3"]]
+        self.extra_args = [[], ["-blockversion=2"], ["-blockversion=3"]]
 
     def setup_network(self):
         self.setup_nodes()

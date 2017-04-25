@@ -47,7 +47,7 @@ class BIP66Test(ComparisonTestFramework):
         super().__init__()
         self.num_nodes = 1
         # Must set the blockversion for this test
-        self.extra_args = [['-whitelist=127.0.0.1', '-blockversion=2']]
+        self.extra_args = [[], ['-whitelist=127.0.0.1', '-blockversion=2']]
 
     def run_test(self):
         test = TestManager(self, self.options.tmpdir)

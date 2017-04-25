@@ -24,7 +24,7 @@ class RawTransactionsTest(BitcoinTestFramework):
         self.num_nodes = 3
 
     def setup_network(self, split=False):
-        super().setup_nodes()
+        super().setup_network()
         connect_nodes_bi(self.nodes,0,2)
 
     def run_test(self):

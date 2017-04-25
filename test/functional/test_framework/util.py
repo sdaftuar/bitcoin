@@ -386,15 +386,15 @@ def set_node_times(nodes, t):
         node.setmocktime(t)
 
 def disconnect_nodes(from_connection, node_num):
-    timeout = 5
-    while True:
-        peer_ids = [peer['id'] for peer in from_connection.getpeerinfo() if "testnode%d" % node_num in peer['subver']]
-        if not peer_ids:
+    for peer_id in [peer['id'] for peer in from_connection.getpeerinfo() if "testnode%d" % node_num in peer['subver']]:
+        from_connection.disconnectnode(nodeid=peer_id)
+
+    for _ in range(50):
+        if [peer['id'] for peer in from_connection.getpeerinfo() if "testnode%d" % node_num in peer['subver']] == []:
             break
-        [from_connection.disconnectnode(nodeid=peer_id) for peer_id in peer_ids]
-        assert timeout > 0.1, "timed out waiting for disconnect"
         time.sleep(0.1)
-        timeout -= 0.1
+    else:
+        raise AssertionError("timed out waiting for disconnect")
 
 def connect_nodes(from_connection, node_num):
     ip_port = "127.0.0.1:"+str(p2p_port(node_num))

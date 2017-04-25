@@ -104,7 +104,7 @@ class AcceptBlockTest(BitcoinTestFramework):
         # Node0 will be used to test behavior of processing unrequested blocks
         # from peers which are not whitelisted, while Node1 will be used for
         # the whitelisted case.
-        self.nodes = self.setup_nodes()
+        self.setup_nodes()
 
     def run_test(self):
         # Setup the p2p connections and start up the network thread.

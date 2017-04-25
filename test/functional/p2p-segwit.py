@@ -186,7 +186,7 @@ class SegWitTest(BitcoinTestFramework):
         self.extra_args = [["-whitelist=127.0.0.1"], ["-whitelist=127.0.0.1", "-acceptnonstdtxn=0"], ["-whitelist=127.0.0.1", "-bip9params=segwit:0:0"]]
 
     def setup_network(self):
-        self.nodes = self.setup_nodes()
+        self.setup_nodes()
         connect_nodes(self.nodes[0], 1)
         connect_nodes(self.nodes[0], 2)
         self.sync_all()
