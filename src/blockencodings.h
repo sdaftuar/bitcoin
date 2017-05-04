@@ -228,6 +228,15 @@ public:
         nNonce = 0;
     }
 
+    CompressedBlockHeader(const CBlockHeader &header)
+    {
+        nVersion = header.nVersion;
+        hashMerkleRoot = header.hashMerkleRoot;
+        nTime = header.nTime;
+        nBits = header.nBits;
+        nNonce = header.nNonce;
+    }
+
     ADD_SERIALIZE_METHODS;
 
     template <typename Stream, typename Operation>
@@ -250,6 +259,32 @@ public:
         ret.nNonce = nNonce;
 
         return ret;
+    }
+};
+
+// Wire-serialization for compressed headers
+class CompressedHeaders
+{
+public:
+    CompressedHeaders(const std::vector<CBlock>& headers)
+        : connecting_headers(headers)
+    { }
+
+    const std::vector<CBlock>& connecting_headers;
+
+    ADD_SERIALIZE_METHODS;
+
+    template <typename Stream, typename Operation>
+    inline void SerializationOp(Stream& s, Operation ser_action) {
+        assert (!ser_action.ForRead()); // We don't support reading
+        READWRITE(COMPACTSIZE(uint64_t(connecting_headers.size())));
+        for (size_t i=0; i<connecting_headers.size(); ++i) {
+            if (i == 0) {
+                READWRITE(CBlockHeader(connecting_headers[i]));
+            } else {
+                READWRITE(CompressedBlockHeader(connecting_headers[i]));
+            }
+        }
     }
 };
 

@@ -1735,7 +1735,7 @@ bool static ProcessMessage(CNode* pfrom, const std::string& strCommand, CDataStr
     }
 
 
-    else if (strCommand == NetMsgType::GETHEADERS)
+    else if (strCommand == NetMsgType::GETHEADERS || strCommand == NetMsgType::GETCMPCTHDRS)
     {
         CBlockLocator locator;
         uint256 hashStop;
@@ -1767,7 +1767,7 @@ bool static ProcessMessage(CNode* pfrom, const std::string& strCommand, CDataStr
 
         // we must use CBlocks, as CBlockHeaders won't include the 0x00 nTx count at the end
         std::vector<CBlock> vHeaders;
-        int nLimit = MAX_HEADERS_RESULTS;
+        int nLimit = strCommand == NetMsgType::GETHEADERS ? MAX_HEADERS_RESULTS : MAX_CMPCT_HEADERS_RESULTS;
         LogPrint(BCLog::NET, "getheaders %d to %s from peer=%d\n", (pindex ? pindex->nHeight : -1), hashStop.IsNull() ? "end" : hashStop.ToString(), pfrom->id);
         for (; pindex; pindex = chainActive.Next(pindex))
         {
@@ -1788,7 +1788,12 @@ bool static ProcessMessage(CNode* pfrom, const std::string& strCommand, CDataStr
         // will re-announce the new block via headers (or compact blocks again)
         // in the SendMessages logic.
         nodestate->pindexBestHeaderSent = pindex ? pindex : chainActive.Tip();
-        connman.PushMessage(pfrom, msgMaker.Make(NetMsgType::HEADERS, vHeaders));
+        if (strCommand == NetMsgType::GETHEADERS) {
+            connman.PushMessage(pfrom, msgMaker.Make(NetMsgType::HEADERS, vHeaders));
+        } else {
+            connman.PushMessage(pfrom, msgMaker.Make(NetMsgType::CMPCTHDRS, CompressedHeaders(vHeaders)));
+        }
+
     }
 
 
