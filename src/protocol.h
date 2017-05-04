@@ -240,6 +240,31 @@ extern const char *GETBLOCKTXN;
  * @since protocol version 70014 as described by BIP 152
  */
 extern const char *BLOCKTXN;
+/**
+ * The rgetheaders message requests an rheaders message that provides
+ * block headers ending at a particular point in the block chain.
+ * @since protocol version 70016 as described by BIP XXX.
+ */
+extern const char *RGETHEADERS;
+/**
+ * The rheaders message sends one or more compressed block headers to a node
+ * which previously requested certain headers with a rgetheaders message.
+ * @since protocol version 70016 as described by BIP XXX.
+ */
+extern const char *RHEADERS;
+/**
+ * The getcmpcthdrs message requests a cmpcthdrs message that provides
+ * compressed block headers starting from a particular point in the block
+ * chain.
+ * @since protocol version 70016 as described by BIP XXX.
+ */
+extern const char *GETCMPCTHDRS;
+/**
+ * The cmpcthdrs message sends one or more compressed block headers to a node
+ * which previously requested certain headers with a getcmpcthdrs message.
+ * @since protocol version 70016 as described by BIP XXX.
+ */
+extern const char *CMPCTHDRS;
 };
 
 /* Get a vector of all valid message types (see above) */

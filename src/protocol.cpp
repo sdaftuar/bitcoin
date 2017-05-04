@@ -39,6 +39,11 @@ const char *SENDCMPCT="sendcmpct";
 const char *CMPCTBLOCK="cmpctblock";
 const char *GETBLOCKTXN="getblocktxn";
 const char *BLOCKTXN="blocktxn";
+const char *RGETHEADERS="rgetheaders";
+const char *RHEADERS="rheaders";
+const char *GETCMPCTHDRS="getcmpcthdrs";
+const char *CMPCTHDRS="cmpcthdrs";
+
 };
 
 /** All known message types. Keep this in the same order as the list of
@@ -71,6 +76,10 @@ const static std::string allNetMessageTypes[] = {
     NetMsgType::CMPCTBLOCK,
     NetMsgType::GETBLOCKTXN,
     NetMsgType::BLOCKTXN,
+    NetMsgType::RGETHEADERS,
+    NetMsgType::RHEADERS,
+    NetMsgType::GETCMPCTHDRS,
+    NetMsgType::CMPCTHDRS
 };
 const static std::vector<std::string> allNetMessageTypesVec(allNetMessageTypes, allNetMessageTypes+ARRAYLEN(allNetMessageTypes));
 
