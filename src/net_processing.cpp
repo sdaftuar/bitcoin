@@ -2241,6 +2241,56 @@ bool static ProcessMessage(CNode* pfrom, const std::string& strCommand, CDataStr
         }
     }
 
+    else if (strCommand == NetMsgType::CMPCTHDRS && !fImporting && !fReindex) // Ignore headers received while importing
+    {
+        std::vector<CBlockHeader> headers;
+
+        unsigned int nCount = ReadCompactSize(vRecv);
+        if (nCount > MAX_CMPCT_HEADERS_RESULTS) {
+            LOCK(cs_main);
+            Misbehaving(pfrom->GetId(), 20);
+            return error("cmpcthdrs message size = %u", nCount);
+        }
+
+        headers.resize(nCount);
+        for (unsigned int n=0; n<nCount; n++) {
+            if (n == 0) {
+                vRecv >> headers[n];
+            } else {
+                CompressedBlockHeader h;
+                vRecv >> h;
+                headers[n] = h.GetBlockHeader(headers[n-1].GetHash());
+            }
+        }
+
+        if (nCount == 0) {
+            // Nothing interesting. Stop asking this peers for more headers.
+            return true;
+        }
+
+        const CBlockIndex *pindexLast = NULL;
+        CValidationState state;
+        if (!ProcessNewBlockHeaders(headers, state, chainparams, &pindexLast)) {
+            int nDoS;
+            if (state.IsInvalid(nDoS)) {
+                if (nDoS > 0) {
+                    LOCK(cs_main);
+                    Misbehaving(pfrom->GetId(), nDoS);
+                }
+                return error("invalid header received");
+            }
+        }
+
+        UpdateBlockAvailability(pfrom->GetId(), pindexLast->GetBlockHash());
+
+        if (nCount == MAX_CMPCT_HEADERS_RESULTS) {
+            // Headers message had its maximum size; the peer may have more headers.
+            // TODO: optimize: if pindexLast is an ancestor of chainActive.Tip or pindexBestHeader, continue
+            // from there instead.
+            LogPrint(BCLog::NET, "more getcmpcthdrs (%d) to end to peer=%d (startheight:%d)\n", pindexLast->nHeight, pfrom->id, pfrom->nStartingHeight);
+            connman.PushMessage(pfrom, msgMaker.Make(NetMsgType::GETCMPCTHDRS, chainActive.GetLocator(pindexLast), uint256()));
+        }
+    }
 
     else if (strCommand == NetMsgType::HEADERS && !fImporting && !fReindex) // Ignore headers received while importing
     {
@@ -2904,7 +2954,11 @@ bool SendMessages(CNode* pto, CConnman& connman, const std::atomic<bool>& interr
                 if (pindexStart->pprev)
                     pindexStart = pindexStart->pprev;
                 LogPrint(BCLog::NET, "initial getheaders (%d) to peer=%d (startheight:%d)\n", pindexStart->nHeight, pto->id, pto->nStartingHeight);
-                connman.PushMessage(pto, msgMaker.Make(NetMsgType::GETHEADERS, chainActive.GetLocator(pindexStart), uint256()));
+                if (pto->nVersion >= COMPRESSED_HEADERS_VERSION) {
+                    connman.PushMessage(pto, msgMaker.Make(NetMsgType::GETCMPCTHDRS, chainActive.GetLocator(pindexStart), uint256()));
+                } else {
+                    connman.PushMessage(pto, msgMaker.Make(NetMsgType::GETHEADERS, chainActive.GetLocator(pindexStart), uint256()));
+                }
             }
         }
 

@@ -206,4 +206,51 @@ public:
     ReadStatus FillBlock(CBlock& block, const std::vector<CTransactionRef>& vtx_missing);
 };
 
+// Compressed header for use in cmpctheaders messages, where hashPrevBlock can
+// be inferred
+class CompressedBlockHeader
+{
+public:
+    // compressed header
+    int32_t nVersion;
+    // hashPrevBlock -- omitted
+    uint256 hashMerkleRoot;
+    uint32_t nTime;
+    uint32_t nBits;
+    uint32_t nNonce;
+
+    CompressedBlockHeader()
+    {
+        nVersion = 0;
+        hashMerkleRoot.SetNull();
+        nTime = 0;
+        nBits = 0;
+        nNonce = 0;
+    }
+
+    ADD_SERIALIZE_METHODS;
+
+    template <typename Stream, typename Operation>
+    inline void SerializationOp(Stream& s, Operation ser_action) {
+        READWRITE(this->nVersion);
+        READWRITE(hashMerkleRoot);
+        READWRITE(nTime);
+        READWRITE(nBits);
+        READWRITE(nNonce);
+    }
+
+    CBlockHeader GetBlockHeader(uint256 hashPrevBlock)
+    {
+        CBlockHeader ret;
+        ret.nVersion = nVersion;
+        ret.hashPrevBlock = hashPrevBlock;
+        ret.hashMerkleRoot = hashMerkleRoot;
+        ret.nTime = nTime;
+        ret.nBits = nBits;
+        ret.nNonce = nNonce;
+
+        return ret;
+    }
+};
+
 #endif
