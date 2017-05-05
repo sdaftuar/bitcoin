@@ -1734,6 +1734,47 @@ bool static ProcessMessage(CNode* pfrom, const std::string& strCommand, CDataStr
         SendBlockTransactions(block, req, pfrom, connman);
     }
 
+    else if (strCommand == NetMsgType::RGETHEADERS)
+    {
+        uint256 hashStop;
+        vRecv >> hashStop;
+
+        uint64_t nCount = ReadCompactSize(vRecv);
+
+        if (nCount > MAX_CMPCT_HEADERS_RESULTS) {
+            LOCK(cs_main);
+            Misbehaving(pfrom->GetId(), 20);
+            return error("rgetheaders request count = %u", nCount);
+        }
+
+        std::vector<CBlock> headers((size_t)nCount);
+
+        LOCK(cs_main);
+
+        // Find the hashStop block
+        BlockMap::iterator it = mapBlockIndex.find(hashStop);
+        if (it == mapBlockIndex.end()) {
+            // Don't leak anything for unknown blocks
+            return true;
+        }
+        const CBlockIndex *pindexLast = it->second;
+
+        if (!chainActive.Contains(pindexLast)) {
+            // Don't leak anything for non-main chain blocks
+            return true;
+        }
+
+        if (nCount > (uint64_t) pindexLast->nHeight) {
+            nCount = pindexLast->nHeight;
+        }
+
+        int32_t startHeight = pindexLast->nHeight-nCount;
+        for (int height=0; height+startHeight < pindexLast->nHeight; ++height) {
+            headers[height] = chainActive[height+startHeight]->GetBlockHeader();
+        }
+
+        connman.PushMessage(pfrom, msgMaker.Make(NetMsgType::RHEADERS, CompressedHeaders(headers)));
+    }
 
     else if (strCommand == NetMsgType::GETHEADERS || strCommand == NetMsgType::GETCMPCTHDRS)
     {
