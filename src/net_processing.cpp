@@ -122,6 +122,7 @@ namespace {
     MapRelay mapRelay;
     /** Expiration-time ordered list of (expire time, relay map entry) pairs, protected by cs_main). */
     std::deque<std::pair<int64_t, MapRelay::iterator>> vRelayExpiration;
+
 } // anon namespace
 
 //////////////////////////////////////////////////////////////////////////////
@@ -198,6 +199,15 @@ struct CNodeState {
      * otherwise: whether this peer sends non-witnesses in cmpctblocks/blocktxns.
      */
     bool fSupportsDesiredCmpctVersion;
+    /**
+     * State for supporting headers sync using nMinimumChainWork anti-DoS protection.
+     */
+    //! Last block header received that wasn't added to mapBlockIndex.
+    CBlockHeader lastHeaderReceived;
+    //! estimated total work of the chain being synced
+    arith_uint256 lastHeaderTotalWork;
+    //! storage for headers to be synced
+    std::vector<CBlockHeader> vHeadersToSync;
 
     CNodeState(CAddress addrIn, std::string addrNameIn) : address(addrIn), name(addrNameIn) {
         fCurrentlyConnected = false;
@@ -221,6 +231,8 @@ struct CNodeState {
         fHaveWitness = false;
         fWantsCmpctWitness = false;
         fSupportsDesiredCmpctVersion = false;
+        lastHeaderReceived.SetNull();
+        lastHeaderTotalWork = arith_uint256(0);
     }
 };
 
@@ -243,6 +255,13 @@ void UpdatePreferredDownload(CNode* node, CNodeState* state)
     state->fPreferredDownload = (!node->fInbound || node->fWhitelisted) && !node->fOneShot && !node->fClient;
 
     nPreferredDownload += state->fPreferredDownload;
+}
+
+void ClearHeaderSync(CNodeState *state)
+{
+    AssertLockHeld(cs_main);
+    std::vector<CBlockHeader>().swap(state->vHeadersToSync);
+    state->lastHeaderReceived.SetNull();
 }
 
 void PushNodeVersion(CNode *pnode, CConnman& connman, int64_t nTime)
@@ -433,6 +452,28 @@ void MaybeSetPeerAsAnnouncingHeaderAndIDs(NodeId nodeid, CConnman& connman) {
             return true;
         });
     }
+}
+
+// Fill in vHeaders from a compressed headers message. Return false if processing
+// fails.
+bool ProcessCompactHeaders(std::vector<CBlockHeader>& vHeaders, CDataStream& vRecv)
+{
+    unsigned int nCount = ReadCompactSize(vRecv);
+    if (nCount > MAX_CMPCT_HEADERS_RESULTS) {
+        return error("cmpcthdrs message size = %u", nCount);
+    }
+
+    vHeaders.resize(nCount);
+    for (unsigned int n=0; n<nCount; n++) {
+        if (n == 0) {
+            vRecv >> vHeaders[n];
+        } else {
+            CompressedBlockHeader h;
+            vRecv >> h;
+            vHeaders[n] = h.GetBlockHeader(vHeaders[n-1].GetHash());
+        }
+    }
+    return true;
 }
 
 // Requires cs_main
@@ -2291,51 +2332,176 @@ bool static ProcessMessage(CNode* pfrom, const std::string& strCommand, CDataStr
     {
         std::vector<CBlockHeader> headers;
 
-        unsigned int nCount = ReadCompactSize(vRecv);
-        if (nCount > MAX_CMPCT_HEADERS_RESULTS) {
+        if (!ProcessCompactHeaders(headers, vRecv)) {
+            // Error processing headers (too many)
             LOCK(cs_main);
             Misbehaving(pfrom->GetId(), 20);
-            return error("cmpcthdrs message size = %u", nCount);
+            return false;
         }
-
-        headers.resize(nCount);
-        for (unsigned int n=0; n<nCount; n++) {
-            if (n == 0) {
-                vRecv >> headers[n];
-            } else {
-                CompressedBlockHeader h;
-                vRecv >> h;
-                headers[n] = h.GetBlockHeader(headers[n-1].GetHash());
-            }
-        }
+        unsigned int nCount = headers.size();
 
         if (nCount == 0) {
             // Nothing interesting. Stop asking this peers for more headers.
             return true;
         }
 
-        const CBlockIndex *pindexLast = NULL;
-        CValidationState state;
-        if (!ProcessNewBlockHeaders(headers, state, chainparams, &pindexLast)) {
-            int nDoS;
-            if (state.IsInvalid(nDoS)) {
-                if (nDoS > 0) {
-                    LOCK(cs_main);
-                    Misbehaving(pfrom->GetId(), nDoS);
-                }
-                return error("invalid header received");
+        const CBlockIndex *pindexPrev = nullptr;
+        arith_uint256 totalChainWork = arith_uint256(0);
+        {
+            LOCK(cs_main);
+            CNodeState *state = State(pfrom->GetId());
+
+            // Check to see if the first header builds off a known header.
+            BlockMap::iterator it = mapBlockIndex.find(headers[0].hashPrevBlock);
+            if (it != mapBlockIndex.end()) {
+                pindexPrev = it->second;
+                totalChainWork = it->second->nChainWork;
+            } else if (headers[0].hashPrevBlock == state->lastHeaderReceived.GetHash()) {
+                totalChainWork = state->lastHeaderTotalWork;
+            } else {
+                // Unknown prev block; give up trying to sync from this peer.
+                Misbehaving(pfrom->GetId(), 100);
+                ClearHeaderSync(state);
+                return error("Unconnecting header received (header hash=%s, hashPrevBlock=%s)", headers[0].GetHash().ToString(), headers[0].hashPrevBlock.ToString());
             }
         }
 
-        UpdateBlockAvailability(pfrom->GetId(), pindexLast->GetBlockHash());
-
-        if (nCount == MAX_CMPCT_HEADERS_RESULTS) {
-            // Headers message had its maximum size; the peer may have more headers.
-            // TODO: optimize: if pindexLast is an ancestor of chainActive.Tip or pindexBestHeader, continue
-            // from there instead.
-            LogPrint(BCLog::NET, "more getcmpcthdrs (%d) to end to peer=%d (startheight:%d)\n", pindexLast->nHeight, pfrom->id, pfrom->nStartingHeight);
-            connman.PushMessage(pfrom, msgMaker.Make(NetMsgType::GETCMPCTHDRS, chainActive.GetLocator(pindexLast), uint256()));
+        // Verify proof of work on each header.
+        for (const CBlockHeader &header : headers) {
+            CValidationState state;
+            if (!CheckBlockHeader(header, state, chainparams.GetConsensus(), true)) {
+                LOCK(cs_main);
+                Misbehaving(pfrom->GetId(), 100);
+                ClearHeaderSync(State(pfrom->GetId()));
+                return error("CMPCTHDRS: Consensus::CheckBlockHeader: %s, %s", header.GetHash().ToString(), FormatStateMessage(state));
+            } else {
+                totalChainWork += GetBlockProof(header);
+            }
         }
+
+        // If the last header has insufficient total work, update lastHeaderReceived
+        // and continue requesting headers, without adding to mapBlockIndex.
+        if (totalChainWork < UintToArith256(chainparams.GetConsensus().nMinimumChainWork)) {
+            LOCK(cs_main);
+            CNodeState *state = State(pfrom->GetId());
+            state->lastHeaderReceived = headers.back();
+            // TODO: check that we're making progress (totalChainWork is
+            // increasing)
+            state->lastHeaderTotalWork = totalChainWork;
+            if (nCount < MAX_CMPCT_HEADERS_RESULTS) {
+                // This peer has too short a chain!
+                Misbehaving(pfrom->GetId(), 100);
+                ClearHeaderSync(state);
+                return error("CMPCTHDRS: Peer (%d) chain too short (ending tip: %s)\n", pfrom->GetId(), headers.back().GetHash().ToString());
+            }
+
+            // Download more headers.  We don't have a full chain, so our
+            // locator is just the last header received.
+            LogPrint(BCLog::NET, "more getcmpcthdrs (%s) to end to peer=%d (startheight:%d)\n", headers.back().GetHash().ToString(), pfrom->id, pfrom->nStartingHeight);
+            connman.PushMessage(pfrom, msgMaker.Make(NetMsgType::GETCMPCTHDRS, CBlockLocator({headers.back().GetHash()}), uint256()));
+
+        } else if (pindexPrev != NULL) {
+            // This headers chain builds off a known header in mapBlockIndex,
+            // and has sufficient work. Process everything.
+            const CBlockIndex *pindexLast = NULL;
+            CValidationState state;
+            if (!ProcessNewBlockHeaders(headers, state, chainparams, &pindexLast)) {
+                int nDoS;
+                if (state.IsInvalid(nDoS)) {
+                    if (nDoS > 0) {
+                        LOCK(cs_main);
+                        Misbehaving(pfrom->GetId(), nDoS);
+                    }
+                    return error("invalid header received");
+                }
+            }
+
+            UpdateBlockAvailability(pfrom->GetId(), pindexLast->GetBlockHash());
+
+            if (nCount == MAX_CMPCT_HEADERS_RESULTS) {
+                // Headers message had its maximum size; the peer may have more headers.
+                // TODO: optimize: if pindexLast is an ancestor of chainActive.Tip or pindexBestHeader, continue
+                // from there instead.
+                LogPrint(BCLog::NET, "more getcmpcthdrs (%d) to end to peer=%d (startheight:%d)\n", pindexLast->nHeight, pfrom->id, pfrom->nStartingHeight);
+                connman.PushMessage(pfrom, msgMaker.Make(NetMsgType::GETCMPCTHDRS, chainActive.GetLocator(pindexLast), uint256()));
+            }
+        } else {
+            // This chain has enough work to be interesting, but we discarded some
+            // headers along the way.
+            // Trigger re-download using reverse sync.
+            LOCK(cs_main);
+            CNodeState *state = State(pfrom->GetId());
+            state->vHeadersToSync.insert(state->vHeadersToSync.begin(), headers.rbegin(), headers.rend());
+            state->vHeadersToSync.push_back(state->lastHeaderReceived);
+            LogPrint(BCLog::NET, "rgetheaders from %s to peer=%d\n", state->lastHeaderReceived.GetHash().ToString(), pfrom->id);
+            // TODO: track fork heights so that we don't go back further than necessary
+            connman.PushMessage(pfrom, msgMaker.Make(NetMsgType::RGETHEADERS, state->lastHeaderReceived.GetHash(), MAX_CMPCT_HEADERS_RESULTS));
+        }
+        return true;
+    }
+
+    else if (strCommand == NetMsgType::RHEADERS && !fImporting && !fReindex)
+    {
+        // RHEADERS are requested when we're reverse-syncing a peer's headers
+        // chain.  Each batch of headers should connect to the last entry in
+        // vHeadersToSync.  Once we get a header that references something in
+        // mapBlockIndex, we can process everything.
+        std::vector<CBlockHeader> headers;
+        if (!ProcessCompactHeaders(headers, vRecv)) {
+            // Error processing headers (too many)
+            LOCK(cs_main);
+            Misbehaving(pfrom->GetId(), 20);
+            return false;
+        }
+        unsigned int nCount = headers.size();
+
+        if (nCount == 0) {
+            // Nothing interesting. Stop asking this peers for more headers.
+            // Headers sync has failed with this peer.
+            LOCK(cs_main);
+            ClearHeaderSync(State(pfrom->GetId()));
+            return true;
+        }
+
+        LOCK(cs_main);
+        CNodeState *state = State(pfrom->GetId());
+        if (state->vHeadersToSync.empty() || headers.back().GetHash() !=
+                state->vHeadersToSync.back().hashPrevBlock) {
+            // This is an unexpected rheaders message.
+            Misbehaving(pfrom->GetId(), 20);
+            ClearHeaderSync(State(pfrom->GetId()));
+            return false;
+        }
+
+        state->vHeadersToSync.insert(state->vHeadersToSync.end(), headers.rbegin(), headers.rend());
+
+        if (mapBlockIndex.find(headers.front().hashPrevBlock) != mapBlockIndex.end()) {
+            // These headers connect to something known; process vHeadersToSync
+            // TODO: eliminate this unnecessary memory duplication!
+            std::vector<CBlockHeader> vHeaders(state->vHeadersToSync.rbegin(), state->vHeadersToSync.rend());
+            CValidationState validationState;
+            const CBlockIndex *pindex = NULL;
+            if (!ProcessNewBlockHeaders(vHeaders, validationState, chainparams, &pindex)) {
+                int nDoS;
+                if (validationState.IsInvalid(nDoS)) {
+                    if (nDoS > 0) {
+                        LOCK(cs_main);
+                        Misbehaving(pfrom->GetId(), nDoS);
+                    }
+                    return error("invalid header received");
+                }
+            }
+            ClearHeaderSync(state);
+            UpdateBlockAvailability(pfrom->GetId(), pindex->GetBlockHash());
+            LogPrint(BCLog::NET, "more getcmpcthdrs (%d) to end to peer=%d (startheight:%d)\n", pindex->nHeight, pfrom->id, pfrom->nStartingHeight);
+            // Ask for the rest of the headers chain.
+            connman.PushMessage(pfrom, msgMaker.Make(NetMsgType::GETCMPCTHDRS, chainActive.GetLocator(pindex), uint256()));
+        } else {
+            // Ask for more rheaders
+            LogPrint(BCLog::NET, "rgetheaders from %s to peer=%d\n", state->vHeadersToSync.back().GetHash().ToString(), pfrom->id);
+            connman.PushMessage(pfrom, msgMaker.Make(NetMsgType::RGETHEADERS, state->vHeadersToSync.back().GetHash(), MAX_CMPCT_HEADERS_RESULTS));
+        }
+        return true;
     }
 
     else if (strCommand == NetMsgType::HEADERS && !fImporting && !fReindex) // Ignore headers received while importing
