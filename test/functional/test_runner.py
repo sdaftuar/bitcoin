@@ -98,6 +98,7 @@ BASE_SCRIPTS= [
     'keypool.py',
     'p2p-mempool.py',
     'prioritise_transaction.py',
+    'p2p-headers-sync.py',
     'invalidblockrequest.py',
     'invalidtxrequest.py',
     'p2p-versionbits-warning.py',
