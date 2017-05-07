@@ -591,6 +591,27 @@ class CBlockHeader(object):
             % (self.nVersion, self.hashPrevBlock, self.hashMerkleRoot,
                time.ctime(self.nTime), self.nBits, self.nNonce)
 
+class CompressedBlockHeader(CBlockHeader):
+    def __init__(self, header=None):
+        super(CompressedBlockHeader, self).__init__(header)
+
+    def deserialize(self, f):
+        self.nVersion = struct.unpack("<i", f.read(4))[0]
+        self.hashMerkleRoot = deser_uint256(f)
+        self.nTime = struct.unpack("<I", f.read(4))[0]
+        self.nBits = struct.unpack("<I", f.read(4))[0]
+        self.nNonce = struct.unpack("<I", f.read(4))[0]
+        self.sha256 = None
+        self.hash = None
+
+    def serialize(self):
+        r = b""
+        r += struct.pack("<i", self.nVersion)
+        r += ser_uint256(self.hashMerkleRoot)
+        r += struct.pack("<I", self.nTime)
+        r += struct.pack("<I", self.nBits)
+        r += struct.pack("<I", self.nNonce)
+        return r
 
 class CBlock(CBlockHeader):
     def __init__(self, header=None):
@@ -1302,6 +1323,29 @@ class msg_getheaders(object):
         return "msg_getheaders(locator=%s, stop=%064x)" \
             % (repr(self.locator), self.hashstop)
 
+class msg_getcmpcthdrs(msg_getheaders):
+    command = b"getcmpcthdrs"
+
+    def __repr__(self):
+        return "msg_getcmpcthdrs(locator=%s, stop=%064x)" \
+            % (repr(self.locator), self.hashstop)
+
+class msg_rgetheaders(object):
+    command = b"rgetheaders"
+
+    def __init__(self):
+        self.hashstop = 0
+        self.count = 0
+
+    def deserialize(self, f):
+        self.hashstop = deser_uint256(f)
+        self.count = struct.unpack("<I", f.read(4))[0]
+
+    def serialize(self):
+        r = b""
+        r += ser_uint256(self.hashstop)
+        r += struct.pack("<I", self.count)
+        return r 
 
 # headers message has
 # <count> <vector of block headers>
@@ -1324,6 +1368,41 @@ class msg_headers(object):
     def __repr__(self):
         return "msg_headers(headers=%s)" % repr(self.headers)
 
+class msg_cmpcthdrs(object):
+    command = b"cmpcthdrs"
+
+    def __init__(self):
+        self.headers = []
+
+    def deserialize(self, f):
+        count = deser_compact_size(f)
+        for i in range(count):
+            t = CompressedBlockHeader()
+            if i == 0:
+                t = CBlockHeader()
+            t.deserialize(f)
+            self.headers.append(t)
+            if i > 0:
+                self.headers[i].hashPrevBlock = self.headers[i-1].sha256
+            self.headers[i].calc_sha256()
+
+    def serialize(self):
+        header_copy = []
+        for i in range(len(self.headers)):
+            if (i == 0):
+                header_copy.append(self.headers[i])
+            else:
+                header_copy.append(CompressedBlockHeader(self.headers[i]))
+        return ser_vector(header_copy)
+
+    def __repr__(self):
+        return "msg_cmpcthdrs(headers=%s)" % repr(self.headers)
+
+class msg_rheaders(msg_cmpcthdrs):
+    command = b"rheaders"
+
+    def __repr__(self):
+        return "msg_rheaders(headers=%s)" % repr(self.headers)
 
 class msg_reject(object):
     command = b"reject"
@@ -1542,16 +1621,20 @@ class NodeConnCB(object):
     def on_block(self, conn, message): pass
     def on_blocktxn(self, conn, message): pass
     def on_cmpctblock(self, conn, message): pass
+    def on_cmpcthdrs(self, conn, message): pass
     def on_feefilter(self, conn, message): pass
     def on_getaddr(self, conn, message): pass
     def on_getblocks(self, conn, message): pass
     def on_getblocktxn(self, conn, message): pass
     def on_getdata(self, conn, message): pass
+    def on_getcmpcthdrs(self, conn, message): pass
     def on_getheaders(self, conn, message): pass
+    def on_rgetheaders(self, conn, message): pass
     def on_headers(self, conn, message): pass
     def on_mempool(self, conn): pass
     def on_pong(self, conn, message): pass
     def on_reject(self, conn, message): pass
+    def on_rheaders(self, conn, message): pass
     def on_sendcmpct(self, conn, message): pass
     def on_sendheaders(self, conn, message): pass
     def on_tx(self, conn, message): pass
@@ -1656,7 +1739,11 @@ class NodeConn(asyncore.dispatcher):
         b"sendcmpct": msg_sendcmpct,
         b"cmpctblock": msg_cmpctblock,
         b"getblocktxn": msg_getblocktxn,
-        b"blocktxn": msg_blocktxn
+        b"blocktxn": msg_blocktxn,
+        b"getcmpcthdrs": msg_getcmpcthdrs,
+        b"cmpcthdrs": msg_cmpcthdrs,
+        b"rgetheaders": msg_rgetheaders,
+        b"rheaders": msg_rheaders
     }
     MAGIC_BYTES = {
         "mainnet": b"\xf9\xbe\xb4\xd9",   # mainnet
