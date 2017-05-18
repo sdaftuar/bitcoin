@@ -448,7 +448,7 @@ void CTxMemPool::removeUnchecked(txiter it, MemPoolRemovalReason reason)
     mapLinks.erase(it);
     mapTx.erase(it);
     nTransactionsUpdated++;
-    if (minerPolicyEstimator) {minerPolicyEstimator->removeTx(hash);}
+    if (minerPolicyEstimator) {minerPolicyEstimator->removeTx(hash, false);}
 }
 
 // Calculates descendants of entry that are not already in setDescendants, and adds to
@@ -865,6 +865,7 @@ void CTxMemPool::PrioritiseTransaction(const uint256& hash, const CAmount& nFeeD
             BOOST_FOREACH(txiter descendantIt, setDescendants) {
                 mapTx.modify(descendantIt, update_ancestor_state(0, nFeeDelta, 0, 0));
             }
+            ++nTransactionsUpdated;
         }
     }
     LogPrintf("PrioritiseTransaction: %s feerate += %s\n", hash.ToString(), FormatMoney(nFeeDelta));

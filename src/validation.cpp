@@ -1142,6 +1142,7 @@ bool IsInitialBlockDownload()
         return true;
     if (chainActive.Tip()->GetBlockTime() < (GetTime() - nMaxTipAge))
         return true;
+    LogPrintf("Leaving InitialBlockDownload (latching to false)\n");
     latchToFalse.store(true, std::memory_order_relaxed);
     return false;
 }
@@ -4223,7 +4224,7 @@ bool LoadMempool(void)
             CValidationState state;
             if (nTime + nExpiryTimeout > nNow) {
                 LOCK(cs_main);
-                AcceptToMemoryPoolWithTime(mempool, state, tx, false, NULL, nTime);
+                AcceptToMemoryPoolWithTime(mempool, state, tx, true, NULL, nTime);
                 if (state.IsValid()) {
                     ++count;
                 } else {
