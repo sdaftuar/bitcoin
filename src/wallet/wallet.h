@@ -29,7 +29,8 @@
 #include <utility>
 #include <vector>
 
-extern CWallet* pwalletMain;
+typedef CWallet* CWalletRef;
+extern std::vector<CWalletRef> vpwallets;
 
 /**
  * Settings
@@ -136,10 +137,7 @@ public:
     std::string name;
     std::string purpose;
 
-    CAddressBookData()
-    {
-        purpose = "unknown";
-    }
+    CAddressBookData() : purpose("unknown") {}
 
     typedef std::map<std::string, std::string> StringMap;
     StringMap destdata;
@@ -785,6 +783,7 @@ public:
         nMasterKeyMaxID = 0;
         pwalletdbEncryption = NULL;
         nOrderPosNext = 0;
+        nAccountingEntryNumber = 0;
         nNextResend = 0;
         nLastResend = 0;
         nTimeFirstKey = 0;
@@ -802,6 +801,7 @@ public:
     TxItems wtxOrdered;
 
     int64_t nOrderPosNext;
+    uint64_t nAccountingEntryNumber;
     std::map<uint256, int> mapRequestCount;
 
     std::map<CTxDestination, CAddressBookData> mapAddressBook;
@@ -935,7 +935,7 @@ public:
      * Insert additional inputs into the transaction by
      * calling CreateTransaction();
      */
-    bool FundTransaction(CMutableTransaction& tx, CAmount& nFeeRet, bool overrideEstimatedFeeRate, const CFeeRate& specificFeeRate, int& nChangePosInOut, std::string& strFailReason, bool includeWatching, bool lockUnspents, const std::set<int>& setSubtractFeeFromOutputs, bool keepReserveKey = true, const CTxDestination& destChange = CNoDestination());
+    bool FundTransaction(CMutableTransaction& tx, CAmount& nFeeRet, int& nChangePosInOut, std::string& strFailReason, bool lockUnspents, const std::set<int>& setSubtractFeeFromOutputs, CCoinControl, bool keepReserveKey = true);
     bool SignTransaction(CMutableTransaction& tx);
 
     /**
@@ -959,7 +959,7 @@ public:
      * Estimate the minimum fee considering user set parameters
      * and the required fee
      */
-    static CAmount GetMinimumFee(unsigned int nTxBytes, unsigned int nConfirmTarget, const CTxMemPool& pool, const CBlockPolicyEstimator& estimator, bool ignoreUserSetFee = false);
+    static CAmount GetMinimumFee(unsigned int nTxBytes, unsigned int nConfirmTarget, const CTxMemPool& pool, const CBlockPolicyEstimator& estimator, bool ignoreGlobalPayTxFee = false);
     /**
      * Return the minimum required fee taking into account the
      * floating relay fee and user set minimum transaction fee

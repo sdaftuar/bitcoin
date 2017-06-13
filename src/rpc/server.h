@@ -28,9 +28,6 @@ namespace RPCServer
     void OnPreCommand(std::function<void (const CRPCCommand&)> slot);
 }
 
-class CBlockIndex;
-class CNetAddr;
-
 /** Wrapper for UniValue::VType, which includes typeAny:
  * Used to denote don't care type. Only used by RPCTypeCheckObj */
 struct UniValueType {
@@ -50,7 +47,7 @@ public:
     std::string URI;
     std::string authUser;
 
-    JSONRPCRequest() { id = NullUniValue; params = NullUniValue; fHelp = false; }
+    JSONRPCRequest() : id(NullUniValue), params(NullUniValue), fHelp(false) {}
     void parse(const UniValue& valRequest);
 };
 

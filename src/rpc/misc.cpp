@@ -27,8 +27,6 @@
 #include <malloc.h>
 #endif
 
-#include <boost/assign/list_of.hpp>
-
 #include <univalue.h>
 
 /**
@@ -212,8 +210,8 @@ UniValue validateaddress(const JSONRPCRequest& request)
 
 #ifdef ENABLE_WALLET
         isminetype mine = pwallet ? IsMine(*pwallet, dest) : ISMINE_NO;
-        ret.push_back(Pair("ismine", (mine & ISMINE_SPENDABLE) ? true : false));
-        ret.push_back(Pair("iswatchonly", (mine & ISMINE_WATCH_ONLY) ? true: false));
+        ret.push_back(Pair("ismine", bool(mine & ISMINE_SPENDABLE)));
+        ret.push_back(Pair("iswatchonly", bool(mine & ISMINE_WATCH_ONLY)));
         UniValue detail = boost::apply_visitor(DescribeAddressVisitor(pwallet), dest);
         ret.pushKVs(detail);
         if (pwallet && pwallet->mapAddressBook.count(dest)) {
@@ -472,7 +470,7 @@ UniValue setmocktime(const JSONRPCRequest& request)
     // ensure all call sites of GetTime() are accessing this safely.
     LOCK(cs_main);
 
-    RPCTypeCheck(request.params, boost::assign::list_of(UniValue::VNUM));
+    RPCTypeCheck(request.params, {UniValue::VNUM});
     SetMockTime(request.params[0].get_int64());
 
     return NullUniValue;

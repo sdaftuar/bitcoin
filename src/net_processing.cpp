@@ -32,8 +32,6 @@
 
 #include "ccl/cclglobals.h"
 
-#include <boost/thread.hpp>
-
 #if defined(NDEBUG)
 # error "Bitcoin cannot be compiled without assertions."
 #endif
@@ -170,6 +168,8 @@ struct CNodeState {
     int nUnconnectingHeaders;
     //! Whether we've started headers synchronization with this peer.
     bool fSyncStarted;
+    //! When to potentially disconnect peer for stalling headers download
+    int64_t nHeadersSyncTimeout;
     //! Since when we're stalling block download progress (in microseconds), or 0.
     int64_t nStallingSince;
     std::list<QueuedBlock> vBlocksInFlight;
@@ -209,6 +209,7 @@ struct CNodeState {
         pindexBestHeaderSent = NULL;
         nUnconnectingHeaders = 0;
         fSyncStarted = false;
+        nHeadersSyncTimeout = 0;
         nStallingSince = 0;
         nDownloadingSince = 0;
         nBlocksInFlight = 0;
@@ -483,7 +484,7 @@ void FindNextBlocksToDownload(NodeId nodeid, unsigned int count, std::vector<con
     // Make sure pindexBestKnownBlock is up to date, we'll need it.
     ProcessBlockAvailability(nodeid);
 
-    if (state->pindexBestKnownBlock == NULL || state->pindexBestKnownBlock->nChainWork < chainActive.Tip()->nChainWork) {
+    if (state->pindexBestKnownBlock == NULL || state->pindexBestKnownBlock->nChainWork < chainActive.Tip()->nChainWork || state->pindexBestKnownBlock->nChainWork < UintToArith256(consensusParams.nMinimumChainWork)) {
         // This peer has nothing interesting.
         return;
     }
@@ -916,12 +917,11 @@ bool static AlreadyHave(const CInv& inv) EXCLUSIVE_LOCKS_REQUIRED(cs_main)
                 recentRejects->reset();
             }
 
-            // Use pcoinsTip->HaveCoinsInCache as a quick approximation to exclude
-            // requesting or processing some txs which have already been included in a block
             return recentRejects->contains(inv.hash) ||
                    mempool.exists(inv.hash) ||
                    mapOrphanTransactions.count(inv.hash) ||
-                   pcoinsTip->HaveCoinsInCache(inv.hash);
+                   pcoinsTip->HaveCoinInCache(COutPoint(inv.hash, 0)) || // Best effort: only try output 0 and 1
+                   pcoinsTip->HaveCoinInCache(COutPoint(inv.hash, 1));
         }
     case MSG_BLOCK:
     case MSG_WITNESS_BLOCK:
@@ -3000,6 +3000,7 @@ bool SendMessages(CNode* pto, CConnman& connman, const std::atomic<bool>& interr
             // Only actively request headers from a single peer, unless we're close to today.
             if ((nSyncStarted == 0 && fFetch) || pindexBestHeader->GetBlockTime() > GetAdjustedTime() - 24 * 60 * 60) {
                 state.fSyncStarted = true;
+                state.nHeadersSyncTimeout = GetTimeMicros() + HEADERS_DOWNLOAD_TIMEOUT_BASE + HEADERS_DOWNLOAD_TIMEOUT_PER_HEADER * (GetAdjustedTime() - pindexBestHeader->GetBlockTime())/(consensusParams.nPowTargetSpacing);
                 nSyncStarted++;
                 const CBlockIndex *pindexStart = pindexBestHeader;
                 /* If possible, start at the block preceding the currently
@@ -3323,6 +3324,39 @@ bool SendMessages(CNode* pto, CConnman& connman, const std::atomic<bool>& interr
                 return true;
             }
         }
+        // Check for headers sync timeouts
+        if (state.fSyncStarted && state.nHeadersSyncTimeout < std::numeric_limits<int64_t>::max()) {
+            // Detect whether this is a stalling initial-headers-sync peer
+            if (pindexBestHeader->GetBlockTime() <= GetAdjustedTime() - 24*60*60) {
+                if (nNow > state.nHeadersSyncTimeout && nSyncStarted == 1 && (nPreferredDownload - state.fPreferredDownload >= 1)) {
+                    // Disconnect a (non-whitelisted) peer if it is our only sync peer,
+                    // and we have others we could be using instead.
+                    // Note: If all our peers are inbound, then we won't
+                    // disconnect our sync peer for stalling; we have bigger
+                    // problems if we can't get any outbound peers.
+                    if (!pto->fWhitelisted) {
+                        LogPrintf("Timeout downloading headers from peer=%d, disconnecting\n", pto->GetId());
+                        pto->fDisconnect = true;
+                        return true;
+                    } else {
+                        LogPrintf("Timeout downloading headers from whitelisted peer=%d, not disconnecting\n", pto->GetId());
+                        // Reset the headers sync state so that we have a
+                        // chance to try downloading from a different peer.
+                        // Note: this will also result in at least one more
+                        // getheaders message to be sent to
+                        // this peer (eventually).
+                        state.fSyncStarted = false;
+                        nSyncStarted--;
+                        state.nHeadersSyncTimeout = 0;
+                    }
+                }
+            } else {
+                // After we've caught up once, reset the timeout so we can't trigger
+                // disconnect later.
+                state.nHeadersSyncTimeout = std::numeric_limits<int64_t>::max();
+            }
+        }
+
 
         //
         // Message: getdata (blocks)

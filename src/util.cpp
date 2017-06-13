@@ -77,11 +77,8 @@
 #endif
 
 #include <boost/algorithm/string/case_conv.hpp> // for to_lower()
-#include <boost/algorithm/string/join.hpp>
 #include <boost/algorithm/string/predicate.hpp> // for startswith() and endswith()
-#include <boost/foreach.hpp>
 #include <boost/program_options/detail/config_file.hpp>
-#include <boost/program_options/parsers.hpp>
 #include <boost/thread.hpp>
 #include <openssl/crypto.h>
 #include <openssl/rand.h>
@@ -477,6 +474,7 @@ void ArgsManager::ForceSetArg(const std::string& strArg, const std::string& strV
 {
     LOCK(cs_args);
     mapArgs[strArg] = strValue;
+    mapMultiArgs[strArg].clear();
     mapMultiArgs[strArg].push_back(strValue);
 }
 
