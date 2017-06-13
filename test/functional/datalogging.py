@@ -28,25 +28,29 @@ The debug.log file should contain the following lines:
 - the simulation has finished
 
 Note that this test will break if the debug.log file format ever changes."""
-
-from test_framework.test_framework import BitcoinTestFramework
-from test_framework.util import *
+from decimal import Decimal
 import os.path
 import re
+import subprocess
+import time
+
+from test_framework.test_framework import BitcoinTestFramework
+from test_framework.util import (
+    assert_equal,
+    connect_nodes_bi,
+    get_mocktime,
+    random_transaction,
+    sync_blocks,
+    sync_mempools,
+)
 
 class DataLoggingTest(BitcoinTestFramework):
-
     def setup_network(self):
-        self.nodes = []
-
-        self.nodes.append(start_node(0, self.options.tmpdir));
-        self.nodes.append(start_node(1, self.options.tmpdir));
-        self.nodes.append(start_node(2, self.options.tmpdir,
-                            ["-dlogdir=" + self.options.tmpdir, "-debug"]))
-        connect_nodes(self.nodes[1], 0)
-        connect_nodes(self.nodes[2], 1)
-
-        sync_blocks(self.nodes, wait=1, timeout=60)
+        self.extra_args = [[], [], ["-dlogdir=" + self.options.tmpdir]]
+        self.nodes = self.start_nodes(3, self.options.tmpdir, self.extra_args)
+        connect_nodes_bi(self.nodes, 0, 1)
+        connect_nodes_bi(self.nodes, 1, 2)
+        self.sync_all()
 
     def run_test(self):
         # DATALOGGER TEST
@@ -61,7 +65,7 @@ class DataLoggingTest(BitcoinTestFramework):
         # Send 12 random transactions. These will be included in the next block
         min_fee = Decimal("0.001")
         txnodes = [self.nodes[0], self.nodes[1]]
-        [ random_transaction(txnodes, Decimal("1.1"), min_fee, min_fee, 20) for i in range(12)]
+        [random_transaction(txnodes, Decimal("1.1"), min_fee, min_fee, 20) for i in range(12)]
 
         sync_mempools(self.nodes)
 
@@ -70,29 +74,29 @@ class DataLoggingTest(BitcoinTestFramework):
         mined_blocks.add(best_block_hash)
 
         # Send 12 random transactions. These aren't confirmed in a block and remain in the mempool
-        [ random_transaction(txnodes, Decimal("1.1"), min_fee, min_fee, 20) for i in range(12)]
+        [random_transaction(txnodes, Decimal("1.1"), min_fee, min_fee, 20) for i in range(12)]
         sync_mempools(self.nodes)
-        stop_nodes(self.nodes)
+        self.stop_nodes()
         self.nodes = []
 
         # Need to wait for files to be written out
-        while (os.path.isfile(self.options.tmpdir+"/node0/regtest/bitcoind.pid")):
+        while (os.path.isfile(self.options.tmpdir + "/node0/regtest/bitcoind.pid")):
             time.sleep(0.1)
 
         today = time.strftime("%Y%m%d")
 
         # Check that the size of the tx log is correct
-        alltx = subprocess.check_output([ "dataprinter", self.options.tmpdir+"/tx."+today], universal_newlines=True)
+        alltx = subprocess.check_output(["dataprinter", self.options.tmpdir + "/tx." + today], universal_newlines=True)
         assert_equal(len(re.findall('CTransaction', alltx)), 24)
 
         # Check that the size of the block log is correct
-        allblocks = subprocess.check_output([ "dataprinter", self.options.tmpdir+"/block."+today], universal_newlines=True)
+        allblocks = subprocess.check_output(["dataprinter", self.options.tmpdir + "/block." + today], universal_newlines=True)
         assert_equal(len(re.findall('CBlock', allblocks)), 2)
 
         # Check that all the blocks were received as headers or compact blocks
-        headers_events = subprocess.check_output([ "dataprinter", self.options.tmpdir+"/headers."+today], universal_newlines=True)
+        headers_events = subprocess.check_output(["dataprinter", self.options.tmpdir + "/headers." + today], universal_newlines=True)
         headers_hashes = re.findall("hash=([0-9a-fA-F]*)", headers_events)
-        cmpctblock_events = subprocess.check_output([ "dataprinter", self.options.tmpdir+"/cmpctblock."+today], universal_newlines=True)
+        cmpctblock_events = subprocess.check_output(["dataprinter", self.options.tmpdir + "/cmpctblock." + today], universal_newlines=True)
         cmpctblock_hashes = re.findall("hash=([0-9a-fA-F]*)", cmpctblock_events)
         assert_equal(set(headers_hashes + cmpctblock_hashes), mined_blocks)
 
@@ -100,10 +104,10 @@ class DataLoggingTest(BitcoinTestFramework):
         #################
 
         datadir = os.path.join(self.options.tmpdir, "node3")
-        args = [ os.getenv("BITCOIND", "bitcoind"), "-datadir="+datadir, "-server", "-keypool=1", "-discover=0", "-rest", "-mocktime="+str(get_mocktime()),"-simulation", "-simdatadir=" + self.options.tmpdir, "-start=" + today, "-debug"]
+        args = [os.getenv("BITCOIND", "bitcoind"), "-datadir=" + datadir, "-regtest", "-server", "-keypool=1", "-discover=0", "-rest", "-mocktime=" + str(get_mocktime()), "-simulation", "-simdatadir=" + self.options.tmpdir, "-start=" + today, "-debug", "-disablewallet"]
         sim_process = subprocess.Popen(args)
 
-        assert sim_process.wait() == 0
+        assert_equal(sim_process.wait(timeout=60), 0)
 
         block_accepted_match = "UpdateTip: new best=%s height=202" % str(best_block_hash)
         all_block_txs_accepted_match = "Connect 13 transactions"
