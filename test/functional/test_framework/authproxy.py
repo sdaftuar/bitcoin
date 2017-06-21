@@ -112,6 +112,25 @@ class AuthServiceProxy(object):
             name = "%s.%s" % (self._service_name, name)
         return AuthServiceProxy(self.__service_url, name, connection=self.__conn)
 
+    # On MacOS, we can get a EPROTOTYPE error when we request() in the middle
+    # of the socket being torn down, see:
+    # https://erickt.github.io/blog/2014/11/19/adventures-in-debugging-a-potential-osx-kernel-bug/
+    # Workaround by trying again, up to 10 times
+    def _request_with_eprototype_retry(self, *args):
+        MAX_TRIES = 10
+        for i in range(MAX_TRIES):
+            try:
+                self.__conn.request(*args)
+                return
+            except OSError as e:
+                import errno
+                if i < MAX_TRIES-1 and e.errno == errno.EPROTOTYPE:
+                    log.debug("Received EPROTOTYPE socket error; trying again")
+                    time.sleep(0.1)
+                else:
+                    # Unexpected OSError, or too many tries
+                    raise
+
     def _request(self, method, path, postdata):
         '''
         Do a HTTP request, with retry if we get disconnected (e.g. due to a timeout).
@@ -122,12 +141,12 @@ class AuthServiceProxy(object):
                    'Authorization': self.__auth_header,
                    'Content-type': 'application/json'}
         try:
-            self.__conn.request(method, path, postdata, headers)
+            self._request_with_eprototype_retry(method, path, postdata, headers)
             return self._get_response()
         except httplib.BadStatusLine as e:
             if e.line == "''": # if connection was closed, try again
                 self.__conn.close()
-                self.__conn.request(method, path, postdata, headers)
+                self._request_with_eprototype_retry(method, path, postdata, headers)
                 return self._get_response()
             else:
                 raise
@@ -135,7 +154,7 @@ class AuthServiceProxy(object):
             # Python 3.5+ raises BrokenPipeError instead of BadStatusLine when the connection was reset
             # ConnectionResetError happens on FreeBSD with Python 3.4
             self.__conn.close()
-            self.__conn.request(method, path, postdata, headers)
+            self._request_with_eprototype_retry(method, path, postdata, headers)
             return self._get_response()
 
     def __call__(self, *args, **argsn):
