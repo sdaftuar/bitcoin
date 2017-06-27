@@ -129,8 +129,19 @@ void ValidateCheckInputsForAllFlags(CMutableTransaction &tx, uint32_t failing_fl
             expected_return_value = !(test_flags & SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_NOPS);
         }
         BOOST_CHECK_EQUAL(ret, expected_return_value);
-        if (ret != expected_return_value) {
-            printf("%d\n", test_flags);
+
+        // Test the caching
+        if (ret && add_to_cache) {
+            // Check that we get a cache hit if the tx was valid
+            std::vector<CScriptCheck> scriptchecks;
+            BOOST_CHECK(CheckInputs(tx, state, pcoinsTip, true, test_flags, true, add_to_cache, txdata, &scriptchecks));
+            BOOST_CHECK(scriptchecks.empty());
+        } else {
+            // Check that we get script executions to check, if the transaction
+            // was invalid, or we didn't add to cache.
+            std::vector<CScriptCheck> scriptchecks;
+            BOOST_CHECK(CheckInputs(tx, state, pcoinsTip, true, test_flags, true, add_to_cache, txdata, &scriptchecks));
+            BOOST_CHECK_EQUAL(scriptchecks.size(), tx.vin.size());
         }
     }
 }
@@ -227,31 +238,6 @@ BOOST_FIXTURE_TEST_CASE(checkinputs_test, TestChain100Setup)
         std::vector<unsigned char> vchSig2(p2pk_scriptPubKey.begin(), p2pk_scriptPubKey.end());
         invalid_under_p2sh_tx.vin[0].scriptSig << vchSig2;
 
-        PrecomputedTransactionData txdata(invalid_under_p2sh_tx);
-        // Will test that evaluation of transaction validity doesn't change due
-        // to caching flag or after using different script flags.
-        for (int i=0; i<2; ++i) {
-            for (bool script_cache_flag: {true, false}) {
-                BOOST_CHECK(CheckInputs(invalid_under_p2sh_tx, state, pcoinsTip, true, SCRIPT_VERIFY_NONE, true, script_cache_flag, txdata, nullptr));
-                BOOST_CHECK(!CheckInputs(invalid_under_p2sh_tx, state, pcoinsTip, true, SCRIPT_VERIFY_P2SH, true, script_cache_flag, txdata, nullptr));
-            }
-        }
-
-        // Run with new flags, and test the returned script executions.
-        std::vector<CScriptCheck> scriptchecks;
-        BOOST_CHECK(CheckInputs(invalid_under_p2sh_tx, state, pcoinsTip, true, STANDARD_SCRIPT_VERIFY_FLAGS, true, true, txdata, &scriptchecks));
-        BOOST_CHECK_EQUAL(scriptchecks.size(), 1); // Must have generated script executions for the new flags
-        scriptchecks.clear();
-
-        BOOST_CHECK(CheckInputs(invalid_under_p2sh_tx, state, pcoinsTip, true, STANDARD_SCRIPT_VERIFY_FLAGS, true, true, txdata, &scriptchecks));
-        BOOST_CHECK_EQUAL(scriptchecks.size(), 1); // Can't possibly have cached anything as the checks were returned!
-        scriptchecks.clear();
-
-        BOOST_CHECK(CheckInputs(invalid_under_p2sh_tx, state, pcoinsTip, true, SCRIPT_VERIFY_NONE, true, true, txdata, nullptr));
-        BOOST_CHECK(CheckInputs(invalid_under_p2sh_tx, state, pcoinsTip, true, SCRIPT_VERIFY_NONE, true, true, txdata, &scriptchecks));
-        BOOST_CHECK(scriptchecks.empty()); // Must have generated no script executions
-
-        // Test that CheckInputs correctly validates this transaction under all flags.
         ValidateCheckInputsForAllFlags(invalid_under_p2sh_tx, SCRIPT_VERIFY_P2SH, true, false);
     }
 
@@ -331,34 +317,11 @@ BOOST_FIXTURE_TEST_CASE(checkinputs_test, TestChain100Setup)
         ProduceSignature(MutableTransactionSignatureCreator(&keystore, &valid_with_witness_tx, 0, 11*CENT, SIGHASH_ALL), spend_tx.vout[1].scriptPubKey, sigdata);
         UpdateTransaction(valid_with_witness_tx, 0, sigdata);
 
-        // Check: this tx is valid.
-        std::vector<CScriptCheck> scriptchecks;
-        PrecomputedTransactionData txdata(valid_with_witness_tx);
-        BOOST_CHECK(CheckInputs(valid_with_witness_tx, state, pcoinsTip, true, SCRIPT_VERIFY_P2SH | SCRIPT_VERIFY_WITNESS, true, true, txdata, nullptr));
-        // Check: script executions are not returned when re-evaluating this tx
-        BOOST_CHECK(CheckInputs(valid_with_witness_tx, state, pcoinsTip, true, SCRIPT_VERIFY_P2SH | SCRIPT_VERIFY_WITNESS, true, true, txdata, &scriptchecks));
-        BOOST_CHECK(scriptchecks.empty());
-        // Explicitly test all script combinations.
+        // This should be valid under all script flags.
         ValidateCheckInputsForAllFlags(valid_with_witness_tx, 0, true, false);
 
         // Remove the witness, and check that it is now invalid.
         valid_with_witness_tx.vin[0].scriptWitness.SetNull();
-        PrecomputedTransactionData txdata_invalid(valid_with_witness_tx);
-        BOOST_CHECK(!CheckInputs(valid_with_witness_tx, state, pcoinsTip, true, SCRIPT_VERIFY_P2SH | SCRIPT_VERIFY_WITNESS, true, true, txdata_invalid, nullptr));
-        BOOST_CHECK(CheckInputs(valid_with_witness_tx, state, pcoinsTip, true, SCRIPT_VERIFY_P2SH | SCRIPT_VERIFY_WITNESS, true, true, txdata_invalid, &scriptchecks));
-        BOOST_CHECK_EQUAL(scriptchecks.size(), 1);
-
-        // Make sure that it doesn't get added to cache when calling with
-        // scriptchecks.
-        BOOST_CHECK(CheckInputs(valid_with_witness_tx, state, pcoinsTip, true, SCRIPT_VERIFY_P2SH | SCRIPT_VERIFY_WITNESS, true, true, txdata_invalid, &scriptchecks));
-        BOOST_CHECK_EQUAL(scriptchecks.size(), 2);
-
-        //... Even if the tx is valid
-        BOOST_CHECK(CheckInputs(valid_with_witness_tx, state, pcoinsTip, true, SCRIPT_VERIFY_NONE, true, true, txdata_invalid, &scriptchecks));
-        BOOST_CHECK_EQUAL(scriptchecks.size(), 3);
-
-        // This transaction is valid without SCRIPT_VERIFY_WITNESS
-        BOOST_CHECK(CheckInputs(valid_with_witness_tx, state, pcoinsTip, true, SCRIPT_VERIFY_P2SH, true, true, txdata_invalid, nullptr));
         ValidateCheckInputsForAllFlags(valid_with_witness_tx, SCRIPT_VERIFY_WITNESS, true, false);
     }
 
