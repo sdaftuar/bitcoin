@@ -148,6 +148,7 @@ BOOST_FIXTURE_TEST_CASE(checkinputs_test, TestChain100Setup)
 
     CBasicKeyStore keystore;
     keystore.AddKey(coinbaseKey);
+    keystore.AddCScript(p2pk_scriptPubKey);
 
     // flags to test: SCRIPT_VERIFY_CHECKLOCKTIMEVERIFY, SCRIPT_VERIFY_CHECKSEQUENCE_VERIFY, SCRIPT_VERIFY_NULLDUMMY, uncompressed pubkey thing
 
@@ -359,6 +360,48 @@ BOOST_FIXTURE_TEST_CASE(checkinputs_test, TestChain100Setup)
         // This transaction is valid without SCRIPT_VERIFY_WITNESS
         BOOST_CHECK(CheckInputs(valid_with_witness_tx, state, pcoinsTip, true, SCRIPT_VERIFY_P2SH, true, true, txdata_invalid, nullptr));
         ValidateCheckInputsForAllFlags(valid_with_witness_tx, SCRIPT_VERIFY_WITNESS, true, false);
+    }
+
+    {
+        // Test a transaction with multiple inputs.
+        CMutableTransaction tx;
+
+        tx.nVersion = 1;
+        tx.vin.resize(2);
+        tx.vin[0].prevout.hash = spend_tx.GetHash();
+        tx.vin[0].prevout.n = 0;
+        tx.vin[1].prevout.hash = spend_tx.GetHash();
+        tx.vin[1].prevout.n = 1;
+        tx.vout.resize(1);
+        tx.vout[0].nValue = 22*CENT;
+        tx.vout[0].scriptPubKey = p2pk_scriptPubKey;
+
+        // Sign
+        for (int i=0; i<2; ++i) {
+            SignatureData sigdata;
+            ProduceSignature(MutableTransactionSignatureCreator(&keystore, &tx, i, 11*CENT, SIGHASH_ALL), spend_tx.vout[i].scriptPubKey, sigdata);
+            UpdateTransaction(tx, i, sigdata);
+        }
+
+        // This should be valid under all script flags
+        ValidateCheckInputsForAllFlags(tx, 0, true, false);
+
+        // Check that if the second input is invalid, but the first input is
+        // valid, the transaction is not cached.
+        // Invalidate vin[1]
+        tx.vin[1].scriptWitness.SetNull();
+
+        CValidationState state;
+        PrecomputedTransactionData txdata(tx);
+        // This transaction is now invalid under segwit, because of the second input.
+        BOOST_CHECK(!CheckInputs(tx, state, pcoinsTip, true, SCRIPT_VERIFY_P2SH | SCRIPT_VERIFY_WITNESS, true, true, txdata, nullptr));
+
+        std::vector<CScriptCheck> scriptchecks;
+        // Make sure this transaction was not cached (ie because the first
+        // input was valid)
+        BOOST_CHECK(CheckInputs(tx, state, pcoinsTip, true, SCRIPT_VERIFY_P2SH | SCRIPT_VERIFY_WITNESS, true, true, txdata, &scriptchecks));
+        // Should get 2 script checks back -- caching is on a whole-transaction basis.
+        BOOST_CHECK_EQUAL(scriptchecks.size(), 2);
     }
 }
 
