@@ -48,7 +48,7 @@ class TxConfirmStats;
  * in each bucket and the total amount of feerate paid in each bucket. Then we
  * calculate how many blocks Y it took each transaction to be mined.  We convert
  * from a number of blocks to a number of periods Y' each encompassing "scale"
- * blocks.  This is is tracked in 3 different data sets each up to a maximum
+ * blocks.  This is tracked in 3 different data sets each up to a maximum
  * number of periods. Within each data set we have an array of counters in each
  * feerate bucket and we increment all the counters from Y' up to max periods
  * representing that a tx was successfully confirmed in less than or equal to
@@ -74,6 +74,22 @@ enum FeeEstimateHorizon {
     LONG_HALFLIFE = 2
 };
 
+/* Enumeration of reason for returned fee estimate */
+enum class FeeReason {
+    NONE,
+    HALF_ESTIMATE,
+    FULL_ESTIMATE,
+    DOUBLE_ESTIMATE,
+    CONSERVATIVE,
+    MEMPOOL_MIN,
+    PAYTXFEE,
+    FALLBACK,
+    REQUIRED,
+    MAXTXFEE,
+};
+
+std::string StringForFeeReason(FeeReason reason);
+
 /* Used to return detailed information about a feerate bucket */
 struct EstimatorBucket
 {
@@ -90,8 +106,16 @@ struct EstimationResult
 {
     EstimatorBucket pass;
     EstimatorBucket fail;
-    double decay;
-    unsigned int scale;
+    double decay = 0;
+    unsigned int scale = 0;
+};
+
+struct FeeCalculation
+{
+    EstimationResult est;
+    FeeReason reason = FeeReason::NONE;
+    int desiredTarget = 0;
+    int returnedTarget = 0;
 };
 
 /**
@@ -173,7 +197,7 @@ public:
      *  the closest target where one can be given.  'conservative' estimates are
      *  valid over longer time horizons also.
      */
-    CFeeRate estimateSmartFee(int confTarget, int *answerFoundAtTarget, const CTxMemPool& pool, bool conservative = true) const;
+    CFeeRate estimateSmartFee(int confTarget, FeeCalculation *feeCalc, const CTxMemPool& pool, bool conservative = true) const;
 
     /** Return a specific fee estimate calculation with a given success
      * threshold and time horizon, and optionally return detailed data about
@@ -223,9 +247,9 @@ private:
     bool processBlockTx(unsigned int nBlockHeight, const CTxMemPoolEntry* entry);
 
     /** Helper for estimateSmartFee */
-    double estimateCombinedFee(unsigned int confTarget, double successThreshold, bool checkShorterHorizon) const;
+    double estimateCombinedFee(unsigned int confTarget, double successThreshold, bool checkShorterHorizon, EstimationResult *result) const;
     /** Helper for estimateSmartFee */
-    double estimateConservativeFee(unsigned int doubleTarget) const;
+    double estimateConservativeFee(unsigned int doubleTarget, EstimationResult *result) const;
     /** Number of blocks of data recorded while fee estimates have been running */
     unsigned int BlockSpan() const;
     /** Number of blocks of recorded fee estimate data represented in saved data file */

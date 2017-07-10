@@ -22,6 +22,7 @@
 #include "primitives/block.h"
 #include "primitives/transaction.h"
 #include "random.h"
+#include "reverse_iterator.h"
 #include "tinyformat.h"
 #include "txmempool.h"
 #include "ui_interface.h"
@@ -122,7 +123,7 @@ namespace {
     MapRelay mapRelay;
     /** Expiration-time ordered list of (expire time, relay map entry) pairs, protected by cs_main). */
     std::deque<std::pair<int64_t, MapRelay::iterator>> vRelayExpiration;
-} // anon namespace
+} // namespace
 
 //////////////////////////////////////////////////////////////////////////////
 //
@@ -344,7 +345,9 @@ bool MarkBlockAsInFlight(NodeId nodeid, const uint256& hash, const CBlockIndex* 
     // Short-circuit most stuff in case its from the same node
     std::map<uint256, std::pair<NodeId, std::list<QueuedBlock>::iterator> >::iterator itInFlight = mapBlocksInFlight.find(hash);
     if (itInFlight != mapBlocksInFlight.end() && itInFlight->second.first == nodeid) {
-        *pit = &itInFlight->second.second;
+        if (pit) {
+            *pit = &itInFlight->second.second;
+        }
         return false;
     }
 
@@ -452,25 +455,6 @@ bool PeerHasHeader(CNodeState *state, const CBlockIndex *pindex)
     return false;
 }
 
-/** Find the last common ancestor two blocks have.
- *  Both pa and pb must be non-NULL. */
-const CBlockIndex* LastCommonAncestor(const CBlockIndex* pa, const CBlockIndex* pb) {
-    if (pa->nHeight > pb->nHeight) {
-        pa = pa->GetAncestor(pb->nHeight);
-    } else if (pb->nHeight > pa->nHeight) {
-        pb = pb->GetAncestor(pa->nHeight);
-    }
-
-    while (pa != pb && pa && pb) {
-        pa = pa->pprev;
-        pb = pb->pprev;
-    }
-
-    // Eventually all chain branches meet at the genesis block.
-    assert(pa == pb);
-    return pa;
-}
-
 /** Update pindexLastCommonBlock and add not-in-flight missing successors to vBlocks, until it has
  *  at most count entries. */
 void FindNextBlocksToDownload(NodeId nodeid, unsigned int count, std::vector<const CBlockIndex*>& vBlocks, NodeId& nodeStaller, const Consensus::Params& consensusParams) {
@@ -559,7 +543,7 @@ void FindNextBlocksToDownload(NodeId nodeid, unsigned int count, std::vector<con
     }
 }
 
-} // anon namespace
+} // namespace
 
 bool GetNodeStateStats(NodeId nodeid, CNodeStateStats &stats) {
     LOCK(cs_main);
@@ -849,7 +833,7 @@ void PeerLogicValidation::UpdatedBlockTip(const CBlockIndex *pindexNew, const CB
         // Relay inventory, but don't relay old inventory during initial block download.
         connman->ForEachNode([nNewHeight, &vHashes](CNode* pnode) {
             if (nNewHeight > (pnode->nStartingHeight != -1 ? pnode->nStartingHeight - 2000 : 0)) {
-                BOOST_REVERSE_FOREACH(const uint256& hash, vHashes) {
+                for (const uint256& hash : reverse_iterate(vHashes)) {
                     pnode->PushBlockHash(hash);
                 }
             }
@@ -1237,11 +1221,11 @@ void ProcessTransaction(const CTransactionRef& ptx)
                 mempool.check(pcoinsTip);
             }
         }
-        BOOST_FOREACH(uint256 hash, vEraseQueue)
+        for (uint256 hash : vEraseQueue)
             EraseOrphanTx(hash);
     } else if (fMissingInputs) {
         bool fRejectedParents = false; // It may be the case that the orphans parents have all been rejected
-        BOOST_FOREACH(const CTxIn& txin, tx.vin) {
+        for (const CTxIn& txin : tx.vin) {
             if (recentRejects->contains(txin.prevout.hash)) {
                 fRejectedParents = true;
                 break;
@@ -2471,7 +2455,7 @@ bool static ProcessMessage(CNode* pfrom, const std::string& strCommand, CDataStr
             } else {
                 std::vector<CInv> vGetData;
                 // Download as much as possible, from earliest to latest.
-                BOOST_REVERSE_FOREACH(const CBlockIndex *pindex, vToFetch) {
+                for (const CBlockIndex *pindex : reverse_iterate(vToFetch)) {
                     if (nodestate->nBlocksInFlight >= MAX_BLOCKS_IN_TRANSIT_PER_PEER) {
                         // Can't download any more from this peer
                         break;

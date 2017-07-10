@@ -38,7 +38,6 @@ from test_framework.test_framework import BitcoinTestFramework
 from test_framework.util import (
     assert_equal,
     connect_nodes_bi,
-    get_mocktime,
     random_transaction,
     sync_blocks,
     sync_mempools,
@@ -104,7 +103,7 @@ class DataLoggingTest(BitcoinTestFramework):
         #################
 
         datadir = os.path.join(self.options.tmpdir, "node3")
-        args = [os.getenv("BITCOIND", "bitcoind"), "-datadir=" + datadir, "-regtest", "-server", "-keypool=1", "-discover=0", "-rest", "-mocktime=" + str(get_mocktime()), "-simulation", "-simdatadir=" + self.options.tmpdir, "-start=" + today, "-debug", "-disablewallet"]
+        args = [os.getenv("BITCOIND", "bitcoind"), "-datadir=" + datadir, "-regtest", "-server", "-keypool=1", "-discover=0", "-rest", "-mocktime=" + str(self.mocktime), "-simulation", "-simdatadir=" + self.options.tmpdir, "-start=" + today, "-debug", "-disablewallet"]
         sim_process = subprocess.Popen(args)
 
         assert_equal(sim_process.wait(timeout=60), 0)

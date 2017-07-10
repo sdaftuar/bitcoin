@@ -17,7 +17,6 @@
 
 #include <boost/bind.hpp>
 #include <boost/signals2/signal.hpp>
-#include <boost/foreach.hpp>
 #include <boost/algorithm/string/split.hpp>
 #include <boost/algorithm/string/classification.hpp>
 #include <boost/algorithm/string/replace.hpp>
@@ -376,8 +375,10 @@ static std::pair<bool,std::string> ReadBinaryFile(const fs::path &filename, size
     while ((n=fread(buffer, 1, sizeof(buffer), f)) > 0) {
         // Check for reading errors so we don't return any data if we couldn't
         // read the entire file (or up to maxsize)
-        if (ferror(f))
+        if (ferror(f)) {
+            fclose(f);
             return std::make_pair(false,"");
+        }
         retval.append(buffer, buffer+n);
         if (retval.size() > maxsize)
             break;
@@ -405,7 +406,7 @@ static bool WriteBinaryFile(const fs::path &filename, const std::string &data)
 /****** Bitcoin specific TorController implementation ********/
 
 /** Controller that connects to Tor control socket, authenticate, then create
- * and maintain a ephemeral hidden service.
+ * and maintain an ephemeral hidden service.
  */
 class TorController
 {

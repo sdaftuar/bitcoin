@@ -34,7 +34,6 @@
 #include <QSet>
 #include <QTimer>
 
-#include <boost/foreach.hpp>
 
 WalletModel::WalletModel(const PlatformStyle *platformStyle, CWallet *_wallet, OptionsModel *_optionsModel, QObject *parent) :
     QObject(parent), wallet(_wallet), optionsModel(_optionsModel), addressTableModel(0),
@@ -339,7 +338,7 @@ WalletModel::SendCoinsReturn WalletModel::sendCoins(WalletModelTransaction &tran
         transaction_array.append(&(ssTx[0]), ssTx.size());
     }
 
-    // Add addresses / update labels that we've sent to to the address book,
+    // Add addresses / update labels that we've sent to the address book,
     // and emit coinsSent signal for each recipient
     for (const SendCoinsRecipient &rcp : transaction.getRecipients())
     {

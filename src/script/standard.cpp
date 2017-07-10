@@ -10,7 +10,6 @@
 #include "util.h"
 #include "utilstrencodings.h"
 
-#include <boost/foreach.hpp>
 
 typedef std::vector<unsigned char> valtype;
 
@@ -273,7 +272,7 @@ public:
         return true;
     }
 };
-}
+} // namespace
 
 CScript GetScriptForDestination(const CTxDestination& dest)
 {

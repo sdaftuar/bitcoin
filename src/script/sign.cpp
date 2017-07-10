@@ -12,7 +12,6 @@
 #include "script/standard.h"
 #include "uint256.h"
 
-#include <boost/foreach.hpp>
 
 typedef std::vector<unsigned char> valtype;
 
@@ -393,13 +392,13 @@ class DummySignatureChecker : public BaseSignatureChecker
 public:
     DummySignatureChecker() {}
 
-    bool CheckSig(const std::vector<unsigned char>& scriptSig, const std::vector<unsigned char>& vchPubKey, const CScript& scriptCode, SigVersion sigversion) const
+    bool CheckSig(const std::vector<unsigned char>& scriptSig, const std::vector<unsigned char>& vchPubKey, const CScript& scriptCode, SigVersion sigversion) const override
     {
         return true;
     }
 };
 const DummySignatureChecker dummyChecker;
-}
+} // namespace
 
 const BaseSignatureChecker& DummySignatureCreator::Checker() const
 {

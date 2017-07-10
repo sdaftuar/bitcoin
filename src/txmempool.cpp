@@ -11,6 +11,7 @@
 #include "validation.h"
 #include "policy/policy.h"
 #include "policy/fees.h"
+#include "reverse_iterator.h"
 #include "streams.h"
 #include "timedata.h"
 #include "util.h"
@@ -122,12 +123,12 @@ void CTxMemPool::UpdateTransactionsFromBlock(const std::vector<uint256> &vHashes
     // accounted for in the state of their ancestors)
     std::set<uint256> setAlreadyIncluded(vHashesToUpdate.begin(), vHashesToUpdate.end());
 
-    // Iterate in reverse, so that whenever we are looking at at a transaction
+    // Iterate in reverse, so that whenever we are looking at a transaction
     // we are sure that all in-mempool descendants have already been processed.
     // This maximizes the benefit of the descendant cache and guarantees that
     // setMemPoolChildren will be updated, an assumption made in
     // UpdateForDescendants.
-    BOOST_REVERSE_FOREACH(const uint256 &hash, vHashesToUpdate) {
+    for (const uint256 &hash : reverse_iterate(vHashesToUpdate)) {
         // we cache the in-mempool children to avoid duplicate updates
         setEntries setChildren;
         // calculate children from mapNextTx
@@ -769,7 +770,7 @@ public:
         return counta < countb;
     }
 };
-}
+} // namespace
 
 std::vector<CTxMemPool::indexed_transaction_set::const_iterator> CTxMemPool::GetSortedDepthAndScore() const
 {
@@ -903,11 +904,7 @@ bool CCoinsViewMemPool::GetCoin(const COutPoint &outpoint, Coin &coin) const {
             return false;
         }
     }
-    return (base->GetCoin(outpoint, coin) && !coin.IsSpent());
-}
-
-bool CCoinsViewMemPool::HaveCoin(const COutPoint &outpoint) const {
-    return mempool.exists(outpoint) || base->HaveCoin(outpoint);
+    return base->GetCoin(outpoint, coin);
 }
 
 size_t CTxMemPool::DynamicMemoryUsage() const {
@@ -1050,9 +1047,7 @@ void CTxMemPool::TrimToSize(size_t sizelimit, std::vector<COutPoint>* pvNoSpends
             for (const CTransaction& tx : txn) {
                 for (const CTxIn& txin : tx.vin) {
                     if (exists(txin.prevout.hash)) continue;
-                    if (!mapNextTx.count(txin.prevout)) {
-                        pvNoSpendsRemaining->push_back(txin.prevout);
-                    }
+                    pvNoSpendsRemaining->push_back(txin.prevout);
                 }
             }
         }
