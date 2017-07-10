@@ -38,7 +38,6 @@ from test_framework.test_framework import BitcoinTestFramework
 from test_framework.util import (
     assert_equal,
     connect_nodes_bi,
-    get_mocktime,
     random_transaction,
     sync_blocks,
     sync_mempools,
@@ -53,8 +52,7 @@ class DataLoggingTest(BitcoinTestFramework):
         self.sync_all()
 
     def run_test(self):
-        # DATALOGGER TEST
-        #################
+        self.log.info("Run DATALOGGER test")
 
         mined_blocks = set()
 
@@ -85,28 +83,30 @@ class DataLoggingTest(BitcoinTestFramework):
 
         today = time.strftime("%Y%m%d")
 
-        # Check that the size of the tx log is correct
+        self.log.info("Check all transactions were logged")
         alltx = subprocess.check_output(["dataprinter", self.options.tmpdir + "/tx." + today], universal_newlines=True)
         assert_equal(len(re.findall('CTransaction', alltx)), 24)
 
-        # Check that the size of the block log is correct
+        self.log.info("Check all blocks were logged")
         allblocks = subprocess.check_output(["dataprinter", self.options.tmpdir + "/block." + today], universal_newlines=True)
         assert_equal(len(re.findall('CBlock', allblocks)), 2)
 
-        # Check that all the blocks were received as headers or compact blocks
+        self.log.info("Check all headers and compact blocks were logged")
         headers_events = subprocess.check_output(["dataprinter", self.options.tmpdir + "/headers." + today], universal_newlines=True)
         headers_hashes = re.findall("hash=([0-9a-fA-F]*)", headers_events)
         cmpctblock_events = subprocess.check_output(["dataprinter", self.options.tmpdir + "/cmpctblock." + today], universal_newlines=True)
         cmpctblock_hashes = re.findall("hash=([0-9a-fA-F]*)", cmpctblock_events)
         assert_equal(set(headers_hashes + cmpctblock_hashes), mined_blocks)
 
-        # SIMULATION TEST
-        #################
+        self.log.info("DATALOGGER tests successful")
+
+        self.log.info("Run SIMULATION test")
 
         datadir = os.path.join(self.options.tmpdir, "node3")
-        args = [os.getenv("BITCOIND", "bitcoind"), "-datadir=" + datadir, "-regtest", "-server", "-keypool=1", "-discover=0", "-rest", "-mocktime=" + str(get_mocktime()), "-simulation", "-simdatadir=" + self.options.tmpdir, "-start=" + today, "-debug", "-disablewallet"]
+        args = [os.getenv("BITCOIND", "bitcoind"), "-datadir=" + datadir, "-regtest", "-server", "-keypool=1", "-discover=0", "-rest", "-mocktime=" + str(self.mocktime), "-simulation", "-simdatadir=" + self.options.tmpdir, "-start=" + today, "-debug", "-disablewallet"]
         sim_process = subprocess.Popen(args)
 
+        self.log.info("Wait for simulation to end")
         assert_equal(sim_process.wait(timeout=60), 0)
 
         block_accepted_match = "UpdateTip: new best=%s height=202" % str(best_block_hash)
@@ -116,6 +116,7 @@ class DataLoggingTest(BitcoinTestFramework):
 
         block_accepted, all_block_txs_accepted, number_txs_accepted, simulation_ended = False, False, 0, False
 
+        self.log.info("Read debug.log file")
         with open(os.path.join(datadir, "regtest", "debug.log"), 'r') as log:
             for line in log.readlines():
                 if re.search(block_accepted_match, line):
@@ -135,6 +136,8 @@ class DataLoggingTest(BitcoinTestFramework):
         assert all_block_txs_accepted, "debug.log file did not contain the 'Connect x transactions' line. Check whether debug.log file formats have changed."
         assert number_txs_accepted == 24, "debug.log file did not contain the 'AcceptToMemoryPool' lines. Check whether debug.log file formats have changed."
         assert simulation_ended, "debug.log file did not contain the 'Simulation exiting' line. Check whether debug.log file formats have changed."
+
+        self.log.info("SIMULATION tests successful")
 
 if __name__ == '__main__':
     DataLoggingTest().main()

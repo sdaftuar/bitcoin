@@ -11,6 +11,7 @@
 #include "validation.h"
 #include "policy/policy.h"
 #include "policy/fees.h"
+#include "reverse_iterator.h"
 #include "streams.h"
 #include "timedata.h"
 #include "util.h"
@@ -127,7 +128,7 @@ void CTxMemPool::UpdateTransactionsFromBlock(const std::vector<uint256> &vHashes
     // This maximizes the benefit of the descendant cache and guarantees that
     // setMemPoolChildren will be updated, an assumption made in
     // UpdateForDescendants.
-    BOOST_REVERSE_FOREACH(const uint256 &hash, vHashesToUpdate) {
+    for (const uint256 &hash : reverse_iterate(vHashesToUpdate)) {
         // we cache the in-mempool children to avoid duplicate updates
         setEntries setChildren;
         // calculate children from mapNextTx
@@ -903,11 +904,7 @@ bool CCoinsViewMemPool::GetCoin(const COutPoint &outpoint, Coin &coin) const {
             return false;
         }
     }
-    return (base->GetCoin(outpoint, coin) && !coin.IsSpent());
-}
-
-bool CCoinsViewMemPool::HaveCoin(const COutPoint &outpoint) const {
-    return mempool.exists(outpoint) || base->HaveCoin(outpoint);
+    return base->GetCoin(outpoint, coin);
 }
 
 size_t CTxMemPool::DynamicMemoryUsage() const {

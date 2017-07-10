@@ -1025,7 +1025,7 @@ public:
         }
     }
 
-    void GetScriptForMining(std::shared_ptr<CReserveScript> &script) override;
+    void GetScriptForMining(std::shared_ptr<CReserveScript> &script);
     
     unsigned int GetKeyPoolSize()
     {
@@ -1153,7 +1153,7 @@ public:
     void ReturnKey();
     bool GetReservedKey(CPubKey &pubkey, bool internal = false);
     void KeepKey();
-    void KeepScript() { KeepKey(); }
+    void KeepScript() override { KeepKey(); }
 };
 
 
