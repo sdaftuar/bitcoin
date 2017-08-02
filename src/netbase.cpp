@@ -58,25 +58,6 @@ std::string GetNetworkName(enum Network net) {
     }
 }
 
-void SplitHostPort(std::string in, int &portOut, std::string &hostOut) {
-    size_t colon = in.find_last_of(':');
-    // if a : is found, and it either follows a [...], or no other : is in the string, treat it as port separator
-    bool fHaveColon = colon != in.npos;
-    bool fBracketed = fHaveColon && (in[0]=='[' && in[colon-1]==']'); // if there is a colon, and in[0]=='[', colon is not 0, so in[colon-1] is safe
-    bool fMultiColon = fHaveColon && (in.find_last_of(':',colon-1) != in.npos);
-    if (fHaveColon && (colon==0 || fBracketed || !fMultiColon)) {
-        int32_t n;
-        if (ParseInt32(in.substr(colon + 1), &n) && n > 0 && n < 0x10000) {
-            in = in.substr(0, colon);
-            portOut = n;
-        }
-    }
-    if (in.size()>0 && in[0] == '[' && in[in.size()-1] == ']')
-        hostOut = in.substr(1, in.size()-2);
-    else
-        hostOut = in;
-}
-
 bool static LookupIntern(const char *pszName, std::vector<CNetAddr>& vIP, unsigned int nMaxSolutions, bool fAllowLookup)
 {
     vIP.clear();
@@ -222,7 +203,7 @@ enum class IntrRecvError {
  *
  * @note This function requires that hSocket is in non-blocking mode.
  */
-static IntrRecvError InterruptibleRecv(char* data, size_t len, int timeout, SOCKET& hSocket)
+static IntrRecvError InterruptibleRecv(char* data, size_t len, int timeout, const SOCKET& hSocket)
 {
     int64_t curTime = GetTimeMillis();
     int64_t endTime = curTime + timeout;
@@ -443,8 +424,10 @@ bool static ConnectSocketDirectly(const CService &addrConnect, SOCKET& hSocketRe
     SetSocketNoDelay(hSocket);
 
     // Set to non-blocking
-    if (!SetSocketNonBlocking(hSocket, true))
+    if (!SetSocketNonBlocking(hSocket, true)) {
+        CloseSocket(hSocket);
         return error("ConnectSocketDirectly: Setting socket to non-blocking failed, error %s\n", NetworkErrorString(WSAGetLastError()));
+    }
 
     if (connect(hSocket, (struct sockaddr*)&sockaddr, len) == SOCKET_ERROR)
     {
@@ -563,7 +546,7 @@ static bool ConnectThroughProxy(const proxyType &proxy, const std::string& strDe
     // do socks negotiation
     if (proxy.randomize_credentials) {
         ProxyCredentials random_auth;
-        static std::atomic_int counter;
+        static std::atomic_int counter(0);
         random_auth.username = random_auth.password = strprintf("%i", counter++);
         if (!Socks5(strDest, (unsigned short)port, &random_auth, hSocket))
             return false;
@@ -701,7 +684,7 @@ bool CloseSocket(SOCKET& hSocket)
     return ret != SOCKET_ERROR;
 }
 
-bool SetSocketNonBlocking(SOCKET& hSocket, bool fNonBlocking)
+bool SetSocketNonBlocking(const SOCKET& hSocket, bool fNonBlocking)
 {
     if (fNonBlocking) {
 #ifdef WIN32
@@ -711,7 +694,6 @@ bool SetSocketNonBlocking(SOCKET& hSocket, bool fNonBlocking)
         int fFlags = fcntl(hSocket, F_GETFL, 0);
         if (fcntl(hSocket, F_SETFL, fFlags | O_NONBLOCK) == SOCKET_ERROR) {
 #endif
-            CloseSocket(hSocket);
             return false;
         }
     } else {
@@ -722,7 +704,6 @@ bool SetSocketNonBlocking(SOCKET& hSocket, bool fNonBlocking)
         int fFlags = fcntl(hSocket, F_GETFL, 0);
         if (fcntl(hSocket, F_SETFL, fFlags & ~O_NONBLOCK) == SOCKET_ERROR) {
 #endif
-            CloseSocket(hSocket);
             return false;
         }
     }
@@ -730,7 +711,7 @@ bool SetSocketNonBlocking(SOCKET& hSocket, bool fNonBlocking)
     return true;
 }
 
-bool SetSocketNoDelay(SOCKET& hSocket)
+bool SetSocketNoDelay(const SOCKET& hSocket)
 {
     int set = 1;
     int rc = setsockopt(hSocket, IPPROTO_TCP, TCP_NODELAY, (const char*)&set, sizeof(int));

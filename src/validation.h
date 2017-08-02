@@ -256,26 +256,19 @@ FILE* OpenBlockFile(const CDiskBlockPos &pos, bool fReadOnly = false);
 fs::path GetBlockPosFilename(const CDiskBlockPos &pos, const char *prefix);
 /** Import blocks from an external file */
 bool LoadExternalBlockFile(const CChainParams& chainparams, FILE* fileIn, CDiskBlockPos *dbp = NULL);
-/** Initialize a new block tree database + block data on disk */
-bool InitBlockIndex(const CChainParams& chainparams);
-/** Load the block tree and coins database from disk */
+/** Ensures we have a genesis block in the block tree, possibly writing one to disk. */
+bool LoadGenesisBlock(const CChainParams& chainparams);
+/** Load the block tree and coins database from disk,
+ * initializing state if we're running with -reindex. */
 bool LoadBlockIndex(const CChainParams& chainparams);
 /** Update the chain tip based on database information. */
-void LoadChainTip(const CChainParams& chainparams);
+bool LoadChainTip(const CChainParams& chainparams);
 /** Unload database information */
 void UnloadBlockIndex();
 /** Run an instance of the script checking thread */
 void ThreadScriptCheck();
 /** Check whether we are doing an initial block download (synchronizing from disk or network) */
 bool IsInitialBlockDownload();
-/** Format a string that describes several potential problems detected by the core.
- * strFor can have three values:
- * - "rpc": get critical warnings, which should put the client in safe mode if non-empty
- * - "statusbar": get all warnings
- * - "gui": get all warnings, translated (where possible) for GUI
- * This function only returns the highest priority warning of the set selected by strFor.
- */
-std::string GetWarnings(const std::string& strFor);
 /** Retrieve a transaction (from memory pool, or from disk, if possible) */
 bool GetTransaction(const uint256 &hash, CTransactionRef &tx, const Consensus::Params& params, uint256 &hashBlock, bool fAllowSlow = false);
 /** Find the best known block, and make it the tip of the block chain */

@@ -13,6 +13,7 @@
 #include "rpc/server.h"
 #include "test/test_bitcoin.h"
 #include "validation.h"
+#include "wallet/coincontrol.h"
 #include "wallet/test/wallet_test_fixture.h"
 
 #include <boost/test/unit_test.hpp>
@@ -468,7 +469,7 @@ BOOST_FIXTURE_TEST_CASE(importwallet_rescan, TestChain100Setup)
 
         JSONRPCRequest request;
         request.params.setArray();
-        request.params.push_back("wallet.backup");
+        request.params.push_back((pathTemp / "wallet.backup").string());
         vpwallets.insert(vpwallets.begin(), &wallet);
         ::dumpwallet(request);
     }
@@ -480,7 +481,7 @@ BOOST_FIXTURE_TEST_CASE(importwallet_rescan, TestChain100Setup)
 
         JSONRPCRequest request;
         request.params.setArray();
-        request.params.push_back("wallet.backup");
+        request.params.push_back((pathTemp / "wallet.backup").string());
         vpwallets[0] = &wallet;
         ::importwallet(request);
 
@@ -617,7 +618,8 @@ public:
         CAmount fee;
         int changePos = -1;
         std::string error;
-        BOOST_CHECK(wallet->CreateTransaction({recipient}, wtx, reservekey, fee, changePos, error));
+        CCoinControl dummy;
+        BOOST_CHECK(wallet->CreateTransaction({recipient}, wtx, reservekey, fee, changePos, error, dummy));
         CValidationState state;
         BOOST_CHECK(wallet->CommitTransaction(wtx, reservekey, nullptr, state));
         auto it = wallet->mapWallet.find(wtx.GetHash());
