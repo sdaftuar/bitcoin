@@ -1758,6 +1758,9 @@ static unsigned int GetBlockScriptFlags(const CBlockIndex* pindex, const Consens
     // Start enforcing WITNESS rules using versionbits logic.
     if (IsWitnessEnabled(pindex->pprev, consensusparams)) {
         flags |= SCRIPT_VERIFY_WITNESS;
+    }
+
+    if (IsNullDummyEnabled(pindex->pprev, consensusparams)) {
         flags |= SCRIPT_VERIFY_NULLDUMMY;
     }
 
@@ -3025,6 +3028,12 @@ bool CheckBlock(const CBlock& block, CValidationState& state, const Consensus::P
 }
 
 bool IsWitnessEnabled(const CBlockIndex* pindexPrev, const Consensus::Params& params)
+{
+    LOCK(cs_main);
+    return (VersionBitsState(pindexPrev, params, Consensus::DEPLOYMENT_SEGWIT, versionbitscache) == THRESHOLD_ACTIVE);
+}
+
+bool IsNullDummyEnabled(const CBlockIndex* pindexPrev, const Consensus::Params& params)
 {
     LOCK(cs_main);
     return (VersionBitsState(pindexPrev, params, Consensus::DEPLOYMENT_SEGWIT, versionbitscache) == THRESHOLD_ACTIVE);
