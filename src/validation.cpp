@@ -1613,8 +1613,10 @@ static unsigned int GetBlockScriptFlags(const CBlockIndex* pindex, const Consens
 
     unsigned int flags = SCRIPT_VERIFY_NONE;
 
-    // Start enforcing P2SH (BIP16)
-    if (pindex->nHeight >= consensusparams.BIP16Height) {
+    // BIP16 didn't become active until Apr 1 2012
+    // However, only one historical block violated the P2SH rules, so for simplicity, always leave P2SH
+    // on except for the one violating block.
+    if (!(pindex->phashBlock != nullptr && (*(pindex->phashBlock) == consensusparams.BIP16Exception))) {
         flags |= SCRIPT_VERIFY_P2SH;
     }
 
