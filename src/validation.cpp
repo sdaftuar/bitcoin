@@ -1725,6 +1725,11 @@ public:
 // Protected by cs_main
 static ThresholdConditionCache warningcache[VERSIONBITS_NUM_BITS];
 
+static bool IsScriptWitnessEnabled(const Consensus::Params& params)
+{
+    return params.vDeployments[Consensus::DEPLOYMENT_SEGWIT].nTimeout != 0;
+}
+
 static unsigned int GetBlockScriptFlags(const CBlockIndex* pindex, const Consensus::Params& consensusparams) {
     AssertLockHeld(cs_main);
 
@@ -1740,6 +1745,11 @@ static unsigned int GetBlockScriptFlags(const CBlockIndex* pindex, const Consens
         flags |= SCRIPT_VERIFY_P2SH;
     }
 
+    // Enforce WITNESS rules whenever P2SH is in effect.
+    if (flags & SCRIPT_VERIFY_P2SH && IsScriptWitnessEnabled(consensusparams)) {
+        flags |= SCRIPT_VERIFY_WITNESS;
+    }
+
     // Start enforcing the DERSIG (BIP66) rule
     if (pindex->nHeight >= consensusparams.BIP66Height) {
         flags |= SCRIPT_VERIFY_DERSIG;
@@ -1753,11 +1763,6 @@ static unsigned int GetBlockScriptFlags(const CBlockIndex* pindex, const Consens
     // Start enforcing BIP68 (sequence locks) and BIP112 (CHECKSEQUENCEVERIFY) using versionbits logic.
     if (VersionBitsState(pindex->pprev, consensusparams, Consensus::DEPLOYMENT_CSV, versionbitscache) == THRESHOLD_ACTIVE) {
         flags |= SCRIPT_VERIFY_CHECKSEQUENCEVERIFY;
-    }
-
-    // Start enforcing WITNESS rules using versionbits logic.
-    if (IsWitnessEnabled(pindex->pprev, consensusparams)) {
-        flags |= SCRIPT_VERIFY_WITNESS;
     }
 
     if (IsNullDummyEnabled(pindex->pprev, consensusparams)) {
@@ -4026,6 +4031,9 @@ bool CChainState::RewindBlockIndex(const CChainParams& params)
 
     int nHeight = 1;
     while (nHeight <= chainActive.Height()) {
+        // Although SCRIPT_VERIFY_WITNESS is now generally enforced on all
+        // blocks in ConnectBlock, we don't need to go back and
+        // re-download/re-verify blocks from before segwit actually activated.
         if (IsWitnessEnabled(chainActive[nHeight - 1], params.GetConsensus()) && !(chainActive[nHeight]->nStatus & BLOCK_OPT_WITNESS)) {
             break;
         }
