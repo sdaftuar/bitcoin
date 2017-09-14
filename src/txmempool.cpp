@@ -590,7 +590,7 @@ void CTxMemPool::removeForBlock(const std::vector<CTransactionRef>& vtx, unsigne
         ClearPrioritisation(tx->GetHash());
     }
     if (minerPolicyEstimator) {minerPolicyEstimator->processBlock(nBlockHeight, txn_removed_in_block);}
-    GetMainSignals().MempoolUpdatedForBlockConnect(std::move(txn_removed_in_block), std::move(txn_conflicts));
+    GetMainSignals().MempoolUpdatedForBlockConnect(std::move(txn_removed_in_block), std::move(txn_conflicts), nBlockHeight);
     lastRollingFeeUpdate = GetTime();
     blockSinceLastRollingFeeBump = true;
 }
