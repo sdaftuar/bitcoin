@@ -93,6 +93,8 @@ class BitcoinTestFramework(object):
                           help="Location of the test framework config file")
         parser.add_option("--pdbonfailure", dest="pdbonfailure", default=False, action="store_true",
                           help="Attach a python debugger if test fails")
+        parser.add_option("--oldbinary", dest="oldbinary", default=None,
+                          help="Run compatibility/upgrade/downgrade testing with specified version, if applicable")
         self.add_options(parser)
         (self.options, self.args) = parser.parse_args()
 
@@ -206,7 +208,10 @@ class BitcoinTestFramework(object):
         extra_args = None
         if hasattr(self, "extra_args"):
             extra_args = self.extra_args
-        self.add_nodes(self.num_nodes, extra_args)
+        binary = None
+        if hasattr(self, "binary"):
+            binary = self.binary
+        self.add_nodes(self.num_nodes, extra_args, binary=binary)
         self.start_nodes()
 
     def run_test(self):
