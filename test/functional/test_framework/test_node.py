@@ -68,6 +68,13 @@ class TestNode():
         assert self.rpc_connected and self.rpc is not None, "Error: no RPC connection"
         return self.rpc.__getattr__(*args, **kwargs)
 
+    def set_binary(self, binary):
+        if binary is not None:
+            self.binary = binary
+        else:
+            self.binary = os.getenv("BITCOIND", "bitcoind")
+        self.args[0] = self.binary
+
     def start(self, extra_args=None, stderr=None):
         """Start the node."""
         if extra_args is None:
