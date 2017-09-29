@@ -406,7 +406,7 @@ bool CheckBlock(const CBlock& block, CValidationState& state, const Consensus::P
 bool TestBlockValidity(CValidationState& state, const CChainParams& chainparams, const CBlock& block, CBlockIndex* pindexPrev, bool fCheckPOW = true, bool fCheckMerkleRoot = true);
 
 /** Check whether witness commitments are required for block. */
-bool IsWitnessEnabled(const CBlockIndex* pindexPrev, const Consensus::Params& params);
+bool IsWitnessCommitmentEnabled(const CBlockIndex* pindexPrev, const Consensus::Params& params);
 
 /** Check whether NULLDUMMY (BIP 147) has activated. */
 bool IsNullDummyEnabled(const CBlockIndex* pindexPrev, const Consensus::Params& params);
