@@ -483,7 +483,7 @@ static bool AcceptToMemoryPoolWorker(const CChainParams& chainparams, CTxMemPool
         return state.DoS(100, false, REJECT_INVALID, "coinbase");
 
     // Reject transactions with witness before segregated witness activates (override with -prematurewitness)
-    bool witnessEnabled = IsWitnessEnabled(chainActive.Tip(), chainparams.GetConsensus());
+    bool witnessEnabled = IsWitnessCommitmentEnabled(chainActive.Tip(), chainparams.GetConsensus());
     if (!gArgs.GetBoolArg("-prematurewitness", false) && tx.HasWitness() && !witnessEnabled) {
         return state.DoS(0, false, REJECT_NONSTANDARD, "no-witness-yet", true);
     }
@@ -2698,7 +2698,7 @@ static bool ReceivedBlockTransactions(const CBlock &block, CValidationState& sta
     pindexNew->nDataPos = pos.nPos;
     pindexNew->nUndoPos = 0;
     pindexNew->nStatus |= BLOCK_HAVE_DATA;
-    if (IsWitnessEnabled(pindexNew->pprev, consensusParams)) {
+    if (IsWitnessCommitmentEnabled(pindexNew->pprev, consensusParams)) {
         pindexNew->nStatus |= BLOCK_OPT_WITNESS;
     }
     pindexNew->RaiseValidity(BLOCK_VALID_TRANSACTIONS);
@@ -2898,7 +2898,7 @@ bool CheckBlock(const CBlock& block, CValidationState& state, const Consensus::P
     return true;
 }
 
-bool IsWitnessEnabled(const CBlockIndex* pindexPrev, const Consensus::Params& params)
+bool IsWitnessCommitmentEnabled(const CBlockIndex* pindexPrev, const Consensus::Params& params)
 {
     LOCK(cs_main);
     return (VersionBitsState(pindexPrev, params, Consensus::DEPLOYMENT_SEGWIT, versionbitscache) == THRESHOLD_ACTIVE);
@@ -2929,7 +2929,7 @@ void UpdateUncommittedBlockStructures(CBlock& block, const CBlockIndex* pindexPr
 {
     int commitpos = GetWitnessCommitmentIndex(block);
     static const std::vector<unsigned char> nonce(32, 0x00);
-    if (commitpos != -1 && IsWitnessEnabled(pindexPrev, consensusParams) && !block.vtx[0]->HasWitness()) {
+    if (commitpos != -1 && IsWitnessCommitmentEnabled(pindexPrev, consensusParams) && !block.vtx[0]->HasWitness()) {
         CMutableTransaction tx(*block.vtx[0]);
         tx.vin[0].scriptWitness.stack.resize(1);
         tx.vin[0].scriptWitness.stack[0] = nonce;
@@ -3860,7 +3860,7 @@ bool RewindBlockIndex(const CChainParams& params)
         // Although SCRIPT_VERIFY_WITNESS is now generally enforced on all
         // blocks in ConnectBlock, we don't need to go back and
         // re-download/re-verify blocks from before segwit actually activated.
-        if (IsWitnessEnabled(chainActive[nHeight - 1], params.GetConsensus()) && !(chainActive[nHeight]->nStatus & BLOCK_OPT_WITNESS)) {
+        if (IsWitnessCommitmentEnabled(chainActive[nHeight - 1], params.GetConsensus()) && !(chainActive[nHeight]->nStatus & BLOCK_OPT_WITNESS)) {
             break;
         }
         nHeight++;
@@ -3897,7 +3897,7 @@ bool RewindBlockIndex(const CChainParams& params)
         // this block or some successor doesn't HAVE_DATA, so we were unable to
         // rewind all the way.  Blocks remaining on chainActive at this point
         // must not have their validity reduced.
-        if (IsWitnessEnabled(pindexIter->pprev, params.GetConsensus()) && !(pindexIter->nStatus & BLOCK_OPT_WITNESS) && !chainActive.Contains(pindexIter)) {
+        if (IsWitnessCommitmentEnabled(pindexIter->pprev, params.GetConsensus()) && !(pindexIter->nStatus & BLOCK_OPT_WITNESS) && !chainActive.Contains(pindexIter)) {
             // Reduce validity
             pindexIter->nStatus = std::min<unsigned int>(pindexIter->nStatus & BLOCK_VALID_MASK, BLOCK_VALID_TREE) | (pindexIter->nStatus & ~BLOCK_VALID_MASK);
             // Remove have-data flags.
