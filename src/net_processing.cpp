@@ -3316,7 +3316,7 @@ bool PeerLogicValidation::SendMessages(CNode* pto, std::atomic<bool>& interruptM
                 // message to give the peer a chance to update us.
                 if (state.fSentGetHeadersToCheckChainSync) {
                     // They've run out of time to catch up!
-                    LogPrintf("Disconnecting outbound peer %d for old chain, best known block = %s\n", state.pindexBestKnownBlock->GetBlockHash().ToString());
+                    LogPrintf("Disconnecting outbound peer %d for old chain, best known block = %s\n", pto->GetId(), state.pindexBestKnownBlock != nullptr ? state.pindexBestKnownBlock->GetBlockHash().ToString() : "<none>");
                     pto->fDisconnect = true;
                 } else {
                     const CBlockIndex *pindexStart = state.header_with_required_work;
@@ -3324,7 +3324,7 @@ bool PeerLogicValidation::SendMessages(CNode* pto, std::atomic<bool>& interruptM
                     if (pindexStart->pprev != nullptr) {
                         pindexStart = pindexStart->pprev;
                     }
-                    LogPrint(BCLog::NET, "sending getheaders (%d) to outbound peer=%d to verify chain work (current best known block:%s)\n", pindexStart->nHeight, pto->GetId(), state.pindexBestKnownBlock->GetBlockHash().ToString());
+                    LogPrint(BCLog::NET, "sending getheaders (%d) to outbound peer=%d to verify chain work (current best known block:%s)\n", pindexStart->nHeight, pto->GetId(), state.pindexBestKnownBlock != nullptr ? state.pindexBestKnownBlock->GetBlockHash().ToString() : "<none>");
                     connman->PushMessage(pto, msgMaker.Make(NetMsgType::GETHEADERS, chainActive.GetLocator(state.header_with_required_work->pprev), uint256()));
                     state.fSentGetHeadersToCheckChainSync = true;
                     constexpr int64_t HEADERS_RESPONSE_TIME = 120 * 1000000; // 2 minutes
