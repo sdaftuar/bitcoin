@@ -3321,12 +3321,7 @@ bool PeerLogicValidation::SendMessages(CNode* pto, std::atomic<bool>& interruptM
                     LogPrintf("Disconnecting outbound peer %d for old chain, best known block = %s\n", pto->GetId(), state.pindexBestKnownBlock != nullptr ? state.pindexBestKnownBlock->GetBlockHash().ToString() : "<none>");
                     pto->fDisconnect = true;
                 } else {
-                    const CBlockIndex *pindexStart = state.m_header_with_required_work;
-                    assert (pindexStart != nullptr);
-                    if (pindexStart->pprev != nullptr) {
-                        pindexStart = pindexStart->pprev;
-                    }
-                    LogPrint(BCLog::NET, "sending getheaders (%d) to outbound peer=%d to verify chain work (current best known block:%s)\n", pindexStart->nHeight, pto->GetId(), state.pindexBestKnownBlock != nullptr ? state.pindexBestKnownBlock->GetBlockHash().ToString() : "<none>");
+                    LogPrint(BCLog::NET, "sending getheaders to outbound peer=%d to verify chain work (current best known block:%s, benchmark blockhash: %s)\n", pto->GetId(), state.pindexBestKnownBlock != nullptr ? state.pindexBestKnownBlock->GetBlockHash().ToString() : "<none>", state.m_header_with_required_work->GetBlockHash().ToString());
                     connman->PushMessage(pto, msgMaker.Make(NetMsgType::GETHEADERS, chainActive.GetLocator(state.m_header_with_required_work->pprev), uint256()));
                     state.m_sent_getheaders_to_check_chain_sync = true;
                     constexpr int64_t HEADERS_RESPONSE_TIME = 120; // 2 minutes
