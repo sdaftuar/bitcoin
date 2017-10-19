@@ -25,8 +25,8 @@ static constexpr int64_t HEADERS_DOWNLOAD_TIMEOUT_PER_HEADER = 1000; // 1ms/head
  * behind headers chain.
  */
 static constexpr int32_t MAX_OUTBOUND_PEERS_TO_PROTECT = 4;
-/** Timeout for (unprotected) outbound peers to sync to our chainwork, in microseconds */
-static constexpr int32_t CHAIN_SYNC_TIMEOUT = 20 * 60 * 1000000; // 20 minutes
+/** Timeout for (unprotected) outbound peers to sync to our chainwork, in seconds */
+static constexpr int64_t CHAIN_SYNC_TIMEOUT = 20 * 60; // 20 minutes
 
 class PeerLogicValidation : public CValidationInterface, public NetEventsInterface {
 private:
