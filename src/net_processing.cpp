@@ -2402,8 +2402,7 @@ bool static ProcessMessage(CNode* pfrom, const std::string& strCommand, CDataStr
             }
         }
         // If we're in IBD, we want outbound peers that will serve us a useful
-        // chain.  Disconnect peers that are behind us or on chains with
-        // insufficient work.
+        // chain. Disconnect peers that are on chains with insufficient work.
         if (IsInitialBlockDownload() && nCount != MAX_HEADERS_RESULTS) {
             // When nCount < MAX_HEADERS_RESULTS, we know we have no more
             // headers to fetch from this peer.
