@@ -24,7 +24,7 @@ static constexpr int64_t HEADERS_DOWNLOAD_TIMEOUT_PER_HEADER = 1000; // 1ms/head
 /** Protect at least this many outbound peers from disconnection due to slow/
  * behind headers chain.
  */
-static constexpr int32_t MAX_OUTBOUND_PEERS_TO_PROTECT = 4;
+static constexpr int32_t MAX_OUTBOUND_PEERS_TO_PROTECT_FROM_DISCONNECT = 4;
 /** Timeout for (unprotected) outbound peers to sync to our chainwork, in seconds */
 static constexpr int64_t CHAIN_SYNC_TIMEOUT = 20 * 60; // 20 minutes
 

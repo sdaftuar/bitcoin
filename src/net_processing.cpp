@@ -2420,7 +2420,7 @@ bool static ProcessMessage(CNode* pfrom, const std::string& strCommand, CDataStr
         if (!pfrom->fDisconnect && !pfrom->fInbound && !pfrom->fOneShot && !pfrom->fFeeler && !pfrom->m_manual_connection) {
             // If this is an outbound peer, check to see if we should protect
             // it from the bad/lagging chain logic.
-            if (g_outbound_peers_with_protect_from_disconnect < MAX_OUTBOUND_PEERS_TO_PROTECT && nodestate->pindexBestKnownBlock->nChainWork >= chainActive.Tip()->nChainWork && !nodestate->m_protect_from_disconnect) {
+            if (g_outbound_peers_with_protect_from_disconnect < MAX_OUTBOUND_PEERS_TO_PROTECT_FROM_DISCONNECT && nodestate->pindexBestKnownBlock->nChainWork >= chainActive.Tip()->nChainWork && !nodestate->m_protect_from_disconnect) {
                 nodestate->m_protect_from_disconnect = true;
                 ++g_outbound_peers_with_protect_from_disconnect;
             }
@@ -3313,7 +3313,7 @@ bool PeerLogicValidation::SendMessages(CNode* pto, std::atomic<bool>& interruptM
                 state.m_sent_getheaders_to_check_chain_sync = false;
             } else if (state.m_headers_chain_timeout > 0 && time_in_seconds > state.m_headers_chain_timeout) {
                 // No evidence yet that our peer has synced to a chain with work equal to that
-                // of our tip, when we first detected it was behind.  Send a single getheaders
+                // of our tip, when we first detected it was behind. Send a single getheaders
                 // message to give the peer a chance to update us.
                 if (state.m_sent_getheaders_to_check_chain_sync) {
                     // They've run out of time to catch up!
