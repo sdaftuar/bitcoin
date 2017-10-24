@@ -532,6 +532,13 @@ void FindNextBlocksToDownload(NodeId nodeid, unsigned int count, std::vector<con
 
 } // namespace
 
+// Returns true for outbound peers, excluding manual connections, feelers, and
+// one-shots
+bool IsOutboundPeer(const CNode *node)
+{
+    return !(node->fInbound || node->m_manual_connection || node->fFeeler || node->fOneShot);
+}
+
 void PeerLogicValidation::InitializeNode(CNode *pnode) {
     CAddress addr = pnode->addr;
     std::string addrName = pnode->GetAddrName();
@@ -2429,14 +2436,14 @@ bool static ProcessMessage(CNode* pfrom, const std::string& strCommand, CDataStr
                 // This peer has too little work on their headers chain to help
                 // us sync -- disconnect if using an outbound slot (unless
                 // whitelisted or addnode).
-                if (!(pfrom->fInbound || pfrom->fWhitelisted || pfrom->m_manual_connection)) {
+                if (IsOutboundPeer(pfrom)) {
                     LogPrintf("Disconnecting outbound peer %d -- headers chain has insufficient work\n", pfrom->GetId());
                     pfrom->fDisconnect = true;
                 }
             }
         }
 
-        if (!pfrom->fDisconnect && !pfrom->fInbound && !pfrom->fOneShot && !pfrom->fFeeler && !pfrom->m_manual_connection) {
+        if (!pfrom->fDisconnect && IsOutboundPeer(pfrom)) {
             // If this is an outbound peer, check to see if we should protect
             // it from the bad/lagging chain logic.
             if (g_outbound_peers_with_protect_from_disconnect < MAX_OUTBOUND_PEERS_TO_PROTECT_FROM_DISCONNECT && nodestate->pindexBestKnownBlock->nChainWork >= chainActive.Tip()->nChainWork && !nodestate->m_chain_sync.m_protect) {
@@ -3311,7 +3318,7 @@ bool PeerLogicValidation::SendMessages(CNode* pto, std::atomic<bool>& interruptM
         // Check that outbound peers have reasonable chains
         // GetTime() is used by this anti-DoS logic so we can test this using mocktime
         int64_t time_in_seconds = GetTime();
-        if (!(state.m_chain_sync.m_protect || pto->fInbound || pto->m_manual_connection || pto->fFeeler || pto->fOneShot) && state.fSyncStarted) {
+        if (!state.m_chain_sync.m_protect && IsOutboundPeer(pto) && state.fSyncStarted) {
             // This is an outbound peer subject to disconnection if their chain
             // lags behind ours (note: if their chain has more work than ours,
             // we should sync to it, unless it's invalid, in which case we
