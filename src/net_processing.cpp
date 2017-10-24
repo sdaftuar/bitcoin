@@ -208,14 +208,15 @@ struct CNodeState {
       * Only in effect for outbound, non-manual connections, with
       * m_protect == false
       * Algorithm: if a peer's best known block has less work than our tip,
-      * set a timeout T in the future:
-      *   - If at time T their best known block now has more work than our tip
-      *     when the timeout was set, then either bump the timeout or clear it
+      * set a timeout CHAIN_SYNC_TIMEOUT seconds in the future:
+      *   - If at timeout their best known block now has more work than our tip
+      *     when the timeout was set, then either reset the timeout or clear it
       *     (after comparing against our current tip's work)
-      *   - If at time T their best known block still has less work than our
+      *   - If at timeout their best known block still has less work than our
       *     tip did when the timeout was set, then send a getheaders message,
-      *     and set a new shorter timeout. If their best known block is still
-      *     behind when that new timeout is reached, disconnect.
+      *     and set a shorter timeout, HEADERS_RESPONSE_TIME seconds in future.
+      *     If their best known block is still behind when that new timeout is
+      *     reached, disconnect.
       */
     struct ChainSyncTimeoutState {
         //! A timeout used for checking whether our peer has sufficiently synced
