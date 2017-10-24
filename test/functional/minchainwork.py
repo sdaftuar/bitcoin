@@ -27,7 +27,11 @@ class MinimumChainWorkTest(BitcoinTestFramework):
     def set_test_params(self):
         self.setup_clean_chain = True
         self.num_nodes = 3
-        self.extra_args = [['-whitelist=127.0.0.1'], ["-minimumchainwork=0x65", '-whitelist=127.0.0.1'], ["-minimumchainwork=0x65"]]
+
+        # We whitelist localhost to prevent disconnection of outbound peers due
+        # to the initial headers sync ending in a chain with less than
+        # nMinimumChainWork
+        self.extra_args = [[], ["-minimumchainwork=0x65", '-whitelist=127.0.0.1'], ["-minimumchainwork=0x65"]]
         self.node_min_work = [0, 101, 101]
 
     def setup_network(self):
