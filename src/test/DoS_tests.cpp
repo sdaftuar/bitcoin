@@ -69,11 +69,14 @@ BOOST_AUTO_TEST_CASE(outbound_slow_chain_eviction)
 
     // Test starts here
     peerLogic->SendMessages(&dummyNode1, interruptDummy); // should result in getheaders
+    BOOST_CHECK(dummyNode1.vSendMsg.size() > 0);
+    dummyNode1.vSendMsg.clear();
 
     int64_t nStartTime = GetTime();
     // Wait 21 minutes, to
     SetMockTime(nStartTime+21*60);
     peerLogic->SendMessages(&dummyNode1, interruptDummy); // should result in getheaders
+    BOOST_CHECK(dummyNode1.vSendMsg.size() > 0);
     // Wait 3 more minutes
     SetMockTime(nStartTime+24*60);
     peerLogic->SendMessages(&dummyNode1, interruptDummy); // should result in disconnect
