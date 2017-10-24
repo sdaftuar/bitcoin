@@ -3319,10 +3319,12 @@ bool PeerLogicValidation::SendMessages(CNode* pto, std::atomic<bool>& interruptM
         // GetTime() is used by this anti-DoS logic so we can test this using mocktime
         int64_t time_in_seconds = GetTime();
         if (!state.m_chain_sync.m_protect && IsOutboundPeer(pto) && state.fSyncStarted) {
-            // This is an outbound peer subject to disconnection if their chain
-            // lags behind ours (note: if their chain has more work than ours,
-            // we should sync to it, unless it's invalid, in which case we
-            // should find that out and disconnect from them elsewhere).
+            // This is an outbound peer subject to disconnection if they don't
+            // announce a block with as much work as the current tip within
+            // CHAIN_SYNC_TIMEOUT + HEADERS_RESPONSE_TIME seconds (note: if
+            // their chain has more work than ours, we should sync to it,
+            // unless it's invalid, in which case we should find that out and
+            // disconnect from them elsewhere).
             if (state.pindexBestKnownBlock != nullptr && state.pindexBestKnownBlock->nChainWork >= chainActive.Tip()->nChainWork) {
                 if (state.m_chain_sync.m_timeout != 0) {
                     state.m_chain_sync.m_timeout = 0;
