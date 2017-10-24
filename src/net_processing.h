@@ -53,6 +53,8 @@ public:
     * @return                      True if there is more work to be done
     */
     bool SendMessages(CNode* pto, std::atomic<bool>& interrupt) override;
+
+    void ConsiderEviction(CNode *pto, int64_t time_in_seconds);
 };
 
 struct CNodeStateStats {
