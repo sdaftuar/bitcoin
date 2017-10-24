@@ -2405,7 +2405,11 @@ bool static ProcessMessage(CNode* pfrom, const std::string& strCommand, CDataStr
         // chain. Disconnect peers that are on chains with insufficient work.
         if (IsInitialBlockDownload() && nCount != MAX_HEADERS_RESULTS) {
             // When nCount < MAX_HEADERS_RESULTS, we know we have no more
-            // headers to fetch from this peer.
+            // headers to fetch from this peer. Compare their tip to
+            // nMinimumChainWork (rather than chainActive.Tip()) because we
+            // won't start block download until we have a headers chain that
+            // has at least nMinimumChainWork, even if a peer has a chain past
+            // our tip, as an anti-DoS measure.
             if (nodestate->pindexBestKnownBlock->nChainWork < nMinimumChainWork) {
                 // This peer has too little work on their headers chain to help
                 // us sync -- disconnect if using an outbound slot (unless
