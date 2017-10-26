@@ -1205,7 +1205,7 @@ inline void static SendBlockTransactions(const CBlock& block, const BlockTransac
     connman->PushMessage(pfrom, msgMaker.Make(nSendFlags, NetMsgType::BLOCKTXN, resp));
 }
 
-bool static ProcessHeadersMessage(CNode *pfrom, CConnman *connman, const std::vector<CBlockHeader>& headers, const CChainParams& chainparams)
+bool static ProcessHeadersMessage(CNode *pfrom, CConnman *connman, const std::vector<CBlockHeader>& headers, const CChainParams& chainparams, bool punish_invalid)
 {
     const CNetMsgMaker msgMaker(pfrom->GetSendVersion());
     size_t nCount = headers.size();
@@ -1264,6 +1264,9 @@ bool static ProcessHeadersMessage(CNode *pfrom, CConnman *connman, const std::ve
             if (nDoS > 0) {
                 LOCK(cs_main);
                 Misbehaving(pfrom->GetId(), nDoS);
+            } else if (!pfrom->fInbound && !pfrom->m_manual_connection && punish_invalid) {
+                // Don't keep outbound peers that are on an invalid chain
+                pfrom->fDisconnect = true;
             }
             return error("invalid header received");
         }
@@ -2349,7 +2352,7 @@ bool static ProcessMessage(CNode* pfrom, const std::string& strCommand, CDataStr
             return ProcessMessage(pfrom, NetMsgType::BLOCKTXN, blockTxnMsg, nTimeReceived, chainparams, connman, interruptMsgProc);
 
         if (fRevertToHeaderProcessing)
-            return ProcessMessage(pfrom, NetMsgType::HEADERS, vHeadersMsg, nTimeReceived, chainparams, connman, interruptMsgProc);
+            return ProcessHeadersMessage(pfrom, connman, {cmpctblock.header}, chainparams, /*punish_invalid=*/false);
 
         if (fBlockReconstructed) {
             // If we got here, we were able to optimistically reconstruct a
@@ -2480,7 +2483,7 @@ bool static ProcessMessage(CNode* pfrom, const std::string& strCommand, CDataStr
             ReadCompactSize(vRecv); // ignore tx count; assume it is 0.
         }
 
-        return ProcessHeadersMessage(pfrom, connman, headers, chainparams);
+        return ProcessHeadersMessage(pfrom, connman, headers, chainparams, true);
     }
 
     else if (strCommand == NetMsgType::BLOCK && !fImporting && !fReindex) // Ignore blocks received while importing
