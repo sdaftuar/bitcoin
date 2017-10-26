@@ -28,10 +28,7 @@ class MinimumChainWorkTest(BitcoinTestFramework):
         self.setup_clean_chain = True
         self.num_nodes = 3
 
-        # We whitelist localhost to prevent disconnection of outbound peers due
-        # to the initial headers sync ending in a chain with less than
-        # nMinimumChainWork
-        self.extra_args = [[], ["-minimumchainwork=0x65", '-whitelist=127.0.0.1'], ["-minimumchainwork=0x65"]]
+        self.extra_args = [[], ["-minimumchainwork=0x65"], ["-minimumchainwork=0x65"]]
         self.node_min_work = [0, 101, 101]
 
     def setup_network(self):
@@ -79,10 +76,11 @@ class MinimumChainWorkTest(BitcoinTestFramework):
 
         self.log.info("Verifying nodes are all synced")
 
-        # May need to reconnect the nodes -- node1 may have abandoned node0 as a poor
-        # outbound peer for having a low-work chain.
-        if (len(self.nodes[0].getpeerinfo()) == 0):
-            connect_nodes(self.nodes[1], 0)
+        # Because nodes in regtest are all manual connections (eg using
+        # addnode), node1 should not have disconnected node0. If not for that,
+        # we'd expect node1 to have disconnected node0 for serving an
+        # insufficient work chain, in which case we'd need to reconnect them to
+        # continue the test.
 
         self.sync_all()
         self.log.info("Blockcounts: %s", [n.getblockcount() for n in self.nodes])
