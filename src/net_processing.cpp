@@ -3063,7 +3063,7 @@ void PeerLogicValidation::EvictExtraOutboundPeers(int64_t time_in_seconds)
                 constexpr int64_t min_connect_time = EXTRA_PEER_CHECK_INTERVAL / 5;
                 CNodeState &state = *State(pnode->GetId());
                 if (time_in_seconds - pnode->nTimeConnected > min_connect_time && state.nBlocksInFlight == 0) {
-                    LogPrint(BCLog::NET, "disconnecting extra outbound peer=%d (last block announcement received at time %d\n", pnode->GetId(), oldest_block_announcement);
+                    LogPrint(BCLog::NET, "disconnecting extra outbound peer=%d (last block announcement received at time %d)\n", pnode->GetId(), oldest_block_announcement);
                     pnode->fDisconnect = true;
                     return true;
                 } else {
@@ -3099,6 +3099,9 @@ void PeerLogicValidation::CheckForStaleTipAndEvictPeers(const Consensus::Params 
             LogPrintf("Potential stale tip detected, will try using extra outbound peer (last tip update: %d seconds ago)\n", time_in_seconds - g_last_tip_update);
             connman->SetTryNewOutboundPeer(true);
         } else {
+            if (connman->GetTryNewOutboundPeer()) {
+                LogPrint(BCLog::NET, "Turning off extra outbound peer; tip is no longer stale\n");
+            }
             connman->SetTryNewOutboundPeer(false);
         }
         m_stale_tip_check_time += STALE_CHECK_INTERVAL;
