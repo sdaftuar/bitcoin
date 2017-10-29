@@ -3104,7 +3104,7 @@ void PeerLogicValidation::CheckForStaleTipAndEvictPeers(const Consensus::Params 
             }
             connman->SetTryNewOutboundPeer(false);
         }
-        m_stale_tip_check_time += STALE_CHECK_INTERVAL;
+        m_stale_tip_check_time = time_in_seconds + STALE_CHECK_INTERVAL;
     }
 }
 
