@@ -111,7 +111,6 @@ BOOST_AUTO_TEST_CASE(stale_tip_peer_management)
     options.nMaxConnections = 125;
     options.nMaxOutbound = nMaxOutbound;
     options.nMaxFeeler = 1;
-    options.nMaxExtraOutbound = 1;
 
     connman->Init(options);
     std::vector<CNode *> vNodes;

@@ -132,7 +132,6 @@ public:
         int nMaxOutbound = 0;
         int nMaxAddnode = 0;
         int nMaxFeeler = 0;
-        int nMaxExtraOutbound = 0;
         int nBestHeight = 0;
         CClientUIInterface* uiInterface = nullptr;
         NetEventsInterface* m_msgproc = nullptr;
@@ -154,7 +153,6 @@ public:
         nMaxOutbound = std::min(connOptions.nMaxOutbound, connOptions.nMaxConnections);
         nMaxAddnode = connOptions.nMaxAddnode;
         nMaxFeeler = connOptions.nMaxFeeler;
-        nMaxExtraOutbound = connOptions.nMaxExtraOutbound;
         nBestHeight = connOptions.nBestHeight;
         clientInterface = connOptions.uiInterface;
         m_msgproc = connOptions.m_msgproc;
@@ -407,7 +405,6 @@ private:
     int nMaxOutbound;
     int nMaxAddnode;
     int nMaxFeeler;
-    int nMaxExtraOutbound;
     std::atomic<int> nBestHeight;
     CClientUIInterface* clientInterface;
     NetEventsInterface* m_msgproc;
@@ -430,8 +427,9 @@ private:
     std::thread threadOpenConnections;
     std::thread threadMessageHandler;
 
-    /** flag for deciding to connect to 'extra' outbound peers, beyond
-     * nMaxOutbound */
+    /** flag for deciding to connect to an extra outbound peer,
+     *  in excess of nMaxOutbound
+     *  This takes the place of a feeler connection */
     CCriticalSection m_cs_outbound_peer;
     bool m_try_another_outbound_peer;
 
