@@ -3060,9 +3060,8 @@ void PeerLogicValidation::EvictExtraOutboundPeers(int64_t time_in_seconds)
                 // it time for new information to have arrived.
                 // Also don't disconnect any peer we're trying to download a
                 // block from.
-                constexpr int64_t min_connect_time = EXTRA_PEER_CHECK_INTERVAL / 5;
                 CNodeState &state = *State(pnode->GetId());
-                if (time_in_seconds - pnode->nTimeConnected > min_connect_time && state.nBlocksInFlight == 0) {
+                if (time_in_seconds - pnode->nTimeConnected > MINIMUM_CONNECT_TIME && state.nBlocksInFlight == 0) {
                     LogPrint(BCLog::NET, "disconnecting extra outbound peer=%d (last block announcement received at time %d)\n", pnode->GetId(), oldest_block_announcement);
                     pnode->fDisconnect = true;
                     return true;
