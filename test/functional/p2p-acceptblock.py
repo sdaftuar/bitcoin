@@ -144,7 +144,7 @@ class AcceptBlockTest(BitcoinTestFramework):
                 assert_equal(x['status'], "headers-only")
                 tip_entry_found = True
         assert(tip_entry_found)
-        assert_raises_rpc_error(-1, "Block not found on disk", self.nodes[0].getblock, block_h2f.hash)
+        self.nodes[0].getblock(block_h2f.hash)
 
         # But this block should be accepted by node since it has equal work.
         self.nodes[0].getblock(block_h2f.hash)
@@ -164,7 +164,7 @@ class AcceptBlockTest(BitcoinTestFramework):
                 assert_equal(x['status'], "headers-only")
                 tip_entry_found = True
         assert(tip_entry_found)
-        assert_raises_rpc_error(-1, "Block not found on disk", self.nodes[0].getblock, block_h3.hash)
+        self.nodes[0].getblock(block_h3.hash)
 
         # But this block should be accepted by node since it has more work.
         self.nodes[0].getblock(block_h3.hash)
