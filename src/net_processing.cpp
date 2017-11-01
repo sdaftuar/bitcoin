@@ -1450,6 +1450,7 @@ bool static ProcessHeadersMessage(CNode *pfrom, CConnman *connman, const std::ve
             // If this is an outbound peer, check to see if we should protect
             // it from the bad/lagging chain logic.
             if (g_outbound_peers_with_protect_from_disconnect < MAX_OUTBOUND_PEERS_TO_PROTECT_FROM_DISCONNECT && nodestate->pindexBestKnownBlock->nChainWork >= chainActive.Tip()->nChainWork && !nodestate->m_chain_sync.m_protect) {
+                LogPrint(BCLog::NET, "Protecting outbound peer=%d from eviction\n", pfrom->GetId());
                 nodestate->m_chain_sync.m_protect = true;
                 ++g_outbound_peers_with_protect_from_disconnect;
             }
@@ -3074,7 +3075,7 @@ void PeerLogicValidation::EvictExtraOutboundPeers(int64_t time_in_seconds)
                     pnode->fDisconnect = true;
                     return true;
                 } else {
-                    LogPrint(BCLog::NET, "keeping outbound peer=%d chosen for eviction, (connect time: %d, blocks_in_flight: %d)\n", pnode->GetId(), pnode->nTimeConnected, state.nBlocksInFlight);
+                    LogPrint(BCLog::NET, "keeping outbound peer=%d chosen for eviction (connect time: %d, blocks_in_flight: %d)\n", pnode->GetId(), pnode->nTimeConnected, state.nBlocksInFlight);
                     return false;
                 }
             });
@@ -3105,10 +3106,7 @@ void PeerLogicValidation::CheckForStaleTipAndEvictPeers(const Consensus::Params 
         if (TipMayBeStale(consensusParams)) {
             LogPrintf("Potential stale tip detected, will try using extra outbound peer (last tip update: %d seconds ago)\n", time_in_seconds - g_last_tip_update);
             connman->SetTryNewOutboundPeer(true);
-        } else {
-            if (connman->GetTryNewOutboundPeer()) {
-                LogPrint(BCLog::NET, "Turning off extra outbound peer; tip is no longer stale\n");
-            }
+        } else if (connman->GetTryNewOutboundPeer()) {
             connman->SetTryNewOutboundPeer(false);
         }
         m_stale_tip_check_time = time_in_seconds + STALE_CHECK_INTERVAL;

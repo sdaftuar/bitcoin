@@ -1703,6 +1703,7 @@ void CConnman::SetTryNewOutboundPeer(bool flag)
 {
     LOCK(m_cs_outbound_peer);
     m_try_another_outbound_peer = flag;
+    LogPrint(BCLog::NET, "net: setting try another outbound peer=%s\n", flag ? "true" : "false");
 }
 
 // Return the number of peers we have over our outbound connection limit
