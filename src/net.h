@@ -430,8 +430,7 @@ private:
     /** flag for deciding to connect to an extra outbound peer,
      *  in excess of nMaxOutbound
      *  This takes the place of a feeler connection */
-    CCriticalSection m_cs_outbound_peer;
-    bool m_try_another_outbound_peer;
+    std::atomic_bool m_try_another_outbound_peer;
 
     friend struct CConnmanTest;
 };

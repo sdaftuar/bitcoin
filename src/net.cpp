@@ -1695,13 +1695,11 @@ void CConnman::ProcessOneShot()
 
 bool CConnman::GetTryNewOutboundPeer()
 {
-    LOCK(m_cs_outbound_peer);
     return m_try_another_outbound_peer;
 }
 
 void CConnman::SetTryNewOutboundPeer(bool flag)
 {
-    LOCK(m_cs_outbound_peer);
     m_try_another_outbound_peer = flag;
     LogPrint(BCLog::NET, "net: setting try another outbound peer=%s\n", flag ? "true" : "false");
 }
