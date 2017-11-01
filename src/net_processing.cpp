@@ -3053,6 +3053,8 @@ void PeerLogicValidation::EvictExtraOutboundPeers(int64_t time_in_seconds)
                 continue;
             }
             CNodeState &state = entry.second;
+            // Don't evict our protected peers
+            if (state.m_chain_sync.m_protect) continue;
             if (state.m_last_block_announcement < oldest_block_announcement || (state.m_last_block_announcement == oldest_block_announcement && entry.first > worst_peer)) {
                 worst_peer = entry.first;
                 oldest_block_announcement = state.m_last_block_announcement;
