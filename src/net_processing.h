@@ -37,7 +37,7 @@ static constexpr int64_t MINIMUM_CONNECT_TIME = 30;
 
 class PeerLogicValidation : public CValidationInterface, public NetEventsInterface {
 private:
-    CConnman* connman;
+    CConnman* const connman;
 
 public:
     explicit PeerLogicValidation(CConnman* connman, CScheduler &scheduler);
