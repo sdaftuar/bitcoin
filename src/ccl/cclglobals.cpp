@@ -42,26 +42,26 @@ void CCLGlobals::UpdateUsage(std::string &strUsage)
 bool CCLGlobals::Init()
 {
     // DataLogger initialization
-    if (IsArgSet("-dlogdir")) {
-	    this->dlog.reset(new DataLogger(GetArg("-dlogdir", "")));
+    if (gArgs.IsArgSet("-dlogdir")) {
+	    this->dlog.reset(new DataLogger(gArgs.GetArg("-dlogdir", "")));
     }
 
     // Simulation initialization
     std::string startdate, enddate, simdatadir="/chaincode/data";
-    if (IsArgSet("-simulation")) {
-        if (IsArgSet("-start")) {
-            startdate = GetArg("-start", "");
+    if (gArgs.IsArgSet("-simulation")) {
+        if (gArgs.IsArgSet("-start")) {
+            startdate = gArgs.GetArg("-start", "");
         } else {
             LogPrintf("CCLGlobals::Init: Must specify -start (date) for simulation\n");
             return false;
         }
-        if (IsArgSet("-end")) {
-            enddate = GetArg("-end", "");
+        if (gArgs.IsArgSet("-end")) {
+            enddate = gArgs.GetArg("-end", "");
         } else {
             enddate = startdate;
         }
-        if (IsArgSet("-simdatadir")) {
-            simdatadir = GetArg("-simdatadir", "");
+        if (gArgs.IsArgSet("-simdatadir")) {
+            simdatadir = gArgs.GetArg("-simdatadir", "");
         }
         simulation.reset(new
             Simulation(boost::gregorian::from_undelimited_string(startdate),
@@ -72,7 +72,7 @@ bool CCLGlobals::Init()
         // If we're in simulation, normal mempool loading won't take place,
         // because we disable the import thread.
         // Load the mempool directly if asked to do so.
-        if (GetBoolArg("-loadmempool", false)) {
+        if (gArgs.GetBoolArg("-loadmempool", false)) {
             // LoadMempool will proactively expire old transactions,
             // so set the mocktime to be from where the simulation would start.
             boost::gregorian::date sdate = boost::gregorian::from_undelimited_string(startdate);

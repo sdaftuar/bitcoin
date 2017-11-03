@@ -40,7 +40,7 @@ Simulation::Simulation(date sdate, date edate, string datadir)
 
 void Simulation::LoadFiles(date d)
 {
-    if (!GetBoolArg("-blocksonly", DEFAULT_BLOCKSONLY)) {
+    if (!gArgs.GetBoolArg("-blocksonly", DEFAULT_BLOCKSONLY)) {
         InitAutoFile(txfile, "tx.", d);
     } else {
         txfile.reset(new CAutoFile(NULL, SER_DISK, CLIENT_VERSION));

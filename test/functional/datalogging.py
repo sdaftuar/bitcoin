@@ -46,10 +46,16 @@ from test_framework.util import (
 class DataLoggingTest(BitcoinTestFramework):
     def setup_network(self):
         self.extra_args = [[], [], ["-dlogdir=" + self.options.tmpdir]]
-        self.nodes = self.start_nodes(3, self.options.tmpdir, self.extra_args)
+        self.num_nodes = 3
+        self.add_nodes(self.num_nodes, self.extra_args)
+        self.start_nodes()
         connect_nodes_bi(self.nodes, 0, 1)
         connect_nodes_bi(self.nodes, 1, 2)
         self.sync_all()
+
+    def set_test_params(self):
+        self.setup_clean_chain = False
+        self.num_nodes = 4
 
     def run_test(self):
         self.log.info("Run DATALOGGER test")
