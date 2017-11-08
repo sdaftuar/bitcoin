@@ -755,8 +755,7 @@ static bool AcceptToMemoryPoolWorker(const CChainParams& chainparams, CTxMemPool
             const uint256 &hashAncestor = ancestorIt->GetTx().GetHash();
             if (setConflicts.count(hashAncestor))
             {
-                return state.DoS(100, ValidationInvalidReason::CONSENSUS, false,
-                                 REJECT_INVALID, "bad-txns-spends-conflicting-tx", false,
+                return state.DoS(100, ValidationInvalidReason::CONSENSUS, false, REJECT_INVALID, "bad-txns-spends-conflicting-tx", false,
                                  strprintf("%s spends conflicting transaction %s",
                                            hash.ToString(),
                                            hashAncestor.ToString()));
@@ -798,8 +797,7 @@ static bool AcceptToMemoryPoolWorker(const CChainParams& chainparams, CTxMemPool
                 CFeeRate oldFeeRate(mi->GetModifiedFee(), mi->GetTxSize());
                 if (newFeeRate <= oldFeeRate)
                 {
-                    return state.DoS(0, ValidationInvalidReason::TX_MEMPOOL_POLICY, false,
-                            REJECT_INSUFFICIENTFEE, "insufficient fee", false,
+                    return state.DoS(0, ValidationInvalidReason::TX_MEMPOOL_POLICY, false, REJECT_INSUFFICIENTFEE, "insufficient fee", false,
                             strprintf("rejecting replacement %s; new feerate %s <= old feerate %s",
                                   hash.ToString(),
                                   newFeeRate.ToString(),
@@ -827,8 +825,7 @@ static bool AcceptToMemoryPoolWorker(const CChainParams& chainparams, CTxMemPool
                     nConflictingSize += it->GetTxSize();
                 }
             } else {
-                return state.DoS(0, ValidationInvalidReason::TX_MEMPOOL_POLICY, false,
-                        REJECT_NONSTANDARD, "too many potential replacements", false,
+                return state.DoS(0, ValidationInvalidReason::TX_MEMPOOL_POLICY, false, REJECT_NONSTANDARD, "too many potential replacements", false,
                         strprintf("rejecting replacement %s; too many potential replacements (%d > %d)\n",
                             hash.ToString(),
                             nConflictingCount,
@@ -847,8 +844,7 @@ static bool AcceptToMemoryPoolWorker(const CChainParams& chainparams, CTxMemPool
                     // it's cheaper to just check if the new input refers to a
                     // tx that's in the mempool.
                     if (pool.exists(tx.vin[j].prevout.hash)) {
-                        return state.DoS(0, ValidationInvalidReason::TX_MEMPOOL_POLICY, false,
-                                         REJECT_NONSTANDARD, "replacement-adds-unconfirmed", false,
+                        return state.DoS(0, ValidationInvalidReason::TX_MEMPOOL_POLICY, false, REJECT_NONSTANDARD, "replacement-adds-unconfirmed", false,
                                          strprintf("replacement %s adds unconfirmed input, idx %d",
                                                   hash.ToString(), j));
                     }
@@ -860,8 +856,7 @@ static bool AcceptToMemoryPoolWorker(const CChainParams& chainparams, CTxMemPool
             // transactions would not be paid for.
             if (nModifiedFees < nConflictingFees)
             {
-                return state.DoS(0, ValidationInvalidReason::TX_MEMPOOL_POLICY, false,
-                                 REJECT_INSUFFICIENTFEE, "insufficient fee", false,
+                return state.DoS(0, ValidationInvalidReason::TX_MEMPOOL_POLICY, false, REJECT_INSUFFICIENTFEE, "insufficient fee", false,
                                  strprintf("rejecting replacement %s, less fees than conflicting txs; %s < %s",
                                           hash.ToString(), FormatMoney(nModifiedFees), FormatMoney(nConflictingFees)));
             }
@@ -871,8 +866,7 @@ static bool AcceptToMemoryPoolWorker(const CChainParams& chainparams, CTxMemPool
             CAmount nDeltaFees = nModifiedFees - nConflictingFees;
             if (nDeltaFees < ::incrementalRelayFee.GetFee(nSize))
             {
-                return state.DoS(0, ValidationInvalidReason::TX_MEMPOOL_POLICY, false,
-                        REJECT_INSUFFICIENTFEE, "insufficient fee", false,
+                return state.DoS(0, ValidationInvalidReason::TX_MEMPOOL_POLICY, false, REJECT_INSUFFICIENTFEE, "insufficient fee", false,
                         strprintf("rejecting replacement %s, not enough additional fees to relay; %s < %s",
                               hash.ToString(),
                               FormatMoney(nDeltaFees),
@@ -893,8 +887,7 @@ static bool AcceptToMemoryPoolWorker(const CChainParams& chainparams, CTxMemPool
             if (!tx.HasWitness() && CheckInputs(tx, stateDummy, view, true, scriptVerifyFlags & ~(SCRIPT_VERIFY_WITNESS | SCRIPT_VERIFY_CLEANSTACK), true, false, txdata) &&
                 !CheckInputs(tx, stateDummy, view, true, scriptVerifyFlags & ~SCRIPT_VERIFY_CLEANSTACK, true, false, txdata)) {
                 // Only the witness is missing, so the transaction itself may be fine.
-                state.DoS(0, ValidationInvalidReason::TX_WITNESS_MUTATED, false,
-                          state.GetRejectCode(), state.GetRejectReason(), true, state.GetDebugMessage());
+                state.DoS(0, ValidationInvalidReason::TX_WITNESS_MUTATED, false, state.GetRejectCode(), state.GetRejectReason(), true, state.GetDebugMessage());
             }
             return false; // state filled in by CheckInputs
         }
@@ -1990,8 +1983,7 @@ bool CChainState::ConnectBlock(const CBlock& block, CValidationState& state, CBl
                 if (state.GetReason() == ValidationInvalidReason::TX_MISSING_INPUTS) {
                     // CheckTxInputs may return MISSING_INPUTS but we can't return that, as
                     // it's not defined for a block, so we reset the reason flag to CONSENSUS here.
-                    state.DoS(100, ValidationInvalidReason::CONSENSUS, false,
-                              state.GetRejectCode(), state.GetRejectReason(), state.CorruptionPossible(), state.GetDebugMessage());
+                    state.DoS(100, ValidationInvalidReason::CONSENSUS, false, state.GetRejectCode(), state.GetRejectReason(), state.CorruptionPossible(), state.GetDebugMessage());
                 }
                 return error("%s: Consensus::CheckTxInputs: %s, %s", __func__, tx.GetHash().ToString(), FormatStateMessage(state));
             }
@@ -2038,8 +2030,7 @@ bool CChainState::ConnectBlock(const CBlock& block, CValidationState& state, CBl
                     // soft-fork flags to our script flags, in which case we  need to
                     // be careful to differentiate RECENT_CONSENSUS_CHANGE and
                     // CONSENSUS)
-                    state.DoS(100, ValidationInvalidReason::CONSENSUS, false,
-                              state.GetRejectCode(), state.GetRejectReason(), state.CorruptionPossible(), state.GetDebugMessage());
+                    state.DoS(100, ValidationInvalidReason::CONSENSUS, false, state.GetRejectCode(), state.GetRejectReason(), state.CorruptionPossible(), state.GetDebugMessage());
                 }
                 return error("ConnectBlock(): CheckInputs on %s failed with %s",
                     tx.GetHash().ToString(), FormatStateMessage(state));
