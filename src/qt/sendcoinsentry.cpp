@@ -1,16 +1,15 @@
-// Copyright (c) 2011-2016 The Bitcoin Core developers
+// Copyright (c) 2011-2017 The Bitcoin Core developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
-#include "sendcoinsentry.h"
-#include "ui_sendcoinsentry.h"
+#include <qt/sendcoinsentry.h>
+#include <qt/forms/ui_sendcoinsentry.h>
 
-#include "addressbookpage.h"
-#include "addresstablemodel.h"
-#include "guiutil.h"
-#include "optionsmodel.h"
-#include "platformstyle.h"
-#include "walletmodel.h"
+#include <qt/addressbookpage.h>
+#include <qt/addresstablemodel.h>
+#include <qt/guiutil.h>
+#include <qt/optionsmodel.h>
+#include <qt/platformstyle.h>
 
 #include <QApplication>
 #include <QClipboard>

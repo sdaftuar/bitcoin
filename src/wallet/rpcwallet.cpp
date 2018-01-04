@@ -1,31 +1,32 @@
 // Copyright (c) 2010 Satoshi Nakamoto
-// Copyright (c) 2009-2016 The Bitcoin Core developers
+// Copyright (c) 2009-2017 The Bitcoin Core developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
-#include "amount.h"
-#include "base58.h"
-#include "chain.h"
-#include "consensus/validation.h"
-#include "core_io.h"
-#include "httpserver.h"
-#include "validation.h"
-#include "net.h"
-#include "policy/feerate.h"
-#include "policy/fees.h"
-#include "policy/policy.h"
-#include "policy/rbf.h"
-#include "rpc/mining.h"
-#include "rpc/safemode.h"
-#include "rpc/server.h"
-#include "script/sign.h"
-#include "timedata.h"
-#include "util.h"
-#include "utilmoneystr.h"
-#include "wallet/coincontrol.h"
-#include "wallet/feebumper.h"
-#include "wallet/wallet.h"
-#include "wallet/walletdb.h"
+#include <amount.h>
+#include <base58.h>
+#include <chain.h>
+#include <consensus/validation.h>
+#include <core_io.h>
+#include <httpserver.h>
+#include <validation.h>
+#include <net.h>
+#include <policy/feerate.h>
+#include <policy/fees.h>
+#include <policy/policy.h>
+#include <policy/rbf.h>
+#include <rpc/mining.h>
+#include <rpc/safemode.h>
+#include <rpc/server.h>
+#include <script/sign.h>
+#include <timedata.h>
+#include <util.h>
+#include <utilmoneystr.h>
+#include <wallet/coincontrol.h>
+#include <wallet/feebumper.h>
+#include <wallet/wallet.h>
+#include <wallet/walletdb.h>
+#include <wallet/walletutil.h>
 
 #include <init.h>  // For StartShutdown
 
@@ -770,6 +771,8 @@ UniValue getbalance(const JSONRPCRequest& request)
         throw std::runtime_error(
             "getbalance ( \"account\" minconf include_watchonly )\n"
             "\nIf account is not specified, returns the server's total available balance.\n"
+            "The available balance is what the wallet considers currently spendable, and is\n"
+            "thus affected by options which limit spendability such as -spendzeroconfchange.\n"
             "If account is specified (DEPRECATED), returns the balance in the account.\n"
             "Note that the account \"\" is not the same as leaving the parameter out.\n"
             "The server total may be different to the balance in the default \"\" account.\n"
@@ -1035,7 +1038,7 @@ UniValue sendmany(const JSONRPCRequest& request)
             "\nSend two amounts to two different addresses, subtract fee from amount:\n"
             + HelpExampleCli("sendmany", "\"\" \"{\\\"1D1ZrZNe3JUo7ZycKEYQQiQAWd9y54F4XX\\\":0.01,\\\"1353tsE8YMTA4EuV7dgUXGjNFf9KpVvKHz\\\":0.02}\" 1 \"\" \"[\\\"1D1ZrZNe3JUo7ZycKEYQQiQAWd9y54F4XX\\\",\\\"1353tsE8YMTA4EuV7dgUXGjNFf9KpVvKHz\\\"]\"") +
             "\nAs a json rpc call\n"
-            + HelpExampleRpc("sendmany", "\"\", \"{\\\"1D1ZrZNe3JUo7ZycKEYQQiQAWd9y54F4XX\\\":0.01,\\\"1353tsE8YMTA4EuV7dgUXGjNFf9KpVvKHz\\\":0.02}\", 6, \"testing\"")
+            + HelpExampleRpc("sendmany", "\"\", {\"1D1ZrZNe3JUo7ZycKEYQQiQAWd9y54F4XX\":0.01,\"1353tsE8YMTA4EuV7dgUXGjNFf9KpVvKHz\":0.02}, 6, \"testing\"")
         );
 
     ObserveSafeMode();
@@ -1438,14 +1441,14 @@ UniValue ListReceived(CWallet * const pwallet, const UniValue& params, bool fByA
 
     if (fByAccounts)
     {
-        for (std::map<std::string, tallyitem>::iterator it = mapAccountTally.begin(); it != mapAccountTally.end(); ++it)
+        for (const auto& entry : mapAccountTally)
         {
-            CAmount nAmount = (*it).second.nAmount;
-            int nConf = (*it).second.nConf;
+            CAmount nAmount = entry.second.nAmount;
+            int nConf = entry.second.nConf;
             UniValue obj(UniValue::VOBJ);
-            if((*it).second.fIsWatchonly)
+            if (entry.second.fIsWatchonly)
                 obj.push_back(Pair("involvesWatchonly", true));
-            obj.push_back(Pair("account",       (*it).first));
+            obj.push_back(Pair("account",       entry.first));
             obj.push_back(Pair("amount",        ValueFromAmount(nAmount)));
             obj.push_back(Pair("confirmations", (nConf == std::numeric_limits<int>::max() ? 0 : nConf)));
             ret.push_back(obj);
@@ -2531,12 +2534,15 @@ UniValue lockunspent(const JSONRPCRequest& request)
 
     RPCTypeCheckArgument(request.params[1], UniValue::VARR);
 
-    UniValue outputs = request.params[1].get_array();
-    for (unsigned int idx = 0; idx < outputs.size(); idx++) {
-        const UniValue& output = outputs[idx];
-        if (!output.isObject())
-            throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid parameter, expected object");
-        const UniValue& o = output.get_obj();
+    const UniValue& output_params = request.params[1];
+
+    // Create and validate the COutPoints first.
+
+    std::vector<COutPoint> outputs;
+    outputs.reserve(output_params.size());
+
+    for (unsigned int idx = 0; idx < output_params.size(); idx++) {
+        const UniValue& o = output_params[idx].get_obj();
 
         RPCTypeCheckObj(o,
             {
@@ -2544,20 +2550,50 @@ UniValue lockunspent(const JSONRPCRequest& request)
                 {"vout", UniValueType(UniValue::VNUM)},
             });
 
-        std::string txid = find_value(o, "txid").get_str();
-        if (!IsHex(txid))
+        const std::string& txid = find_value(o, "txid").get_str();
+        if (!IsHex(txid)) {
             throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid parameter, expected hex txid");
+        }
 
-        int nOutput = find_value(o, "vout").get_int();
-        if (nOutput < 0)
+        const int nOutput = find_value(o, "vout").get_int();
+        if (nOutput < 0) {
             throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid parameter, vout must be positive");
+        }
 
-        COutPoint outpt(uint256S(txid), nOutput);
+        const COutPoint outpt(uint256S(txid), nOutput);
 
-        if (fUnlock)
-            pwallet->UnlockCoin(outpt);
-        else
-            pwallet->LockCoin(outpt);
+        const auto it = pwallet->mapWallet.find(outpt.hash);
+        if (it == pwallet->mapWallet.end()) {
+            throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid parameter, unknown transaction");
+        }
+
+        const CWalletTx& trans = it->second;
+
+        if (outpt.n >= trans.tx->vout.size()) {
+            throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid parameter, vout index out of bounds");
+        }
+
+        if (pwallet->IsSpent(outpt.hash, outpt.n)) {
+            throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid parameter, expected unspent output");
+        }
+
+        const bool is_locked = pwallet->IsLockedCoin(outpt.hash, outpt.n);
+
+        if (fUnlock && !is_locked) {
+            throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid parameter, expected locked output");
+        }
+
+        if (!fUnlock && is_locked) {
+            throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid parameter, output already locked");
+        }
+
+        outputs.push_back(outpt);
+    }
+
+    // Atomically set (un)locked status for the outputs.
+    for (const COutPoint& outpt : outputs) {
+        if (fUnlock) pwallet->UnlockCoin(outpt);
+        else pwallet->LockCoin(outpt);
     }
 
     return true;
@@ -2946,9 +2982,9 @@ UniValue fundrawtransaction(const JSONRPCRequest& request)
         return NullUniValue;
     }
 
-    if (request.fHelp || request.params.size() < 1 || request.params.size() > 2)
+    if (request.fHelp || request.params.size() < 1 || request.params.size() > 3)
         throw std::runtime_error(
-                            "fundrawtransaction \"hexstring\" ( options )\n"
+                            "fundrawtransaction \"hexstring\" ( options iswitness )\n"
                             "\nAdd inputs to a transaction until it has enough in value to meet its out value.\n"
                             "This will not modify existing inputs, and will add at most one change output to the outputs.\n"
                             "No existing outputs will be modified unless \"subtractFeeFromOutputs\" is specified.\n"
@@ -2983,6 +3019,9 @@ UniValue fundrawtransaction(const JSONRPCRequest& request)
                             "         \"CONSERVATIVE\"\n"
                             "   }\n"
                             "                         for backward compatibility: passing in a true instead of an object will result in {\"includeWatching\":true}\n"
+                            "3. iswitness               (boolean, optional) Whether the transaction hex is a serialized witness transaction \n"
+                            "                              If iswitness is not present, heuristic tests will be used in decoding\n"
+                            
                             "\nResult:\n"
                             "{\n"
                             "  \"hex\":       \"value\", (string)  The resulting raw transaction (hex-encoded string)\n"
@@ -3019,7 +3058,7 @@ UniValue fundrawtransaction(const JSONRPCRequest& request)
         coinControl.fAllowWatchOnly = request.params[1].get_bool();
       }
       else {
-        RPCTypeCheck(request.params, {UniValue::VSTR, UniValue::VOBJ});
+        RPCTypeCheck(request.params, {UniValue::VSTR, UniValue::VOBJ, UniValue::VBOOL});
 
         UniValue options = request.params[1];
 
@@ -3088,8 +3127,11 @@ UniValue fundrawtransaction(const JSONRPCRequest& request)
 
     // parse hex string from parameter
     CMutableTransaction tx;
-    if (!DecodeHexTx(tx, request.params[0].get_str(), true))
+    bool try_witness = request.params[2].isNull() ? true : request.params[2].get_bool();
+    bool try_no_witness = request.params[2].isNull() ? true : !request.params[2].get_bool();
+    if (!DecodeHexTx(tx, request.params[0].get_str(), try_no_witness, try_witness)) {
         throw JSONRPCError(RPC_DESERIALIZATION_ERROR, "TX decode failed");
+    }
 
     if (tx.vout.size() == 0)
         throw JSONRPCError(RPC_INVALID_PARAMETER, "TX must have at least one output");
@@ -3407,7 +3449,7 @@ extern UniValue rescanblockchain(const JSONRPCRequest& request);
 static const CRPCCommand commands[] =
 { //  category              name                        actor (function)           argNames
     //  --------------------- ------------------------    -----------------------  ----------
-    { "rawtransactions",    "fundrawtransaction",       &fundrawtransaction,       {"hexstring","options"} },
+    { "rawtransactions",    "fundrawtransaction",       &fundrawtransaction,       {"hexstring","options","iswitness"} },
     { "hidden",             "resendwallettransactions", &resendwallettransactions, {} },
     { "wallet",             "abandontransaction",       &abandontransaction,       {"txid"} },
     { "wallet",             "abortrescan",              &abortrescan,              {} },

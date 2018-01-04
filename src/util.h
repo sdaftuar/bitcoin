@@ -1,5 +1,5 @@
 // Copyright (c) 2009-2010 Satoshi Nakamoto
-// Copyright (c) 2009-2016 The Bitcoin Core developers
+// Copyright (c) 2009-2017 The Bitcoin Core developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
@@ -11,14 +11,14 @@
 #define BITCOIN_UTIL_H
 
 #if defined(HAVE_CONFIG_H)
-#include "config/bitcoin-config.h"
+#include <config/bitcoin-config.h>
 #endif
 
-#include "compat.h"
-#include "fs.h"
-#include "sync.h"
-#include "tinyformat.h"
-#include "utiltime.h"
+#include <compat.h>
+#include <fs.h>
+#include <sync.h>
+#include <tinyformat.h>
+#include <utiltime.h>
 
 #include <atomic>
 #include <exception>
@@ -28,6 +28,7 @@
 #include <vector>
 
 #include <boost/signals2/signal.hpp>
+#include <boost/thread/condition_variable.hpp> // for boost::thread_interrupted
 
 // Application startup time (used for uptime calculation)
 int64_t GetStartupTime();
@@ -35,6 +36,7 @@ int64_t GetStartupTime();
 static const bool DEFAULT_LOGTIMEMICROS = false;
 static const bool DEFAULT_LOGIPS        = false;
 static const bool DEFAULT_LOGTIMESTAMPS = true;
+extern const char * const DEFAULT_DEBUGLOGFILE;
 
 /** Signals for translation. */
 class CTranslationInterface
@@ -132,6 +134,10 @@ template<typename T, typename... Args> static inline void MarkUsed(const T& t, c
     MarkUsed(args...);
 }
 
+// Be conservative when using LogPrintf/error or other things which
+// unconditionally log to debug.log! It should not be the case that an inbound
+// peer can fill up a users disk with debug.log entries.
+
 #ifdef USE_COVERAGE
 #define LogPrintf(...) do { MarkUsed(__VA_ARGS__); } while(0)
 #define LogPrint(category, ...) do { MarkUsed(__VA_ARGS__); } while(0)
@@ -179,7 +185,8 @@ void CreatePidFile(const fs::path &path, pid_t pid);
 #ifdef WIN32
 fs::path GetSpecialFolderPath(int nFolder, bool fCreate = true);
 #endif
-void OpenDebugLog();
+fs::path GetDebugLogPath();
+bool OpenDebugLog();
 void ShrinkDebugFile();
 void runCommand(const std::string& strCommand);
 

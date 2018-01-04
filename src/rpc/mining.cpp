@@ -1,35 +1,33 @@
 // Copyright (c) 2010 Satoshi Nakamoto
-// Copyright (c) 2009-2016 The Bitcoin Core developers
+// Copyright (c) 2009-2017 The Bitcoin Core developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
-#include "base58.h"
-#include "amount.h"
-#include "chain.h"
-#include "chainparams.h"
-#include "consensus/consensus.h"
-#include "consensus/params.h"
-#include "consensus/validation.h"
-#include "core_io.h"
-#include "init.h"
-#include "validation.h"
-#include "miner.h"
-#include "net.h"
-#include "policy/fees.h"
-#include "pow.h"
-#include "rpc/blockchain.h"
-#include "rpc/mining.h"
-#include "rpc/server.h"
-#include "txmempool.h"
-#include "util.h"
-#include "utilstrencodings.h"
-#include "validationinterface.h"
-#include "warnings.h"
+#include <base58.h>
+#include <amount.h>
+#include <chain.h>
+#include <chainparams.h>
+#include <consensus/consensus.h>
+#include <consensus/params.h>
+#include <consensus/validation.h>
+#include <core_io.h>
+#include <init.h>
+#include <validation.h>
+#include <miner.h>
+#include <net.h>
+#include <policy/fees.h>
+#include <pow.h>
+#include <rpc/blockchain.h>
+#include <rpc/mining.h>
+#include <rpc/server.h>
+#include <txmempool.h>
+#include <util.h>
+#include <utilstrencodings.h>
+#include <validationinterface.h>
+#include <warnings.h>
 
 #include <memory>
 #include <stdint.h>
-
-#include <univalue.h>
 
 unsigned int ParseConfirmTarget(const UniValue& value)
 {

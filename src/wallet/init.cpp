@@ -3,14 +3,15 @@
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
-#include "wallet/init.h"
+#include <wallet/init.h>
 
-#include "net.h"
-#include "util.h"
-#include "utilmoneystr.h"
-#include "validation.h"
-#include "wallet/wallet.h"
-#include "wallet/rpcwallet.h"
+#include <net.h>
+#include <util.h>
+#include <utilmoneystr.h>
+#include <validation.h>
+#include <wallet/rpcwallet.h>
+#include <wallet/wallet.h>
+#include <wallet/walletutil.h>
 
 std::string GetWalletHelpString(bool showDebug)
 {
@@ -30,10 +31,11 @@ std::string GetWalletHelpString(bool showDebug)
     strUsage += HelpMessageOpt("-salvagewallet", _("Attempt to recover private keys from a corrupt wallet on startup"));
     strUsage += HelpMessageOpt("-spendzeroconfchange", strprintf(_("Spend unconfirmed change when sending transactions (default: %u)"), DEFAULT_SPEND_ZEROCONF_CHANGE));
     strUsage += HelpMessageOpt("-txconfirmtarget=<n>", strprintf(_("If paytxfee is not set, include enough fee so transactions begin confirmation on average within n blocks (default: %u)"), DEFAULT_TX_CONFIRM_TARGET));
-    strUsage += HelpMessageOpt("-walletrbf", strprintf(_("Send transactions with full-RBF opt-in enabled (default: %u)"), DEFAULT_WALLET_RBF));
+    strUsage += HelpMessageOpt("-walletrbf", strprintf(_("Send transactions with full-RBF opt-in enabled (RPC only, default: %u)"), DEFAULT_WALLET_RBF));
     strUsage += HelpMessageOpt("-upgradewallet", _("Upgrade wallet to latest format on startup"));
     strUsage += HelpMessageOpt("-wallet=<file>", _("Specify wallet file (within data directory)") + " " + strprintf(_("(default: %s)"), DEFAULT_WALLET_DAT));
     strUsage += HelpMessageOpt("-walletbroadcast", _("Make the wallet broadcast transactions") + " " + strprintf(_("(default: %u)"), DEFAULT_WALLETBROADCAST));
+    strUsage += HelpMessageOpt("-walletdir=<dir>", _("Specify directory to hold wallets (default: <datadir>/wallets if it exists, otherwise <datadir>)"));
     strUsage += HelpMessageOpt("-walletnotify=<cmd>", _("Execute command when a wallet transaction changes (%s in cmd is replaced by TxID)"));
     strUsage += HelpMessageOpt("-zapwallettxes=<mode>", _("Delete all wallet transactions and only recover those parts of the blockchain through -rescan on startup") +
                                " " + _("(1 = keep tx meta data e.g. account owner and payment request information, 2 = drop tx meta data)"));
@@ -191,6 +193,15 @@ bool VerifyWallets()
         return true;
     }
 
+    if (gArgs.IsArgSet("-walletdir") && !fs::is_directory(GetWalletDir())) {
+        if (fs::exists(fs::system_complete(gArgs.GetArg("-walletdir", "")))) {
+            return InitError(strprintf(_("Specified -walletdir \"%s\" is not a directory"), gArgs.GetArg("-walletdir", "").c_str()));
+        }
+        return InitError(strprintf(_("Specified -walletdir \"%s\" does not exist"), gArgs.GetArg("-walletdir", "").c_str()));
+    }
+
+    LogPrintf("Using wallet directory %s\n", GetWalletDir().string());
+
     uiInterface.InitMessage(_("Verifying wallet(s)..."));
 
     // Keep track of each wallet absolute path to detect duplicates.
@@ -205,7 +216,7 @@ bool VerifyWallets()
             return InitError(strprintf(_("Error loading wallet %s. Invalid characters in -wallet filename."), walletFile));
         }
 
-        fs::path wallet_path = fs::absolute(walletFile, GetDataDir());
+        fs::path wallet_path = fs::absolute(walletFile, GetWalletDir());
 
         if (fs::exists(wallet_path) && (!fs::is_regular_file(wallet_path) || fs::is_symlink(wallet_path))) {
             return InitError(strprintf(_("Error loading wallet %s. -wallet filename must be a regular file."), walletFile));
@@ -216,7 +227,7 @@ bool VerifyWallets()
         }
 
         std::string strError;
-        if (!CWalletDB::VerifyEnvironment(walletFile, GetDataDir().string(), strError)) {
+        if (!CWalletDB::VerifyEnvironment(walletFile, GetWalletDir().string(), strError)) {
             return InitError(strError);
         }
 
@@ -230,7 +241,7 @@ bool VerifyWallets()
         }
 
         std::string strWarning;
-        bool dbV = CWalletDB::VerifyDatabaseFile(walletFile, GetDataDir().string(), strWarning, strError);
+        bool dbV = CWalletDB::VerifyDatabaseFile(walletFile, GetWalletDir().string(), strWarning, strError);
         if (!strWarning.empty()) {
             InitWarning(strWarning);
         }

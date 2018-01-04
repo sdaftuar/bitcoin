@@ -1,33 +1,33 @@
-// Copyright (c) 2011-2016 The Bitcoin Core developers
+// Copyright (c) 2011-2017 The Bitcoin Core developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
-#include "walletmodel.h"
+#include <qt/walletmodel.h>
 
-#include "addresstablemodel.h"
-#include "consensus/validation.h"
-#include "guiconstants.h"
-#include "guiutil.h"
-#include "optionsmodel.h"
-#include "paymentserver.h"
-#include "recentrequeststablemodel.h"
-#include "sendcoinsdialog.h"
-#include "transactiontablemodel.h"
+#include <qt/addresstablemodel.h>
+#include <consensus/validation.h>
+#include <qt/guiconstants.h>
+#include <qt/guiutil.h>
+#include <qt/optionsmodel.h>
+#include <qt/paymentserver.h>
+#include <qt/recentrequeststablemodel.h>
+#include <qt/sendcoinsdialog.h>
+#include <qt/transactiontablemodel.h>
 
-#include "base58.h"
-#include "chain.h"
-#include "keystore.h"
-#include "validation.h"
-#include "net.h" // for g_connman
-#include "policy/fees.h"
-#include "policy/rbf.h"
-#include "sync.h"
-#include "ui_interface.h"
-#include "util.h" // for GetBoolArg
-#include "wallet/coincontrol.h"
-#include "wallet/feebumper.h"
-#include "wallet/wallet.h"
-#include "wallet/walletdb.h" // for BackupWallet
+#include <base58.h>
+#include <chain.h>
+#include <keystore.h>
+#include <validation.h>
+#include <net.h> // for g_connman
+#include <policy/fees.h>
+#include <policy/rbf.h>
+#include <sync.h>
+#include <ui_interface.h>
+#include <util.h> // for GetBoolArg
+#include <wallet/coincontrol.h>
+#include <wallet/feebumper.h>
+#include <wallet/wallet.h>
+#include <wallet/walletdb.h> // for BackupWallet
 
 #include <stdint.h>
 
@@ -736,9 +736,4 @@ bool WalletModel::hdEnabled() const
 int WalletModel::getDefaultConfirmTarget() const
 {
     return nTxConfirmTarget;
-}
-
-bool WalletModel::getDefaultWalletRbf() const
-{
-    return fWalletRbf;
 }

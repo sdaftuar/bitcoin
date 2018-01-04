@@ -1,14 +1,11 @@
-// Copyright (c) 2012-2016 The Bitcoin Core developers
+// Copyright (c) 2012-2017 The Bitcoin Core developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
-#include "coins.h"
+#include <coins.h>
 
-#include "consensus/consensus.h"
-#include "memusage.h"
-#include "random.h"
-
-#include <assert.h>
+#include <consensus/consensus.h>
+#include <random.h>
 
 bool CCoinsView::GetCoin(const COutPoint &outpoint, Coin &coin) const { return false; }
 uint256 CCoinsView::GetBestBlock() const { return uint256(); }

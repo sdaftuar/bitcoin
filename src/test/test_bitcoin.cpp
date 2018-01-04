@@ -1,27 +1,21 @@
-// Copyright (c) 2011-2016 The Bitcoin Core developers
+// Copyright (c) 2011-2017 The Bitcoin Core developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
-#include "test_bitcoin.h"
+#include <test/test_bitcoin.h>
 
-#include "chainparams.h"
-#include "consensus/consensus.h"
-#include "consensus/validation.h"
-#include "crypto/sha256.h"
-#include "fs.h"
-#include "key.h"
-#include "validation.h"
-#include "miner.h"
-#include "net_processing.h"
-#include "pubkey.h"
-#include "random.h"
-#include "txdb.h"
-#include "txmempool.h"
-#include "ui_interface.h"
-#include "streams.h"
-#include "rpc/server.h"
-#include "rpc/register.h"
-#include "script/sigcache.h"
+#include <chainparams.h>
+#include <consensus/consensus.h>
+#include <consensus/validation.h>
+#include <crypto/sha256.h>
+#include <validation.h>
+#include <miner.h>
+#include <net_processing.h>
+#include <ui_interface.h>
+#include <streams.h>
+#include <rpc/server.h>
+#include <rpc/register.h>
+#include <script/sigcache.h>
 
 #include <memory>
 
@@ -75,9 +69,9 @@ TestingSetup::TestingSetup(const std::string& chainName) : BasicTestingSetup(cha
         fs::create_directories(pathTemp);
         gArgs.ForceSetArg("-datadir", pathTemp.string());
 
-        // Note that because we don't bother running a scheduler thread here,
-        // callbacks via CValidationInterface are unreliable, but that's OK,
-        // our unit tests aren't testing multiple parts of the code at once.
+        // We have to run a scheduler thread to prevent ActivateBestChain
+        // from blocking due to queue overrun.
+        threadGroup.create_thread(boost::bind(&CScheduler::serviceQueue, &scheduler));
         GetMainSignals().RegisterBackgroundSignalScheduler(scheduler);
 
         mempool.setSanityCheck(1.0);

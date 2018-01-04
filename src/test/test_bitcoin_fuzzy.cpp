@@ -1,25 +1,25 @@
-// Copyright (c) 2009-2016 The Bitcoin Core developers
+// Copyright (c) 2009-2017 The Bitcoin Core developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 #if defined(HAVE_CONFIG_H)
-#include "config/bitcoin-config.h"
+#include <config/bitcoin-config.h>
 #endif
 
-#include "consensus/merkle.h"
-#include "primitives/block.h"
-#include "script/script.h"
-#include "addrman.h"
-#include "chain.h"
-#include "coins.h"
-#include "compressor.h"
-#include "net.h"
-#include "protocol.h"
-#include "streams.h"
-#include "undo.h"
-#include "version.h"
-#include "pubkey.h"
-#include "blockencodings.h"
+#include <consensus/merkle.h>
+#include <primitives/block.h>
+#include <script/script.h>
+#include <addrman.h>
+#include <chain.h>
+#include <coins.h>
+#include <compressor.h>
+#include <net.h>
+#include <protocol.h>
+#include <streams.h>
+#include <undo.h>
+#include <version.h>
+#include <pubkey.h>
+#include <blockencodings.h>
 
 #include <stdint.h>
 #include <unistd.h>

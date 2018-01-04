@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Copyright (c) 2014-2016 The Bitcoin Core developers
+# Copyright (c) 2014-2017 The Bitcoin Core developers
 # Distributed under the MIT software license, see the accompanying
 # file COPYING or http://www.opensource.org/licenses/mit-license.php.
 """Test the wallet."""
@@ -32,6 +32,9 @@ class WalletTest(BitcoinTestFramework):
         assert_equal(len(self.nodes[0].listunspent()), 0)
         assert_equal(len(self.nodes[1].listunspent()), 0)
         assert_equal(len(self.nodes[2].listunspent()), 0)
+
+        self.log.info("Check for mempoolminfee in getmempoolinfo")
+        assert_equal(self.nodes[0].getmempoolinfo()['mempoolminfee'], Decimal('0.00001000'))
 
         self.log.info("Mining blocks...")
 
@@ -100,11 +103,19 @@ class WalletTest(BitcoinTestFramework):
         # Exercise locking of unspent outputs
         unspent_0 = self.nodes[2].listunspent()[0]
         unspent_0 = {"txid": unspent_0["txid"], "vout": unspent_0["vout"]}
+        assert_raises_rpc_error(-8, "Invalid parameter, expected locked output", self.nodes[2].lockunspent, True, [unspent_0])
         self.nodes[2].lockunspent(False, [unspent_0])
+        assert_raises_rpc_error(-8, "Invalid parameter, output already locked", self.nodes[2].lockunspent, False, [unspent_0])
         assert_raises_rpc_error(-4, "Insufficient funds", self.nodes[2].sendtoaddress, self.nodes[2].getnewaddress(), 20)
         assert_equal([unspent_0], self.nodes[2].listlockunspent())
         self.nodes[2].lockunspent(True, [unspent_0])
         assert_equal(len(self.nodes[2].listlockunspent()), 0)
+        assert_raises_rpc_error(-8, "Invalid parameter, unknown transaction",
+                              self.nodes[2].lockunspent, False,
+                              [{"txid": "0000000000000000000000000000000000", "vout": 0}])
+        assert_raises_rpc_error(-8, "Invalid parameter, vout index out of bounds",
+                              self.nodes[2].lockunspent, False,
+                              [{"txid": unspent_0["txid"], "vout": 999}])
 
         # Have node1 generate 100 blocks (so node0 can recover the fee)
         self.nodes[1].generate(100)
@@ -142,6 +153,10 @@ class WalletTest(BitcoinTestFramework):
         assert_equal(self.nodes[0].getbalance(), 0)
         assert_equal(self.nodes[2].getbalance(), 94)
         assert_equal(self.nodes[2].getbalance("from1"), 94-21)
+
+        # Verify that a spent output cannot be locked anymore
+        spent_0 = {"txid": node0utxos[0]["txid"], "vout": node0utxos[0]["vout"]}
+        assert_raises_rpc_error(-8, "Invalid parameter, expected unspent output", self.nodes[0].lockunspent, False, [spent_0])
 
         # Send 10 BTC normal
         address = self.nodes[0].getnewaddress("test")

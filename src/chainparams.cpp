@@ -1,18 +1,18 @@
 // Copyright (c) 2010 Satoshi Nakamoto
-// Copyright (c) 2009-2016 The Bitcoin Core developers
+// Copyright (c) 2009-2017 The Bitcoin Core developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
-#include "chainparams.h"
-#include "consensus/merkle.h"
+#include <chainparams.h>
+#include <consensus/merkle.h>
 
-#include "tinyformat.h"
-#include "util.h"
-#include "utilstrencodings.h"
+#include <tinyformat.h>
+#include <util.h>
+#include <utilstrencodings.h>
 
 #include <assert.h>
 
-#include "chainparamsseeds.h"
+#include <chainparamsseeds.h>
 
 static CBlock CreateGenesisBlock(const char* pszTimestamp, const CScript& genesisOutputScript, uint32_t nTime, uint32_t nNonce, uint32_t nBits, int32_t nVersion, const CAmount& genesisReward)
 {
@@ -146,7 +146,7 @@ public:
         fRequireStandard = true;
         fMineBlocksOnDemand = false;
 
-        checkpointData = (CCheckpointData) {
+        checkpointData = {
             {
                 { 11111, uint256S("0x0000000069e244f73d78e8fd29ba2fd2ed618bd6fa2ee92559f542fdb26e7c1d")},
                 { 33333, uint256S("0x000000002dd5588a74784eaa7ab0507a18ad16a236e7b1ce69f00d7ddfb5d0a6")},
@@ -231,6 +231,7 @@ public:
         // nodes with support for servicebits filtering should be at the top
         vSeeds.emplace_back("testnet-seed.bitcoin.jonasschnelli.ch", true);
         vSeeds.emplace_back("seed.tbtc.petertodd.org", true);
+        vSeeds.emplace_back("seed.testnet.bitcoin.sprovoost.nl", true);
         vSeeds.emplace_back("testnet-seed.bluematt.me", false);
 
         base58Prefixes[PUBKEY_ADDRESS] = std::vector<unsigned char>(1,111);
@@ -248,7 +249,7 @@ public:
         fMineBlocksOnDemand = false;
 
 
-        checkpointData = (CCheckpointData) {
+        checkpointData = {
             {
                 {546, uint256S("000000002a936ca763904c3c35fce2f3556c559c0214345d31b1bcebf76acb70")},
             }
@@ -319,7 +320,7 @@ public:
         fRequireStandard = false;
         fMineBlocksOnDemand = true;
 
-        checkpointData = (CCheckpointData) {
+        checkpointData = {
             {
                 {0, uint256S("0f9188f13cb7b2c71f2a335e3a4fc328bf5beb436012afca590b1a11466e2206")},
             }

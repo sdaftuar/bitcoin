@@ -1,20 +1,20 @@
-// Copyright (c) 2011-2016 The Bitcoin Core developers
+// Copyright (c) 2011-2017 The Bitcoin Core developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 // Unit tests for denial-of-service detection/prevention code
 
-#include "chainparams.h"
-#include "keystore.h"
-#include "net.h"
-#include "net_processing.h"
-#include "pow.h"
-#include "script/sign.h"
-#include "serialize.h"
-#include "util.h"
-#include "validation.h"
+#include <chainparams.h>
+#include <keystore.h>
+#include <net.h>
+#include <net_processing.h>
+#include <pow.h>
+#include <script/sign.h>
+#include <serialize.h>
+#include <util.h>
+#include <validation.h>
 
-#include "test/test_bitcoin.h"
+#include <test/test_bitcoin.h>
 
 #include <stdint.h>
 

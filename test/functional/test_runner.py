@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Copyright (c) 2014-2016 The Bitcoin Core developers
+# Copyright (c) 2014-2017 The Bitcoin Core developers
 # Distributed under the MIT software license, see the accompanying
 # file COPYING or http://www.opensource.org/licenses/mit-license.php.
 """Run regression test suite.
@@ -15,6 +15,7 @@ For a description of arguments recognized by test scripts, see
 """
 
 import argparse
+from collections import deque
 import configparser
 import datetime
 import os
@@ -126,6 +127,11 @@ BASE_SCRIPTS= [
     'p2p-fingerprint.py',
     'uacomment.py',
     'p2p-acceptblock.py',
+    'feature_logging.py',
+    'node_network_limited.py',
+    'conf_args.py',
+    # Don't append tests at the end to avoid merge conflicts
+    # Put them in a random line within the section that fits their approximate run-time
 ]
 
 EXTENDED_SCRIPTS = [
@@ -174,6 +180,7 @@ def main():
                                      epilog='''
     Help text and arguments for individual test script:''',
                                      formatter_class=argparse.RawTextHelpFormatter)
+    parser.add_argument('--combinedlogslen', '-c', type=int, default=0, help='print a combined log (of length n lines) from all test nodes and test framework to the console on failure.')
     parser.add_argument('--coverage', action='store_true', help='generate a basic coverage report for the RPC interface')
     parser.add_argument('--exclude', '-x', help='specify a comma-separated-list of scripts to exclude.')
     parser.add_argument('--extended', action='store_true', help='run the extended test suite in addition to the basic tests')
@@ -266,9 +273,9 @@ def main():
     if not args.keepcache:
         shutil.rmtree("%s/test/cache" % config["environment"]["BUILDDIR"], ignore_errors=True)
 
-    run_tests(test_list, config["environment"]["SRCDIR"], config["environment"]["BUILDDIR"], config["environment"]["EXEEXT"], tmpdir, args.jobs, args.coverage, passon_args)
+    run_tests(test_list, config["environment"]["SRCDIR"], config["environment"]["BUILDDIR"], config["environment"]["EXEEXT"], tmpdir, args.jobs, args.coverage, passon_args, args.combinedlogslen)
 
-def run_tests(test_list, src_dir, build_dir, exeext, tmpdir, jobs=1, enable_coverage=False, args=[]):
+def run_tests(test_list, src_dir, build_dir, exeext, tmpdir, jobs=1, enable_coverage=False, args=[], combined_logs_len=0):
     # Warn if bitcoind is already running (unix only)
     try:
         if subprocess.check_output(["pidof", "bitcoind"]) is not None:
@@ -300,7 +307,11 @@ def run_tests(test_list, src_dir, build_dir, exeext, tmpdir, jobs=1, enable_cove
 
     if len(test_list) > 1 and jobs > 1:
         # Populate cache
-        subprocess.check_output([tests_dir + 'create_cache.py'] + flags + ["--tmpdir=%s/cache" % tmpdir])
+        try:
+            subprocess.check_output([tests_dir + 'create_cache.py'] + flags + ["--tmpdir=%s/cache" % tmpdir])
+        except Exception as e:
+            print(e.output)
+            raise e
 
     #Run Tests
     job_queue = TestHandler(jobs, tests_dir, tmpdir, test_list, flags)
@@ -310,7 +321,7 @@ def run_tests(test_list, src_dir, build_dir, exeext, tmpdir, jobs=1, enable_cove
     max_len_name = len(max(test_list, key=len))
 
     for _ in range(len(test_list)):
-        test_result, stdout, stderr = job_queue.get_next()
+        test_result, testdir, stdout, stderr = job_queue.get_next()
         test_results.append(test_result)
 
         if test_result.status == "Passed":
@@ -321,6 +332,14 @@ def run_tests(test_list, src_dir, build_dir, exeext, tmpdir, jobs=1, enable_cove
             print("\n%s%s%s failed, Duration: %s s\n" % (BOLD[1], test_result.name, BOLD[0], test_result.time))
             print(BOLD[1] + 'stdout:\n' + BOLD[0] + stdout + '\n')
             print(BOLD[1] + 'stderr:\n' + BOLD[0] + stderr + '\n')
+            if combined_logs_len and os.path.isdir(testdir):
+                # Print the final `combinedlogslen` lines of the combined logs
+                print('{}Combine the logs and print the last {} lines ...{}'.format(BOLD[1], combined_logs_len, BOLD[0]))
+                print('\n============')
+                print('{}Combined log for {}:{}'.format(BOLD[1], testdir, BOLD[0]))
+                print('============\n')
+                combined_logs, _ = subprocess.Popen([os.path.join(tests_dir, 'combine_logs.py'), '-c', testdir], universal_newlines=True, stdout=subprocess.PIPE).communicate()
+                print("\n".join(deque(combined_logs.splitlines(), combined_logs_len)))
 
     print_results(test_results, max_len_name, (int(time.time() - time0)))
 
@@ -385,13 +404,15 @@ class TestHandler:
             log_stdout = tempfile.SpooledTemporaryFile(max_size=2**16)
             log_stderr = tempfile.SpooledTemporaryFile(max_size=2**16)
             test_argv = t.split()
-            tmpdir = ["--tmpdir=%s/%s_%s" % (self.tmpdir, re.sub(".py$", "", test_argv[0]), portseed)]
+            testdir = "{}/{}_{}".format(self.tmpdir, re.sub(".py$", "", test_argv[0]), portseed)
+            tmpdir_arg = ["--tmpdir={}".format(testdir)]
             self.jobs.append((t,
                               time.time(),
-                              subprocess.Popen([self.tests_dir + test_argv[0]] + test_argv[1:] + self.flags + portseed_arg + tmpdir,
+                              subprocess.Popen([self.tests_dir + test_argv[0]] + test_argv[1:] + self.flags + portseed_arg + tmpdir_arg,
                                                universal_newlines=True,
                                                stdout=log_stdout,
                                                stderr=log_stderr),
+                              testdir,
                               log_stdout,
                               log_stderr))
         if not self.jobs:
@@ -400,7 +421,7 @@ class TestHandler:
             # Return first proc that finishes
             time.sleep(.5)
             for j in self.jobs:
-                (name, time0, proc, log_out, log_err) = j
+                (name, time0, proc, testdir, log_out, log_err) = j
                 if os.getenv('TRAVIS') == 'true' and int(time.time() - time0) > 20 * 60:
                     # In travis, timeout individual tests after 20 minutes (to stop tests hanging and not
                     # providing useful output.
@@ -418,7 +439,7 @@ class TestHandler:
                     self.num_running -= 1
                     self.jobs.remove(j)
 
-                    return TestResult(name, status, int(time.time() - time0)), stdout, stderr
+                    return TestResult(name, status, int(time.time() - time0)), testdir, stdout, stderr
             print('.', end='', flush=True)
 
 class TestResult():

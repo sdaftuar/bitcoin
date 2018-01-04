@@ -1,15 +1,15 @@
-// Copyright (c) 2011-2016 The Bitcoin Core developers
+// Copyright (c) 2011-2017 The Bitcoin Core developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
-#include "recentrequeststablemodel.h"
+#include <qt/recentrequeststablemodel.h>
 
-#include "bitcoinunits.h"
-#include "guiutil.h"
-#include "optionsmodel.h"
+#include <qt/bitcoinunits.h>
+#include <qt/guiutil.h>
+#include <qt/optionsmodel.h>
 
-#include "clientversion.h"
-#include "streams.h"
+#include <clientversion.h>
+#include <streams.h>
 
 
 RecentRequestsTableModel::RecentRequestsTableModel(CWallet *wallet, WalletModel *parent) :

@@ -1,14 +1,14 @@
-// Copyright (c) 2015-2016 The Bitcoin Core developers
+// Copyright (c) 2015-2017 The Bitcoin Core developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
-#include "chain.h"
-#include "chainparams.h"
-#include "streams.h"
-#include "zmqpublishnotifier.h"
-#include "validation.h"
-#include "util.h"
-#include "rpc/server.h"
+#include <chain.h>
+#include <chainparams.h>
+#include <streams.h>
+#include <zmq/zmqpublishnotifier.h>
+#include <validation.h>
+#include <util.h>
+#include <rpc/server.h>
 
 static std::multimap<std::string, CZMQAbstractPublishNotifier*> mapPublishNotifiers;
 

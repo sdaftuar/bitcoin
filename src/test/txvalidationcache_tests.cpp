@@ -1,21 +1,21 @@
-// Copyright (c) 2011-2016 The Bitcoin Core developers
+// Copyright (c) 2011-2017 The Bitcoin Core developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
-#include "consensus/validation.h"
-#include "key.h"
-#include "validation.h"
-#include "miner.h"
-#include "pubkey.h"
-#include "txmempool.h"
-#include "random.h"
-#include "script/standard.h"
-#include "script/sign.h"
-#include "test/test_bitcoin.h"
-#include "utiltime.h"
-#include "core_io.h"
-#include "keystore.h"
-#include "policy/policy.h"
+#include <consensus/validation.h>
+#include <key.h>
+#include <validation.h>
+#include <miner.h>
+#include <pubkey.h>
+#include <txmempool.h>
+#include <random.h>
+#include <script/standard.h>
+#include <script/sign.h>
+#include <test/test_bitcoin.h>
+#include <utiltime.h>
+#include <core_io.h>
+#include <keystore.h>
+#include <policy/policy.h>
 
 #include <boost/test/unit_test.hpp>
 
@@ -66,7 +66,6 @@ BOOST_FIXTURE_TEST_CASE(tx_mempool_block_doublespend, TestChain100Setup)
 
     // Test 1: block with both of those transactions should be rejected.
     block = CreateAndProcessBlock(spends, scriptPubKey);
-    LOCK(cs_main);
     BOOST_CHECK(chainActive.Tip()->GetBlockHash() != block.GetHash());
 
     // Test 2: ... and should be rejected if spend1 is in the memory pool
@@ -103,7 +102,7 @@ BOOST_FIXTURE_TEST_CASE(tx_mempool_block_doublespend, TestChain100Setup)
 // should fail.
 // Capture this interaction with the upgraded_nop argument: set it when evaluating
 // any script flag that is implemented as an upgraded NOP code.
-void ValidateCheckInputsForAllFlags(CMutableTransaction &tx, uint32_t failing_flags, bool add_to_cache, bool upgraded_nop)
+void ValidateCheckInputsForAllFlags(CMutableTransaction &tx, uint32_t failing_flags, bool add_to_cache)
 {
     PrecomputedTransactionData txdata(tx);
     // If we add many more flags, this loop can get too expensive, but we can
@@ -124,12 +123,6 @@ void ValidateCheckInputsForAllFlags(CMutableTransaction &tx, uint32_t failing_fl
         // CheckInputs should succeed iff test_flags doesn't intersect with
         // failing_flags
         bool expected_return_value = !(test_flags & failing_flags);
-        if (expected_return_value && upgraded_nop) {
-            // If the script flag being tested corresponds to an upgraded NOP,
-            // then script execution should fail if DISCOURAGE_UPGRADABLE_NOPS
-            // is set.
-            expected_return_value = !(test_flags & SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_NOPS);
-        }
         BOOST_CHECK_EQUAL(ret, expected_return_value);
 
         // Test the caching
@@ -196,12 +189,12 @@ BOOST_FIXTURE_TEST_CASE(checkinputs_test, TestChain100Setup)
         spend_tx.vin[0].scriptSig << vchSig;
     }
 
-    LOCK(cs_main);
-
     // Test that invalidity under a set of flags doesn't preclude validity
     // under other (eg consensus) flags.
     // spend_tx is invalid according to DERSIG
     {
+        LOCK(cs_main);
+
         CValidationState state;
         PrecomputedTransactionData ptd_spend_tx(spend_tx);
 
@@ -218,16 +211,18 @@ BOOST_FIXTURE_TEST_CASE(checkinputs_test, TestChain100Setup)
         // not present.  Don't add these checks to the cache, so that we can
         // test later that block validation works fine in the absence of cached
         // successes.
-        ValidateCheckInputsForAllFlags(spend_tx, SCRIPT_VERIFY_DERSIG | SCRIPT_VERIFY_LOW_S | SCRIPT_VERIFY_STRICTENC, false, false);
-
-        // And if we produce a block with this tx, it should be valid (DERSIG not
-        // enabled yet), even though there's no cache entry.
-        CBlock block;
-
-        block = CreateAndProcessBlock({spend_tx}, p2pk_scriptPubKey);
-        BOOST_CHECK(chainActive.Tip()->GetBlockHash() == block.GetHash());
-        BOOST_CHECK(pcoinsTip->GetBestBlock() == block.GetHash());
+        ValidateCheckInputsForAllFlags(spend_tx, SCRIPT_VERIFY_DERSIG | SCRIPT_VERIFY_LOW_S | SCRIPT_VERIFY_STRICTENC, false);
     }
+
+    // And if we produce a block with this tx, it should be valid (DERSIG not
+    // enabled yet), even though there's no cache entry.
+    CBlock block;
+
+    block = CreateAndProcessBlock({spend_tx}, p2pk_scriptPubKey);
+    BOOST_CHECK(chainActive.Tip()->GetBlockHash() == block.GetHash());
+    BOOST_CHECK(pcoinsTip->GetBestBlock() == block.GetHash());
+
+    LOCK(cs_main);
 
     // Test P2SH: construct a transaction that is valid without P2SH, and
     // then test validity with P2SH.
@@ -243,7 +238,7 @@ BOOST_FIXTURE_TEST_CASE(checkinputs_test, TestChain100Setup)
         std::vector<unsigned char> vchSig2(p2pk_scriptPubKey.begin(), p2pk_scriptPubKey.end());
         invalid_under_p2sh_tx.vin[0].scriptSig << vchSig2;
 
-        ValidateCheckInputsForAllFlags(invalid_under_p2sh_tx, SCRIPT_VERIFY_P2SH, true, false);
+        ValidateCheckInputsForAllFlags(invalid_under_p2sh_tx, SCRIPT_VERIFY_P2SH, true);
     }
 
     // Test CHECKLOCKTIMEVERIFY
@@ -266,7 +261,7 @@ BOOST_FIXTURE_TEST_CASE(checkinputs_test, TestChain100Setup)
         vchSig.push_back((unsigned char)SIGHASH_ALL);
         invalid_with_cltv_tx.vin[0].scriptSig = CScript() << vchSig << 101;
 
-        ValidateCheckInputsForAllFlags(invalid_with_cltv_tx, SCRIPT_VERIFY_CHECKLOCKTIMEVERIFY, true, true);
+        ValidateCheckInputsForAllFlags(invalid_with_cltv_tx, SCRIPT_VERIFY_CHECKLOCKTIMEVERIFY, true);
 
         // Make it valid, and check again
         invalid_with_cltv_tx.vin[0].scriptSig = CScript() << vchSig << 100;
@@ -294,7 +289,7 @@ BOOST_FIXTURE_TEST_CASE(checkinputs_test, TestChain100Setup)
         vchSig.push_back((unsigned char)SIGHASH_ALL);
         invalid_with_csv_tx.vin[0].scriptSig = CScript() << vchSig << 101;
 
-        ValidateCheckInputsForAllFlags(invalid_with_csv_tx, SCRIPT_VERIFY_CHECKSEQUENCEVERIFY, true, true);
+        ValidateCheckInputsForAllFlags(invalid_with_csv_tx, SCRIPT_VERIFY_CHECKSEQUENCEVERIFY, true);
 
         // Make it valid, and check again
         invalid_with_csv_tx.vin[0].scriptSig = CScript() << vchSig << 100;
@@ -323,11 +318,11 @@ BOOST_FIXTURE_TEST_CASE(checkinputs_test, TestChain100Setup)
         UpdateTransaction(valid_with_witness_tx, 0, sigdata);
 
         // This should be valid under all script flags.
-        ValidateCheckInputsForAllFlags(valid_with_witness_tx, 0, true, false);
+        ValidateCheckInputsForAllFlags(valid_with_witness_tx, 0, true);
 
         // Remove the witness, and check that it is now invalid.
         valid_with_witness_tx.vin[0].scriptWitness.SetNull();
-        ValidateCheckInputsForAllFlags(valid_with_witness_tx, SCRIPT_VERIFY_WITNESS, true, false);
+        ValidateCheckInputsForAllFlags(valid_with_witness_tx, SCRIPT_VERIFY_WITNESS, true);
     }
 
     {
@@ -352,7 +347,7 @@ BOOST_FIXTURE_TEST_CASE(checkinputs_test, TestChain100Setup)
         }
 
         // This should be valid under all script flags
-        ValidateCheckInputsForAllFlags(tx, 0, true, false);
+        ValidateCheckInputsForAllFlags(tx, 0, true);
 
         // Check that if the second input is invalid, but the first input is
         // valid, the transaction is not cached.

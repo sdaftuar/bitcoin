@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Copyright (c) 2016 The Bitcoin Core developers
+# Copyright (c) 2016-2017 The Bitcoin Core developers
 # Distributed under the MIT software license, see the accompanying
 # file COPYING or http://www.opensource.org/licenses/mit-license.php.
 """Test various net timeouts.
@@ -27,8 +27,8 @@ from test_framework.mininode import *
 from test_framework.test_framework import BitcoinTestFramework
 from test_framework.util import *
 
-class TestNode(NodeConnCB):
-    def on_version(self, conn, message):
+class TestNode(P2PInterface):
+    def on_version(self, message):
         # Don't send a verack in response
         pass
 
@@ -43,7 +43,7 @@ class TimeoutsTest(BitcoinTestFramework):
         no_version_node = self.nodes[0].add_p2p_connection(TestNode(), send_version=False)
         no_send_node = self.nodes[0].add_p2p_connection(TestNode(), send_version=False)
 
-        NetworkThread().start()  # Start up network handling in another thread
+        network_thread_start()
 
         sleep(1)
 

@@ -1,26 +1,26 @@
 // Copyright (c) 2009-2010 Satoshi Nakamoto
-// Copyright (c) 2009-2016 The Bitcoin Core developers
+// Copyright (c) 2009-2017 The Bitcoin Core developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 #ifndef BITCOIN_NET_H
 #define BITCOIN_NET_H
 
-#include "addrdb.h"
-#include "addrman.h"
-#include "amount.h"
-#include "bloom.h"
-#include "compat.h"
-#include "hash.h"
-#include "limitedmap.h"
-#include "netaddress.h"
-#include "policy/feerate.h"
-#include "protocol.h"
-#include "random.h"
-#include "streams.h"
-#include "sync.h"
-#include "uint256.h"
-#include "threadinterrupt.h"
+#include <addrdb.h>
+#include <addrman.h>
+#include <amount.h>
+#include <bloom.h>
+#include <compat.h>
+#include <hash.h>
+#include <limitedmap.h>
+#include <netaddress.h>
+#include <policy/feerate.h>
+#include <protocol.h>
+#include <random.h>
+#include <streams.h>
+#include <sync.h>
+#include <uint256.h>
+#include <threadinterrupt.h>
 
 #include <atomic>
 #include <deque>
@@ -158,10 +158,16 @@ public:
         m_msgproc = connOptions.m_msgproc;
         nSendBufferMaxSize = connOptions.nSendBufferMaxSize;
         nReceiveFloodSize = connOptions.nReceiveFloodSize;
-        nMaxOutboundTimeframe = connOptions.nMaxOutboundTimeframe;
-        nMaxOutboundLimit = connOptions.nMaxOutboundLimit;
+        {
+            LOCK(cs_totalBytesSent);
+            nMaxOutboundTimeframe = connOptions.nMaxOutboundTimeframe;
+            nMaxOutboundLimit = connOptions.nMaxOutboundLimit;
+        }
         vWhitelistedRange = connOptions.vWhitelistedRange;
-        vAddedNodes = connOptions.m_added_nodes;
+        {
+            LOCK(cs_vAddedNodes);
+            vAddedNodes = connOptions.m_added_nodes;
+        }
     }
 
     CConnman(uint64_t seed0, uint64_t seed1);
@@ -364,14 +370,14 @@ private:
     // Network usage totals
     CCriticalSection cs_totalBytesRecv;
     CCriticalSection cs_totalBytesSent;
-    uint64_t nTotalBytesRecv;
-    uint64_t nTotalBytesSent;
+    uint64_t nTotalBytesRecv GUARDED_BY(cs_totalBytesRecv);
+    uint64_t nTotalBytesSent GUARDED_BY(cs_totalBytesSent);
 
     // outbound limit & stats
-    uint64_t nMaxOutboundTotalBytesSentInCycle;
-    uint64_t nMaxOutboundCycleStartTime;
-    uint64_t nMaxOutboundLimit;
-    uint64_t nMaxOutboundTimeframe;
+    uint64_t nMaxOutboundTotalBytesSentInCycle GUARDED_BY(cs_totalBytesSent);
+    uint64_t nMaxOutboundCycleStartTime GUARDED_BY(cs_totalBytesSent);
+    uint64_t nMaxOutboundLimit GUARDED_BY(cs_totalBytesSent);
+    uint64_t nMaxOutboundTimeframe GUARDED_BY(cs_totalBytesSent);
 
     // Whitelisted ranges. Any node connecting from these is automatically
     // whitelisted (as well as those connecting to whitelisted binds).
@@ -389,7 +395,7 @@ private:
     CAddrMan addrman;
     std::deque<std::string> vOneShots;
     CCriticalSection cs_vOneShots;
-    std::vector<std::string> vAddedNodes;
+    std::vector<std::string> vAddedNodes GUARDED_BY(cs_vAddedNodes);
     CCriticalSection cs_vAddedNodes;
     std::vector<CNode*> vNodes;
     std::list<CNode*> vNodesDisconnected;

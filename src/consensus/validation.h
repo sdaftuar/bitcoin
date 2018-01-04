@@ -1,5 +1,5 @@
 // Copyright (c) 2009-2010 Satoshi Nakamoto
-// Copyright (c) 2009-2016 The Bitcoin Core developers
+// Copyright (c) 2009-2017 The Bitcoin Core developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
@@ -7,10 +7,10 @@
 #define BITCOIN_CONSENSUS_VALIDATION_H
 
 #include <string>
-#include "version.h"
-#include "consensus/consensus.h"
-#include "primitives/transaction.h"
-#include "primitives/block.h"
+#include <version.h>
+#include <consensus/consensus.h>
+#include <primitives/transaction.h>
+#include <primitives/block.h>
 
 /** "reject" message codes */
 static const unsigned char REJECT_MALFORMED = 0x01;
