@@ -165,6 +165,57 @@ UniValue getblockcount(const JSONRPCRequest& request)
     return chainActive.Height();
 }
 
+UniValue getbip34heights(const JSONRPCRequest& request)
+{
+    if (request.fHelp || request.params.size() != 0)
+        throw std::runtime_error(
+            "getbip34heights\n"
+            "\nReturns the block hashes of the pre-bip34 blocks which start with a bip34-height, along with the height\n"
+            "\nResult:\n"
+            "\"hex\"      (string) the block hash hex encoded\n"
+            "\nExamples:\n"
+            + HelpExampleCli("getbip34heights", "")
+            + HelpExampleRpc("getbip34heights", "")
+        );
+
+    LOCK(cs_main);
+    UniValue result (UniValue::VARR);
+
+    const Consensus::Params& consensusParams = Params().GetConsensus();
+
+    for (int i=0; i<consensusParams.BIP34Height; ++i) {
+        const CBlockIndex *pindex = chainActive[i];
+        if (pindex == nullptr) break;
+
+        CBlock block;
+        if (!ReadBlockFromDisk(block, pindex, consensusParams)) {
+            throw JSONRPCError(RPC_MISC_ERROR, "Block not found on disk");
+        }
+
+        const CScript &scriptSig = block.vtx[0]->vin[0].scriptSig;
+        if (scriptSig[0] >= 0 && scriptSig[0] <= 5 && scriptSig.size() > scriptSig[0]) {
+            // this means we can interpret the first byte as a push of 0-4 bytes
+            std::vector<unsigned char> vchCopy(scriptSig[0]);
+            std::copy(scriptSig.begin()+1, scriptSig.begin() + 1 + scriptSig[0], vchCopy.begin());
+            try {
+                CScriptNum height(vchCopy, true);
+                if (height != pindex->nHeight) {
+                    UniValue entry(UniValue::VOBJ);
+                    entry.push_back(Pair("hash", pindex->GetBlockHash().GetHex()));
+                    entry.push_back(Pair("blockheight", pindex->nHeight));
+                    entry.push_back(Pair("coinbaseheight", height.getint()));
+                    result.push_back(entry);
+                }
+            } catch (scriptnum_error& e) {
+                ;
+            }
+        }
+        LogPrintf("getbip34heights: checked %d\n", i);
+    }
+
+    return result;
+}
+
 UniValue getbestblockhash(const JSONRPCRequest& request)
 {
     if (request.fHelp || request.params.size() != 0)
@@ -1590,6 +1641,7 @@ static const CRPCCommand commands[] =
     { "hidden",             "waitfornewblock",        &waitfornewblock,        {"timeout"} },
     { "hidden",             "waitforblock",           &waitforblock,           {"blockhash","timeout"} },
     { "hidden",             "waitforblockheight",     &waitforblockheight,     {"height","timeout"} },
+    { "hidden",             "getbip34heights",     &getbip34heights,     {} },
 };
 
 void RegisterBlockchainRPCCommands(CRPCTable &t)
