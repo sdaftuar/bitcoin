@@ -984,10 +984,9 @@ bool CBlockPolicyEstimator::Read(CAutoFile& filein)
 void CBlockPolicyEstimator::FlushUnconfirmed(CTxMemPool& pool) {
     int64_t startclear = GetTimeMicros();
     std::vector<uint256> txids;
-    pool.queryHashes(txids);
-    LOCK(cs_feeEstimator);
-    for (auto& txid : txids) {
-        removeTx(txid, false);
+    LOCK2(pool.cs, cs_feeEstimator);
+    for (auto mi=pool.mapTx.begin(); mi != pool.mapTx.end(); ++mi) {
+        removeTx(mi->GetTx().GetHash(), false);
     }
     int64_t endclear = GetTimeMicros();
     LogPrint(BCLog::ESTIMATEFEE, "Recorded %u unconfirmed txs from mempool in %gs\n",txids.size(), (endclear - startclear)*0.000001);
