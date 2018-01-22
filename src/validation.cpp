@@ -1621,7 +1621,10 @@ static unsigned int GetBlockScriptFlags(const CBlockIndex* pindex, const Consens
     // BIP16 didn't become active until Apr 1 2012
     // However, only one historical block violated the P2SH rules, so for simplicity, always leave P2SH
     // on except for the one violating block.
-    if (!(pindex->phashBlock != nullptr && (*(pindex->phashBlock) == consensusparams.BIP16Exception))) {
+    if (consensusparams.BIP16Exception.IsNull() || // no bip16 exception on this chain
+        pindex->phashBlock == nullptr || // this is a new candidate block, eg from TestBlockValidity()
+        *pindex->phashBlock != consensusparams.BIP16Exception) // this block isn't the historical exception
+    {
         flags |= SCRIPT_VERIFY_P2SH;
     }
 
