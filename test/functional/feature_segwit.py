@@ -150,8 +150,6 @@ class SegWitTest(BitcoinTestFramework):
 
         # TODO: An old node would see these txs without witnesses and be able to mine them
 
-        # TODO: verify spending a segwit v0 output is invalid before the fork
-
         self.log.info("Verify unsigned p2sh witness txs without a redeem script are invalid")
         self.fail_accept(self.nodes[2], "mandatory-script-verify-flag", p2sh_ids[NODE_2][WIT_V0][1], False)
         self.fail_accept(self.nodes[2], "mandatory-script-verify-flag", p2sh_ids[NODE_2][WIT_V1][1], False)
