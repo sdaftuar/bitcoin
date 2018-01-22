@@ -264,6 +264,50 @@ class SegWitTest(BitcoinTestFramework):
         self.utxo.pop(0)
         self.utxo.append(UTXO(tx4.sha256, 0, tx4.vout[0].nValue))
 
+    # This test was added after segwit-activation:
+    # Version 0 witness outputs are unspendable before segwit activates
+    def test_v0_outputs_arent_spendable(self):
+        self.log.info("Testing that v0 witness program outputs aren't spendable pre-activation")
+
+        assert(len(self.utxo))
+
+        # Create two outputs, a p2wsh and p2sh-p2wsh
+        witness_program = CScript([OP_TRUE])
+        witness_hash = sha256(witness_program)
+        scriptPubKey = CScript([OP_0, witness_hash])
+
+        p2sh_pubkey = hash160(witness_program)
+        p2sh_scriptPubKey = CScript([OP_HASH160, p2sh_pubkey, OP_EQUAL])
+
+        value = self.utxo[0].nValue // 3
+
+        tx = CTransaction()
+        tx.vin = [CTxIn(COutPoint(self.utxo[0].sha256, self.utxo[0].n), b'')]
+        tx.vout = [CTxOut(value, scriptPubKey), CTxOut(value, p2sh_scriptPubKey)]
+        tx.vout.append(CTxOut(value, CScript([OP_TRUE])))
+        tx.rehash()
+        txid = tx.sha256
+
+        # Add it to a block
+        block = self.build_next_block()
+        self.update_witness_block_with_transactions(block, [tx])
+        self.test_node.test_witness_block(block, False, with_witness=True)
+        self.test_node.test_witness_block(block, True, with_witness=False)
+
+        # Now try to spend the outputs
+        for i in range(2):
+            tx.vin = [CTxIn(COutPoint(txid, i), b'')]
+            tx.vout = [CTxOut(value, CScript([OP_TRUE]))]
+            tx.rehash()
+
+            block = self.build_next_block()
+            self.update_witness_block_with_transactions(block, [tx])
+            self.test_node.test_witness_block(block, False, with_witness=False)
+            self.test_node.test_witness_block(block, False, with_witness=True)
+
+        self.utxo.pop(0)
+        self.utxo.append(UTXO(txid, 2, value))
+
 
     # Mine enough blocks for segwit's vb state to be 'started'.
     def advance_to_segwit_started(self):
@@ -1888,6 +1932,7 @@ class SegWitTest(BitcoinTestFramework):
         self.test_witness_services() # Verifies NODE_WITNESS
         self.test_non_witness_transaction() # non-witness tx's are accepted
         self.test_unnecessary_witness_before_segwit_activation()
+        self.test_v0_outputs_arent_spendable()
         self.test_block_relay(segwit_activated=False)
 
         # Advance to segwit being 'started'
@@ -1905,7 +1950,6 @@ class SegWitTest(BitcoinTestFramework):
         self.test_unnecessary_witness_before_segwit_activation()
         self.test_witness_tx_relay_before_segwit_activation()
         self.test_block_relay(segwit_activated=False)
-        #self.test_p2sh_witness(segwit_activated=False)
         self.test_standardness_v0(segwit_activated=False)
 
         sync_blocks(self.nodes)
