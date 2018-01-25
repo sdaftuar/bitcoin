@@ -283,7 +283,7 @@ class SegWitTest(BitcoinTestFramework):
         witness_hash = sha256(witness_program)
         scriptPubKey = CScript([OP_0, witness_hash])
 
-        p2sh_pubkey = hash160(witness_program)
+        p2sh_pubkey = hash160(scriptPubKey)
         p2sh_scriptPubKey = CScript([OP_HASH160, p2sh_pubkey, OP_EQUAL])
 
         value = self.utxo[0].nValue // 3
@@ -301,9 +301,13 @@ class SegWitTest(BitcoinTestFramework):
         test_witness_block(self.nodes[0], self.test_node, block, False, with_witness=True)
         test_witness_block(self.nodes[0], self.test_node, block, True, with_witness=False)
 
-        # Now try to spend the outputs
+        # Now try to spend the outputs -- test whether SCRIPT_VERIFY_WITNESS is
+        # enabled.
         for i in range(2):
-            tx.vin = [CTxIn(COutPoint(txid, i), b'')]
+            # The scriptSig here is the redeemscript for the P2SH output,
+            # which would make the second output spendable under just the P2SH
+            # script rule.
+            tx.vin = [CTxIn(COutPoint(txid, i), CScript([scriptPubKey]))]
             tx.vout = [CTxOut(value, CScript([OP_TRUE]))]
             tx.rehash()
 
