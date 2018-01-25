@@ -241,7 +241,7 @@ public:
 
 /** \class CompareTxMemPoolEntryByScore
  *
- *  Sort by score of entry ((fee+delta)/size) in descending order
+ *  Sort by feerate of entry (fee/size) in descending order
  *  This is only used for transaction relay, so we use GetFee()
  *  instead of GetModifiedFee() to avoid leaking prioritization
  *  information via the sort order.
