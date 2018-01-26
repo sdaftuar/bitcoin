@@ -1549,9 +1549,10 @@ class SegWitTest(BitcoinTestFramework):
         block = self.build_next_block()
         self.update_witness_block_with_transactions(block, [spend_tx])
 
-        # If we're before activation, then sending this without witnesses
-        # should be valid.  If we're after activation, then sending this with
-        # witnesses should be valid.
+        # If we're after activation, then sending this with witnesses should be valid.
+        # This no longer works before activation, because SCRIPT_VERIFY_WITNESS
+        # is always set.
+        # TODO: rewrite this test to make clear that it only works after activation.
         if segwit_activated:
             test_witness_block(self.nodes[0].rpc, self.test_node, block, accepted=True)
         else:
