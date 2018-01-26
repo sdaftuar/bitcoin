@@ -340,7 +340,12 @@ class SegWitTest(BitcoinTestFramework):
             # When the block is serialized without witness, validation fails because the transaction is
             # invalid (transactions are always validated with SCRIPT_VERIFY_WITNESS so a segwit v0 transaction
             # without a witness is invalid).
-            test_witness_block(self.nodes[0], self.test_node, block, accepted=False, with_witness=False, reason=b'block-validation-failed')
+            # Note: The reject reason for this failure could be
+            # 'block-validation-failed' (if script check threads > 1) or
+            # 'non-mandatory-script-verify-flag (Witness program was passed an
+            # empty witness)' (otherwise).
+            # TODO: support multiple acceptable reject reasons.
+            test_witness_block(self.nodes[0], self.test_node, block, accepted=False, with_witness=False)
 
         self.utxo.pop(0)
         self.utxo.append(UTXO(txid, 2, value))
