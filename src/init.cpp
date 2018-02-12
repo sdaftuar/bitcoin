@@ -168,6 +168,7 @@ void Interrupt()
     InterruptRPC();
     InterruptREST();
     InterruptTorControl();
+    InterruptMapPort();
     if (g_connman)
         g_connman->Interrupt();
 }
@@ -194,7 +195,7 @@ void Shutdown()
 #ifdef ENABLE_WALLET
     FlushWallets();
 #endif
-    MapPort(false);
+    StopMapPort();
 
     // Because these depend on each-other, we make sure that neither can be
     // using the other before destroying them.
@@ -552,7 +553,8 @@ static void BlockNotifyCallback(bool initialSync, const CBlockIndex *pBlockIndex
     std::string strCmd = gArgs.GetArg("-blocknotify", "");
     if (!strCmd.empty()) {
         boost::replace_all(strCmd, "%s", pBlockIndex->GetBlockHash().GetHex());
-        boost::thread t(runCommand, strCmd); // thread runs free
+        std::thread t(runCommand, strCmd);
+        t.detach(); // thread runs free
     }
 }
 
@@ -1691,12 +1693,14 @@ bool AppInitMain()
     // chaincode/develop: don't fix indentation! minimize delta from upstream master.
 
     if (gArgs.GetBoolArg("-listenonion", DEFAULT_LISTEN_ONION))
-        StartTorControl(threadGroup, scheduler);
+        StartTorControl();
 
-    Discover(threadGroup);
+    Discover();
 
     // Map ports with UPnP
-    MapPort(gArgs.GetBoolArg("-upnp", DEFAULT_UPNP));
+    if (gArgs.GetBoolArg("-upnp", DEFAULT_UPNP)) {
+        StartMapPort();
+    }
 
     CConnman::Options connOptions;
     connOptions.nLocalServices = nLocalServices;
