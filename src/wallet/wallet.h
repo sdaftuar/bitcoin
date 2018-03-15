@@ -1181,9 +1181,6 @@ public:
      * be anything).
      */
     void LearnAllRelatedScripts(const CPubKey& key);
-
-    /** Whether a given output is spendable by this wallet */
-    bool OutputEligibleForSpending(const COutput& output, const CoinEligibilityFilter& eligibility_filter) const;
 };
 
 /** A key allocated from the key pool. */
