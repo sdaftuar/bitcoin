@@ -14,6 +14,7 @@ WalletTestingSetup::WalletTestingSetup(const std::string& chainName):
     bool fFirstRun;
     m_wallet.LoadWallet(fFirstRun);
     RegisterValidationInterface(&m_wallet);
+    RegisterMempoolInterface(&m_wallet);
 
     RegisterWalletRPCCommands(tableRPC);
 }
@@ -21,4 +22,5 @@ WalletTestingSetup::WalletTestingSetup(const std::string& chainName):
 WalletTestingSetup::~WalletTestingSetup()
 {
     UnregisterValidationInterface(&m_wallet);
+    UnregisterMempoolInterface(&m_wallet);
 }
