@@ -116,7 +116,7 @@ class PrioritiseTransactionTest(BitcoinTestFramework):
         inputs.append({"txid" : utxo["txid"], "vout" : utxo["vout"]})
         outputs[self.nodes[0].getnewaddress()] = utxo["amount"]
         raw_tx = self.nodes[0].createrawtransaction(inputs, outputs)
-        tx_hex = self.nodes[0].signrawtransaction(raw_tx)["hex"]
+        tx_hex = self.nodes[0].signrawtransactionwithwallet(raw_tx)["hex"]
         tx_id = self.nodes[0].decoderawtransaction(tx_hex)["txid"]
 
         # This will raise an exception due to min relay fee not being met
@@ -124,7 +124,7 @@ class PrioritiseTransactionTest(BitcoinTestFramework):
         assert(tx_id not in self.nodes[0].getrawmempool())
 
         # This is a less than 1000-byte transaction, so just set the fee
-        # to be the minimum for a 1000 byte transaction and check that it is
+        # to be the minimum for a 1000-byte transaction and check that it is
         # accepted.
         self.nodes[0].prioritisetransaction(txid=tx_id, fee_delta=int(self.relayfee*COIN))
 

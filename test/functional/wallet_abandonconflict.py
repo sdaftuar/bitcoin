@@ -55,7 +55,7 @@ class AbandonConflictTest(BitcoinTestFramework):
 
         outputs[self.nodes[0].getnewaddress()] = Decimal("14.99998")
         outputs[self.nodes[1].getnewaddress()] = Decimal("5")
-        signed = self.nodes[0].signrawtransaction(self.nodes[0].createrawtransaction(inputs, outputs))
+        signed = self.nodes[0].signrawtransactionwithwallet(self.nodes[0].createrawtransaction(inputs, outputs))
         txAB1 = self.nodes[0].sendrawtransaction(signed["hex"])
 
         # Identify the 14.99998btc output
@@ -67,7 +67,7 @@ class AbandonConflictTest(BitcoinTestFramework):
         inputs.append({"txid":txC, "vout":nC})
         outputs = {}
         outputs[self.nodes[0].getnewaddress()] = Decimal("24.9996")
-        signed2 = self.nodes[0].signrawtransaction(self.nodes[0].createrawtransaction(inputs, outputs))
+        signed2 = self.nodes[0].signrawtransactionwithwallet(self.nodes[0].createrawtransaction(inputs, outputs))
         txABC2 = self.nodes[0].sendrawtransaction(signed2["hex"])
 
         # In mempool txs from self should increase balance from change
@@ -109,7 +109,7 @@ class AbandonConflictTest(BitcoinTestFramework):
         assert_equal(len(self.nodes[0].getrawmempool()), 0)
         assert_equal(self.nodes[0].getbalance(), balance)
 
-        # But if its received again then it is unabandoned
+        # But if it is received again then it is unabandoned
         # And since now in mempool, the change is available
         # But its child tx remains abandoned
         self.nodes[0].sendrawtransaction(signed["hex"])
@@ -117,7 +117,7 @@ class AbandonConflictTest(BitcoinTestFramework):
         assert_equal(newbalance, balance - Decimal("20") + Decimal("14.99998"))
         balance = newbalance
 
-        # Send child tx again so its unabandoned
+        # Send child tx again so it is unabandoned
         self.nodes[0].sendrawtransaction(signed2["hex"])
         newbalance = self.nodes[0].getbalance()
         assert_equal(newbalance, balance - Decimal("10") - Decimal("14.99998") + Decimal("24.9996"))
@@ -138,7 +138,7 @@ class AbandonConflictTest(BitcoinTestFramework):
         outputs = {}
         outputs[self.nodes[1].getnewaddress()] = Decimal("9.9999")
         tx = self.nodes[0].createrawtransaction(inputs, outputs)
-        signed = self.nodes[0].signrawtransaction(tx)
+        signed = self.nodes[0].signrawtransactionwithwallet(tx)
         self.nodes[1].sendrawtransaction(signed["hex"])
         self.nodes[1].generate(1)
 
