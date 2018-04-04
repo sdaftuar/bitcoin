@@ -158,6 +158,7 @@ extern CScript COINBASE_FLAGS;
 extern CCriticalSection cs_main;
 extern CBlockPolicyEstimator feeEstimator;
 extern CTxMemPool mempool;
+extern std::atomic_bool g_is_mempool_loaded;
 typedef std::unordered_map<uint256, CBlockIndex*, BlockHasher> BlockMap;
 extern BlockMap& mapBlockIndex;
 extern uint64_t nLastBlockTx;
@@ -307,7 +308,7 @@ void PruneBlockFilesManual(int nManualPruneHeight);
  * plTxnReplaced will be appended to with all transactions replaced from mempool **/
 bool AcceptToMemoryPool(CTxMemPool& pool, CValidationState &state, const CTransactionRef &tx,
                         bool* pfMissingInputs, std::list<CTransactionRef>* plTxnReplaced,
-                        bool bypass_limits, const CAmount nAbsurdFee);
+                        bool bypass_limits, const CAmount nAbsurdFee, bool test_accept=false);
 
 /** Convert CValidationState to a human-readable message for logging */
 std::string FormatStateMessage(const CValidationState &state);
