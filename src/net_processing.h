@@ -87,9 +87,9 @@ private:
 };
 
 struct CNodeStateStats {
-    int nMisbehavior;
-    int nSyncHeight;
-    int nCommonHeight;
+    int nMisbehavior = 0;
+    int nSyncHeight = -1;
+    int nCommonHeight = -1;
     std::vector<int> vHeightInFlight;
 };
 
