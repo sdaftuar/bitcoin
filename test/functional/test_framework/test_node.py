@@ -128,7 +128,14 @@ class TestNode():
                 if e.errno != errno.ECONNREFUSED:  # Port not yet open?
                     raise  # unknown IO error
             except JSONRPCException as e:  # Initialization phase
-                if e.error['code'] != -28:  # RPC in warmup?
+                if e.error['code'] == -342 and '401 Unauthorized' in str(e):
+                    # The code comes from authproxy.py, passing through the http
+                    # error. 'Unauthorized' can happen due to a race condition with
+                    # using an old cookie file which is overwritten when the
+                    # node starts up, so treat this the same as "No RPC
+                    # credentials" and do nothing.
+                    pass
+                elif e.error['code'] != -28:  # RPC in warmup?
                     raise  # unknown JSON RPC exception
             except ValueError as e:  # cookie file not found and no rpcuser or rpcassword. bitcoind still starting
                 if "No RPC credentials" not in str(e):
