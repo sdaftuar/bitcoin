@@ -29,6 +29,7 @@
 #include <util.h>
 #include <utilmoneystr.h>
 #include <utilstrencodings.h>
+#include <memory>
 
 #include "ccl/cclglobals.h"
 
