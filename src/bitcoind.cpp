@@ -18,9 +18,6 @@
 #include <httpserver.h>
 #include <httprpc.h>
 #include <utilstrencodings.h>
-#if ENABLE_WALLET
-#include <wallet/init.h>
-#endif
 #include <walletinitinterface.h>
 
 #include <boost/thread.hpp>
@@ -62,12 +59,6 @@ void WaitForShutdown()
 bool AppInit(int argc, char* argv[])
 {
     bool fRet = false;
-
-#if ENABLE_WALLET
-    g_wallet_init_interface.reset(new WalletInit);
-#else
-    g_wallet_init_interface.reset(new DummyWalletInit);
-#endif
 
     //
     // Parameters
@@ -111,7 +102,7 @@ bool AppInit(int argc, char* argv[])
         }
         // Check for -testnet or -regtest parameter (Params() calls are only valid after this clause)
         try {
-            SelectParams(ChainNameFromCommandLine());
+            SelectParams(gArgs.GetChainName());
         } catch (const std::exception& e) {
             fprintf(stderr, "Error: %s\n", e.what());
             return false;
