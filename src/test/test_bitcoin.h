@@ -119,5 +119,6 @@ struct TestMemPoolEntryHelper
 };
 
 CBlock getBlock13b8a();
+std::ostream& operator<<(std::ostream& os, const uint256& num);
 
 #endif
