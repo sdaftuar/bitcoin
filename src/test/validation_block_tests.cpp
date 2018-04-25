@@ -61,6 +61,11 @@ std::shared_ptr<CBlock> Block(const uint256& prev_hash)
     CBlock* pblock = new CBlock(ptemplate->block);
     pblock->hashPrevBlock = prev_hash;
     pblock->nTime = ++time;
+    CMutableTransaction txCoinbase(*pblock->vtx[0]);
+    txCoinbase.vout.resize(1);
+    txCoinbase.vin[0].scriptWitness.SetNull();
+    pblock->vtx[0] = MakeTransactionRef(std::move(txCoinbase));
+
 
     return std::make_shared<CBlock>(*pblock);
 }
@@ -86,11 +91,15 @@ const std::shared_ptr<const CBlock> GoodBlock(const uint256& prev_hash)
 const std::shared_ptr<const CBlock> BadBlock(const uint256& prev_hash)
 {
     auto pblock = Block(prev_hash);
+    CMutableTransaction coinbase_spend;
+    coinbase_spend.vin.push_back(CTxIn(COutPoint(pblock->vtx[0]->GetHash(), 0), CScript(), 0));
+    coinbase_spend.vout.push_back(pblock->vtx[0]->vout[0]);
+    CTransactionRef tx = MakeTransactionRef(coinbase_spend);
+    pblock->vtx.push_back(tx);
 
-    // a second coinbase will make this block invalid
-    pblock->vtx.push_back(pblock->vtx[0]);
+    auto ret = FinalizeBlock(pblock);
 
-    return FinalizeBlock(pblock);
+    return ret;
 }
 
 void BuildChain(const uint256& root, int height, const unsigned int invalid_rate, const unsigned int branch_rate, const unsigned int max_size, std::vector<std::shared_ptr<const CBlock>>& blocks)
@@ -118,7 +127,7 @@ BOOST_AUTO_TEST_CASE(processnewblock_signals_ordering)
     std::vector<std::shared_ptr<const CBlock>> blocks;
     while (blocks.size() < 50) {
         blocks.clear();
-        BuildChain(Params().GenesisBlock().GetHash(), 100, 5, 10, 500, blocks);
+        BuildChain(Params().GenesisBlock().GetHash(), 100, 15, 10, 500, blocks);
     }
 
     CValidationState state;
