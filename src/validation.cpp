@@ -1291,6 +1291,7 @@ void CChainState::InvalidBlockFound(CBlockIndex *pindex, const CValidationState 
         setBlockIndexCandidates.erase(pindex);
         InvalidChainFound(pindex);
     }
+    printf("invalid block found\n");
 }
 
 void UpdateCoins(const CTransaction& tx, CCoinsViewCache& inputs, CTxUndo &txundo, int nHeight)
@@ -1797,6 +1798,9 @@ static int64_t nBlocksTotal = 0;
 bool CChainState::ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pindex,
                   CCoinsViewCache& view, const CChainParams& chainparams, bool fJustCheck)
 {
+    if (!fJustCheck) {
+        printf("trying to connect %s\n", block.GetHash().ToString().c_str());
+    }
     AssertLockHeld(cs_main);
     assert(pindex);
     assert(*pindex->phashBlock == block.GetHash());
@@ -2669,6 +2673,7 @@ bool CChainState::ActivateBestChain(CValidationState &state, const CChainParams&
         const CBlockIndex *pindexFork;
         bool fInitialDownload;
         {
+            //MilliSleep(GetRandInt(5));
             LOCK(cs_main);
             ConnectTrace connectTrace(mempool); // Destructed before cs_main is unlocked
 
@@ -2717,6 +2722,7 @@ bool CChainState::ActivateBestChain(CValidationState &state, const CChainParams&
         if (ShutdownRequested())
             break;
     } while (pindexNewTip != pindexMostWork);
+    if (GetRandInt(100) < 5) MilliSleep(GetRandInt(5));
     CheckBlockIndex(chainparams.GetConsensus());
 
     // Write changes periodically to disk, after relay.
@@ -3512,6 +3518,7 @@ bool ProcessNewBlock(const CChainParams& chainparams, const std::shared_ptr<cons
             ret = g_chainstate.AcceptBlock(pblock, state, chainparams, &pindex, fForceProcessing, nullptr, fNewBlock);
         }
         if (!ret) {
+            printf("%s\n", state.GetDebugMessage().c_str());
             GetMainSignals().BlockChecked(*pblock, state);
             return error("%s: AcceptBlock FAILED (%s)", __func__, state.GetDebugMessage());
         }
