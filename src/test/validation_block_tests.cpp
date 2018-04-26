@@ -102,7 +102,7 @@ const std::shared_ptr<const CBlock> BadBlock(const uint256& prev_hash)
 
     auto ret = FinalizeBlock(pblock);
 
-    printf("made a bad block with hash %s\n", pblock->GetHash().ToString().c_str());
+    //printf("made a bad block with hash %s\n", pblock->GetHash().ToString().c_str());
     return ret;
 }
 
@@ -134,7 +134,7 @@ BOOST_AUTO_TEST_CASE(processnewblock_signals_ordering)
         BuildChain(Params().GenesisBlock().GetHash(), 100, 15, 10, 500, blocks);
     }
     for (size_t i=0; i<blocks.size(); ++i) {
-        printf("%d %s\n", i, blocks[i]->GetHash().ToString().c_str());
+        //printf("%d %s\n", i, blocks[i]->GetHash().ToString().c_str());
     }
 
     CValidationState state;

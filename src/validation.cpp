@@ -1798,9 +1798,9 @@ static int64_t nBlocksTotal = 0;
 bool CChainState::ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pindex,
                   CCoinsViewCache& view, const CChainParams& chainparams, bool fJustCheck)
 {
-    if (!fJustCheck) {
-        printf("trying to connect %s\n", block.GetHash().ToString().c_str());
-    }
+    //if (!fJustCheck) {
+    //    printf("trying to connect %s\n", block.GetHash().ToString().c_str());
+    //}
     AssertLockHeld(cs_main);
     assert(pindex);
     assert(*pindex->phashBlock == block.GetHash());
@@ -2659,6 +2659,7 @@ bool CChainState::ActivateBestChain(CValidationState &state, const CChainParams&
 
     CBlockIndex *pindexMostWork = nullptr;
     CBlockIndex *pindexNewTip = nullptr;
+    CBlockIndex *pindexOldTip = nullptr;
     int nStopAtHeight = gArgs.GetArg("-stopatheight", DEFAULT_STOPATHEIGHT);
     do {
         boost::this_thread::interruption_point();
@@ -2675,16 +2676,29 @@ bool CChainState::ActivateBestChain(CValidationState &state, const CChainParams&
         {
             //MilliSleep(GetRandInt(5));
             LOCK(cs_main);
+            bool fInvalidFound = false;
+            do {
+            fInvalidFound = false;
             ConnectTrace connectTrace(mempool); // Destructed before cs_main is unlocked
 
-            CBlockIndex *pindexOldTip = chainActive.Tip();
-            pindexMostWork = FindMostWorkChain();
+            if (pindexMostWork == nullptr || pindexOldTip == nullptr ||
+                    pindexOldTip != chainActive.Tip() ||
+                    setBlockIndexCandidates.count(pindexMostWork) == 0) {
+                // If our tip has changed since the last loop iteration, or if
+                // our target chain tip is no longer a candidate, then we should
+                // recalculate which block we want to connect towards.
+                // If multiple threads are invoking this function at the same time,
+                // we need to make sure they eventually converge on the correct
+                // most-work tip, and not eg arrive at some less work tip, or
+                // fail to converge.
+                pindexOldTip = chainActive.Tip();
+                pindexMostWork = FindMostWorkChain();
+            }
 
             // Whether we have anything to do at all.
             if (pindexMostWork == nullptr || pindexMostWork == chainActive.Tip())
                 return true;
 
-            bool fInvalidFound = false;
             std::shared_ptr<const CBlock> nullBlockPtr;
             if (!ActivateBestChainStep(state, chainparams, pindexMostWork, pblock && pblock->GetHash() == pindexMostWork->GetBlockHash() ? pblock : nullBlockPtr, fInvalidFound, connectTrace))
                 return false;
@@ -2710,6 +2724,7 @@ bool CChainState::ActivateBestChain(CValidationState &state, const CChainParams&
             if (pindexFork != pindexNewTip) {
                 uiInterface.NotifyBlockTip(fInitialDownload, pindexNewTip);
             }
+            } while (fInvalidFound);
         }
         // When we reach this point, we switched to a new tip (stored in pindexNewTip).
 
@@ -2721,6 +2736,8 @@ bool CChainState::ActivateBestChain(CValidationState &state, const CChainParams&
         // that the best block hash is non-null.
         if (ShutdownRequested())
             break;
+        // Remember where we left off
+        pindexOldTip = pindexNewTip;
     } while (pindexNewTip != pindexMostWork);
     if (GetRandInt(100) < 5) MilliSleep(GetRandInt(5));
     CheckBlockIndex(chainparams.GetConsensus());
