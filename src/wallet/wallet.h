@@ -757,6 +757,9 @@ private:
      */
     const CBlockIndex* m_last_block_processed = nullptr;
 
+    bool _create_tx(const std::vector<CRecipient>& vecSend, CTransactionRef& tx, CReserveKey& reservekey, CAmount& nFeeRet, int& nChangePosInOut,
+                    std::string& strFailReason, const CCoinControl& coin_control, bool sign);
+
 public:
     /*
      * Main wallet lock.
@@ -848,7 +851,7 @@ public:
      * completion the coin set and corresponding actual target value is
      * assembled
      */
-    bool SelectCoinsMinConf(const CAmount& nTargetValue, const CoinEligibilityFilter& eligibility_filter, std::vector<COutput> vCoins,
+    bool SelectCoinsMinConf(const CAmount& nTargetValue, const CoinEligibilityFilter& eligibility_filter, std::vector<OutputGroup> groups,
         std::set<CInputCoin>& setCoinsRet, CAmount& nValueRet, const CoinSelectionParams& coin_selection_params, bool& bnb_used) const;
 
     bool IsSpent(const uint256& hash, unsigned int n) const;
