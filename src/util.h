@@ -362,4 +362,14 @@ std::unique_ptr<T> MakeUnique(Args&&... args)
  */
 int ScheduleBatchPriority(void);
 
+//! Simplification of std insertion
+template <typename Tdst, typename Tsrc>
+void insert(Tdst& dst, const Tsrc& src) {
+    dst.insert(dst.begin(), src.begin(), src.end());
+}
+template <typename TsetT, typename Tsrc>
+void insert(std::set<TsetT>& dst, const Tsrc& src) {
+    dst.insert(src.begin(), src.end());
+}
+
 #endif // BITCOIN_UTIL_H
