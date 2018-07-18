@@ -5,6 +5,8 @@
 """Test wallet group functionality."""
 
 from test_framework.test_framework import BitcoinTestFramework
+from test_framework.mininode import FromHex, ToHex
+from test_framework.messages import *
 from test_framework.util import (
     assert_equal,
 )
@@ -18,8 +20,9 @@ def assert_approx(v, vexp, vspan=0.00001):
 class WalletGroupTest(BitcoinTestFramework):
     def set_test_params(self):
         self.setup_clean_chain = True
-        self.num_nodes = 3
-        self.extra_args = [[], [], ['-avoidpartialspends']]
+        self.num_nodes = 4
+        #self.extra_args = [['-deprecatedrpc=signrawtransaction'], [], ['-avoidpartialspends'], ['-avoidpartialspends']]
+        self.extra_args = [['-deprecatedrpc=signrawtransaction'], [], ['-avoidpartialspends'], []]
 
     def run_test (self):
         # Mine some coins
@@ -30,6 +33,27 @@ class WalletGroupTest(BitcoinTestFramework):
         addr2 = [self.nodes[2].getnewaddress() for i in range(3)]
         addrs = addr1 + addr2
 
+        # Send a bunch of outputs to node4.
+        addr3 = self.nodes[3].getnewaddress()
+        '''
+        for i in range(20000):
+            self.nodes[0].sendtoaddress(addr3, 0.001)
+            if i % 100 == 0:
+                self.nodes[0].generate(1)
+        self.sync_all()
+        '''
+        for i in range(20):
+            raw_tx = self.nodes[0].createrawtransaction([{"txid":"0000000000000000000000000000000000000000000000000000000000000000", "vout":0}], [{addr3: 0.001}])
+            tx = FromHex(CTransaction(), raw_tx)
+            tx.vin = []
+            tx.vout = [tx.vout[0]] * 1000
+            funded_tx = self.nodes[0].fundrawtransaction(ToHex(tx))
+            signed_tx = self.nodes[0].signrawtransaction(funded_tx['hex'])
+            self.nodes[0].sendrawtransaction(signed_tx['hex'])
+            self.nodes[0].generate(1)
+
+        self.sync_all()
+        '''
         # Send 1 + 0.5 coin to each address
         [self.nodes[0].sendtoaddress(addr, 1.0) for addr in addrs]
         [self.nodes[0].sendtoaddress(addr, 0.5) for addr in addrs]
@@ -62,6 +86,11 @@ class WalletGroupTest(BitcoinTestFramework):
         v.sort()
         assert_approx(v[0], 0.2)
         assert_approx(v[1], 1.3, 0.0001)
+        '''
+
+        # Look at node3
+        print(len(self.nodes[3].listunspent()))
+        self.nodes[3].sendtoaddress(self.nodes[0].getnewaddress(), 0.01)
 
 if __name__ == '__main__':
     WalletGroupTest().main ()
