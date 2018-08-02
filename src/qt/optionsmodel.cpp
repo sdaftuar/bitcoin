@@ -24,6 +24,8 @@
 
 const char *DEFAULT_GUI_PROXY_HOST = "127.0.0.1";
 
+static const QString GetDefaultProxyAddress();
+
 OptionsModel::OptionsModel(interfaces::Node& node, QObject *parent, bool resetSettings) :
     QAbstractListModel(parent), m_node(node)
 {
@@ -55,7 +57,7 @@ void OptionsModel::Init(bool resetSettings)
         settings.setValue("fHideTrayIcon", false);
     fHideTrayIcon = settings.value("fHideTrayIcon").toBool();
     Q_EMIT hideTrayIconChanged(fHideTrayIcon);
-    
+
     if (!settings.contains("fMinimizeToTray"))
         settings.setValue("fMinimizeToTray", false);
     fMinimizeToTray = settings.value("fMinimizeToTray").toBool() && !fHideTrayIcon;
@@ -86,6 +88,16 @@ void OptionsModel::Init(bool resetSettings)
     // by command-line and show this in the UI.
 
     // Main
+    if (!settings.contains("bPrune"))
+        settings.setValue("bPrune", false);
+    if (!settings.contains("nPruneSize"))
+        settings.setValue("nPruneSize", 2);
+    // Convert prune size to MB:
+    const uint64_t nPruneSizeMB = settings.value("nPruneSize").toInt() * 1000;
+    if (!m_node.softSetArg("-prune", settings.value("bPrune").toBool() ? std::to_string(nPruneSizeMB) : "0")) {
+      addOverriddenOption("-prune");
+    }
+
     if (!settings.contains("nDatabaseCache"))
         settings.setValue("nDatabaseCache", (qint64)nDefaultDbCache);
     if (!m_node.softSetArg("-dbcache", settings.value("nDatabaseCache").toString().toStdString()))
@@ -121,7 +133,7 @@ void OptionsModel::Init(bool resetSettings)
     if (!settings.contains("fUseProxy"))
         settings.setValue("fUseProxy", false);
     if (!settings.contains("addrProxy"))
-        settings.setValue("addrProxy", QString("%1:%2").arg(DEFAULT_GUI_PROXY_HOST, DEFAULT_GUI_PROXY_PORT));
+        settings.setValue("addrProxy", GetDefaultProxyAddress());
     // Only try to set -proxy, if user has enabled fUseProxy
     if (settings.value("fUseProxy").toBool() && !m_node.softSetArg("-proxy", settings.value("addrProxy").toString().toStdString()))
         addOverriddenOption("-proxy");
@@ -131,7 +143,7 @@ void OptionsModel::Init(bool resetSettings)
     if (!settings.contains("fUseSeparateProxyTor"))
         settings.setValue("fUseSeparateProxyTor", false);
     if (!settings.contains("addrSeparateProxyTor"))
-        settings.setValue("addrSeparateProxyTor", QString("%1:%2").arg(DEFAULT_GUI_PROXY_HOST, DEFAULT_GUI_PROXY_PORT));
+        settings.setValue("addrSeparateProxyTor", GetDefaultProxyAddress());
     // Only try to set -onion, if user has enabled fUseSeparateProxyTor
     if (settings.value("fUseSeparateProxyTor").toBool() && !m_node.softSetArg("-onion", settings.value("addrSeparateProxyTor").toString().toStdString()))
         addOverriddenOption("-onion");
@@ -223,6 +235,11 @@ static void SetProxySetting(QSettings &settings, const QString &name, const Prox
     settings.setValue(name, ip_port.ip + ":" + ip_port.port);
 }
 
+static const QString GetDefaultProxyAddress()
+{
+    return QString("%1:%2").arg(DEFAULT_GUI_PROXY_HOST).arg(DEFAULT_GUI_PROXY_PORT);
+}
+
 // read QSettings values and return them
 QVariant OptionsModel::data(const QModelIndex & index, int role) const
 {
@@ -274,6 +291,10 @@ QVariant OptionsModel::data(const QModelIndex & index, int role) const
             return settings.value("language");
         case CoinControlFeatures:
             return fCoinControlFeatures;
+        case Prune:
+            return settings.value("bPrune");
+        case PruneSize:
+            return settings.value("nPruneSize");
         case DatabaseCache:
             return settings.value("nDatabaseCache");
         case ThreadsScriptVerif:
@@ -398,6 +419,18 @@ bool OptionsModel::setData(const QModelIndex & index, const QVariant & value, in
             settings.setValue("fCoinControlFeatures", fCoinControlFeatures);
             Q_EMIT coinControlFeaturesChanged(fCoinControlFeatures);
             break;
+        case Prune:
+            if (settings.value("bPrune") != value) {
+                settings.setValue("bPrune", value);
+                setRestartRequired(true);
+            }
+            break;
+        case PruneSize:
+            if (settings.value("nPruneSize") != value) {
+                settings.setValue("nPruneSize", value);
+                setRestartRequired(true);
+            }
+            break;
         case DatabaseCache:
             if (settings.value("nDatabaseCache") != value) {
                 settings.setValue("nDatabaseCache", value);
@@ -484,5 +517,17 @@ void OptionsModel::checkAndMigrate()
             settings.setValue("nDatabaseCache", (qint64)nDefaultDbCache);
 
         settings.setValue(strSettingsVersionKey, CLIENT_VERSION);
+    }
+
+    // Overwrite the 'addrProxy' setting in case it has been set to an illegal
+    // default value (see issue #12623; PR #12650).
+    if (settings.contains("addrProxy") && settings.value("addrProxy").toString().endsWith("%2")) {
+        settings.setValue("addrProxy", GetDefaultProxyAddress());
+    }
+
+    // Overwrite the 'addrSeparateProxyTor' setting in case it has been set to an illegal
+    // default value (see issue #12623; PR #12650).
+    if (settings.contains("addrSeparateProxyTor") && settings.value("addrSeparateProxyTor").toString().endsWith("%2")) {
+        settings.setValue("addrSeparateProxyTor", GetDefaultProxyAddress());
     }
 }

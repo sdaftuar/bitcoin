@@ -111,7 +111,7 @@ void printTime(int64_t timestamp)
     int64_t ts = timestamp / 1000000;
     int micros = timestamp % 1000000;
 
-    printf("%s.%d ", DateTimeStrFormat("%Y%m%d %H:%M:%S", ts).c_str(), micros);
+    printf("%s.%d ", FormatISO8601DateTime(ts).c_str(), micros);
 }
 
 void print(TxEvent &txEvent)

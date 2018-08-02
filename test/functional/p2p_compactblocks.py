@@ -12,7 +12,8 @@ from test_framework.mininode import *
 from test_framework.test_framework import BitcoinTestFramework
 from test_framework.util import *
 from test_framework.blocktools import create_block, create_coinbase, add_witness_commitment
-from test_framework.script import CScript, OP_TRUE
+from test_framework.script import CScript, OP_TRUE, OP_DROP
+
 
 # TestP2PConn: A peer we use to send messages to bitcoind, and store responses.
 class TestP2PConn(P2PInterface):
@@ -86,7 +87,7 @@ class TestP2PConn(P2PInterface):
         This is used when we want to send a message into the node that we expect
         will get us disconnected, eg an invalid block."""
         self.send_message(message)
-        wait_until(lambda: self.state != "connected", timeout=timeout, lock=mininode_lock)
+        wait_until(lambda: not self.is_connected, timeout=timeout, lock=mininode_lock)
 
 class CompactBlocksTest(BitcoinTestFramework):
     def set_test_params(self):
@@ -423,7 +424,7 @@ class CompactBlocksTest(BitcoinTestFramework):
         for i in range(num_transactions):
             tx = CTransaction()
             tx.vin.append(CTxIn(COutPoint(utxo[0], utxo[1]), b''))
-            tx.vout.append(CTxOut(utxo[2] - 1000, CScript([OP_TRUE])))
+            tx.vout.append(CTxOut(utxo[2] - 1000, CScript([OP_TRUE, OP_DROP] * 15 + [OP_TRUE])))
             tx.rehash()
             utxo = [tx.sha256, 0, tx.vout[0].nValue]
             block.vtx.append(tx)
@@ -787,12 +788,10 @@ class CompactBlocksTest(BitcoinTestFramework):
         assert_equal(int(node.getbestblockhash(), 16), block.sha256)
 
     def run_test(self):
-        # Setup the p2p connections and start up the network thread.
+        # Setup the p2p connections
         self.test_node = self.nodes[0].add_p2p_connection(TestP2PConn())
         self.segwit_node = self.nodes[1].add_p2p_connection(TestP2PConn(), services=NODE_NETWORK|NODE_WITNESS)
         self.old_node = self.nodes[1].add_p2p_connection(TestP2PConn(), services=NODE_NETWORK)
-
-        network_thread_start()
 
         self.test_node.wait_for_verack()
 

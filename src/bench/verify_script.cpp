@@ -9,6 +9,7 @@
 #endif
 #include <script/script.h>
 #include <script/sign.h>
+#include <script/standard.h>
 #include <streams.h>
 
 #include <array>
@@ -71,7 +72,7 @@ static void VerifyScriptBench(benchmark::State& state)
     CScript scriptPubKey = CScript() << witnessversion << ToByteVector(pubkeyHash);
     CScript scriptSig;
     CScript witScriptPubkey = CScript() << OP_DUP << OP_HASH160 << ToByteVector(pubkeyHash) << OP_EQUALVERIFY << OP_CHECKSIG;
-    CTransaction txCredit = BuildCreditingTransaction(scriptPubKey);
+    const CMutableTransaction& txCredit = BuildCreditingTransaction(scriptPubKey);
     CMutableTransaction txSpend = BuildSpendingTransaction(scriptSig, txCredit);
     CScriptWitness& witness = txSpend.vin[0].scriptWitness;
     witness.stack.emplace_back();

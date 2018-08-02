@@ -9,6 +9,8 @@
 #include <consensus/validation.h>
 #include <interfaces/handler.h>
 #include <net.h>
+#include <policy/feerate.h>
+#include <policy/fees.h>
 #include <policy/policy.h>
 #include <primitives/transaction.h>
 #include <script/ismine.h>
@@ -20,6 +22,7 @@
 #include <uint256.h>
 #include <validation.h>
 #include <wallet/feebumper.h>
+#include <wallet/fees.h>
 #include <wallet/wallet.h>
 
 namespace interfaces {
@@ -87,10 +90,9 @@ WalletTxStatus MakeWalletTxStatus(const CWalletTx& wtx)
     WalletTxStatus result;
     auto mi = ::mapBlockIndex.find(wtx.hashBlock);
     CBlockIndex* block = mi != ::mapBlockIndex.end() ? mi->second : nullptr;
-    result.block_height = (block ? block->nHeight : std::numeric_limits<int>::max()),
+    result.block_height = (block ? block->nHeight : std::numeric_limits<int>::max());
     result.blocks_to_maturity = wtx.GetBlocksToMaturity();
     result.depth_in_main_chain = wtx.GetDepthInMainChain();
-    result.request_count = wtx.GetRequestCount();
     result.time_received = wtx.nTimeReceived;
     result.lock_time = wtx.tx->nLockTime;
     result.is_final = CheckFinalTx(*wtx.tx);
@@ -115,7 +117,7 @@ WalletTxOut MakeWalletTxOut(CWallet& wallet, const CWalletTx& wtx, int n, int de
 class WalletImpl : public Wallet
 {
 public:
-    WalletImpl(CWallet& wallet) : m_wallet(wallet) {}
+    WalletImpl(const std::shared_ptr<CWallet>& wallet) : m_shared_wallet(wallet), m_wallet(*wallet.get()) {}
 
     bool encryptWallet(const SecureString& wallet_passphrase) override
     {
@@ -130,6 +132,7 @@ public:
     {
         return m_wallet.ChangeWalletPassphrase(old_wallet_passphrase, new_wallet_passphrase);
     }
+    void abortRescan() override { m_wallet.AbortRescan(); }
     bool backupWallet(const std::string& filename) override { return m_wallet.BackupWallet(filename); }
     std::string getWalletName() override { return m_wallet.GetName(); }
     bool getKeyFromPool(bool internal, CPubKey& pub_key) override
@@ -148,7 +151,10 @@ public:
     {
         return m_wallet.DelAddressBook(dest);
     }
-    bool getAddress(const CTxDestination& dest, std::string* name, isminetype* is_mine) override
+    bool getAddress(const CTxDestination& dest,
+        std::string* name,
+        isminetype* is_mine,
+        std::string* purpose) override
     {
         LOCK(m_wallet.cs_wallet);
         auto it = m_wallet.mapAddressBook.find(dest);
@@ -160,6 +166,9 @@ public:
         }
         if (is_mine) {
             *is_mine = IsMine(m_wallet, dest);
+        }
+        if (purpose) {
+            *purpose = it->second.purpose;
         }
         return true;
     }
@@ -329,7 +338,7 @@ public:
         result.immature_balance = m_wallet.GetImmatureBalance();
         result.have_watch_only = m_wallet.HaveWatchOnly();
         if (result.have_watch_only) {
-            result.watch_only_balance = m_wallet.GetWatchOnlyBalance();
+            result.watch_only_balance = m_wallet.GetBalance(ISMINE_WATCH_ONLY);
             result.unconfirmed_watch_only_balance = m_wallet.GetUnconfirmedWatchOnlyBalance();
             result.immature_watch_only_balance = m_wallet.GetImmatureWatchOnlyBalance();
         }
@@ -402,9 +411,28 @@ public:
         }
         return result;
     }
+    CAmount getRequiredFee(unsigned int tx_bytes) override { return GetRequiredFee(m_wallet, tx_bytes); }
+    CAmount getMinimumFee(unsigned int tx_bytes,
+        const CCoinControl& coin_control,
+        int* returned_target,
+        FeeReason* reason) override
+    {
+        FeeCalculation fee_calc;
+        CAmount result;
+        result = GetMinimumFee(m_wallet, tx_bytes, coin_control, ::mempool, ::feeEstimator, &fee_calc);
+        if (returned_target) *returned_target = fee_calc.returnedTarget;
+        if (reason) *reason = fee_calc.reason;
+        return result;
+    }
+    unsigned int getConfirmTarget() override { return m_wallet.m_confirm_target; }
     bool hdEnabled() override { return m_wallet.IsHDEnabled(); }
+    bool IsWalletFlagSet(uint64_t flag) override { return m_wallet.IsWalletFlagSet(flag); }
     OutputType getDefaultAddressType() override { return m_wallet.m_default_address_type; }
     OutputType getDefaultChangeType() override { return m_wallet.m_default_change_type; }
+    std::unique_ptr<Handler> handleUnload(UnloadFn fn) override
+    {
+        return MakeHandler(m_wallet.NotifyUnload.connect(fn));
+    }
     std::unique_ptr<Handler> handleShowProgress(ShowProgressFn fn) override
     {
         return MakeHandler(m_wallet.ShowProgress.connect(fn));
@@ -422,18 +450,19 @@ public:
     std::unique_ptr<Handler> handleTransactionChanged(TransactionChangedFn fn) override
     {
         return MakeHandler(m_wallet.NotifyTransactionChanged.connect(
-            [fn, this](CWallet*, const uint256& txid, ChangeType status) { fn(txid, status); }));
+            [fn](CWallet*, const uint256& txid, ChangeType status) { fn(txid, status); }));
     }
     std::unique_ptr<Handler> handleWatchOnlyChanged(WatchOnlyChangedFn fn) override
     {
         return MakeHandler(m_wallet.NotifyWatchonlyChanged.connect(fn));
     }
 
+    std::shared_ptr<CWallet> m_shared_wallet;
     CWallet& m_wallet;
 };
 
 } // namespace
 
-std::unique_ptr<Wallet> MakeWallet(CWallet& wallet) { return MakeUnique<WalletImpl>(wallet); }
+std::unique_ptr<Wallet> MakeWallet(const std::shared_ptr<CWallet>& wallet) { return MakeUnique<WalletImpl>(wallet); }
 
 } // namespace interfaces

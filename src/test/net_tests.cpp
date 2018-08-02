@@ -63,7 +63,7 @@ public:
     }
 };
 
-CDataStream AddrmanToStream(CAddrManSerializationMock& _addrman)
+static CDataStream AddrmanToStream(CAddrManSerializationMock& _addrman)
 {
     CDataStream ssPeersIn(SER_DISK, CLIENT_VERSION);
     ssPeersIn << Params().MessageStart();
@@ -89,6 +89,7 @@ BOOST_AUTO_TEST_CASE(cnode_listen_port)
 
 BOOST_AUTO_TEST_CASE(caddrdb_read)
 {
+    SetDataDir("caddrdb_read");
     CAddrManUncorrupted addrmanUncorrupted;
     addrmanUncorrupted.MakeDeterministic();
 
@@ -134,6 +135,7 @@ BOOST_AUTO_TEST_CASE(caddrdb_read)
 
 BOOST_AUTO_TEST_CASE(caddrdb_read_corrupted)
 {
+    SetDataDir("caddrdb_read_corrupted");
     CAddrManCorrupted addrmanCorrupted;
     addrmanCorrupted.MakeDeterministic();
 
@@ -171,7 +173,7 @@ BOOST_AUTO_TEST_CASE(cnode_simple_test)
 
     in_addr ipv4Addr;
     ipv4Addr.s_addr = 0xa0b0c001;
-    
+
     CAddress addr = CAddress(CService(ipv4Addr, 7777), NODE_NETWORK);
     std::string pszDest;
     bool fInboundIn = false;

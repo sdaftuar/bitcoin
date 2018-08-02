@@ -30,7 +30,7 @@ class TestP2PConn(P2PInterface):
         self.block_receive_map[message.block.sha256] += 1
 
 class MaxUploadTest(BitcoinTestFramework):
- 
+
     def set_test_params(self):
         self.setup_clean_chain = True
         self.num_nodes = 1
@@ -57,7 +57,6 @@ class MaxUploadTest(BitcoinTestFramework):
         for _ in range(3):
             p2p_conns.append(self.nodes[0].add_p2p_connection(TestP2PConn()))
 
-        network_thread_start()
         for p2pc in p2p_conns:
             p2pc.wait_for_verack()
 
@@ -100,7 +99,7 @@ class MaxUploadTest(BitcoinTestFramework):
             assert_equal(p2p_conns[0].block_receive_map[big_old_block], i+1)
 
         assert_equal(len(self.nodes[0].getpeerinfo()), 3)
-        # At most a couple more tries should succeed (depending on how long 
+        # At most a couple more tries should succeed (depending on how long
         # the test has been running so far).
         for i in range(3):
             p2p_conns[0].send_message(getdata_request)
@@ -148,8 +147,6 @@ class MaxUploadTest(BitcoinTestFramework):
 
         # Reconnect to self.nodes[0]
         self.nodes[0].add_p2p_connection(TestP2PConn())
-
-        network_thread_start()
         self.nodes[0].p2p.wait_for_verack()
 
         #retrieve 20 blocks which should be enough to break the 1MB limit

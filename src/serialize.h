@@ -79,6 +79,11 @@ template<typename Stream> inline void ser_writedata16(Stream &s, uint16_t obj)
     obj = htole16(obj);
     s.write((char*)&obj, 2);
 }
+template<typename Stream> inline void ser_writedata16be(Stream &s, uint16_t obj)
+{
+    obj = htobe16(obj);
+    s.write((char*)&obj, 2);
+}
 template<typename Stream> inline void ser_writedata32(Stream &s, uint32_t obj)
 {
     obj = htole32(obj);
@@ -100,6 +105,12 @@ template<typename Stream> inline uint16_t ser_readdata16(Stream &s)
     uint16_t obj;
     s.read((char*)&obj, 2);
     return le16toh(obj);
+}
+template<typename Stream> inline uint16_t ser_readdata16be(Stream &s)
+{
+    uint16_t obj;
+    s.read((char*)&obj, 2);
+    return be16toh(obj);
 }
 template<typename Stream> inline uint32_t ser_readdata32(Stream &s)
 {
@@ -155,13 +166,18 @@ enum
     SER_GETHASH         = (1 << 2),
 };
 
-#define READWRITE(...)      (::SerReadWriteMany(s, ser_action, __VA_ARGS__))
+//! Convert the reference base type to X, without changing constness or reference type.
+template<typename X> X& ReadWriteAsHelper(X& x) { return x; }
+template<typename X> const X& ReadWriteAsHelper(const X& x) { return x; }
 
-/** 
+#define READWRITE(...) (::SerReadWriteMany(s, ser_action, __VA_ARGS__))
+#define READWRITEAS(type, obj) (::SerReadWriteMany(s, ser_action, ReadWriteAsHelper<type>(obj)))
+
+/**
  * Implement three methods for serializable objects. These are actually wrappers over
  * "SerializationOp" template, which implements the body of each class' serialization
  * code. Adding "ADD_SERIALIZE_METHODS" in the body of the class causes these wrappers to be
- * added as members. 
+ * added as members.
  */
 #define ADD_SERIALIZE_METHODS                                         \
     template<typename Stream>                                         \
@@ -173,7 +189,9 @@ enum
         SerializationOp(s, CSerActionUnserialize());                  \
     }
 
+#ifndef CHAR_EQUALS_INT8
 template<typename Stream> inline void Serialize(Stream& s, char a    ) { ser_writedata8(s, a); } // TODO Get rid of bare char
+#endif
 template<typename Stream> inline void Serialize(Stream& s, int8_t a  ) { ser_writedata8(s, a); }
 template<typename Stream> inline void Serialize(Stream& s, uint8_t a ) { ser_writedata8(s, a); }
 template<typename Stream> inline void Serialize(Stream& s, int16_t a ) { ser_writedata16(s, a); }
@@ -189,7 +207,9 @@ template<typename Stream, int N> inline void Serialize(Stream& s, const unsigned
 template<typename Stream> inline void Serialize(Stream& s, const Span<const unsigned char>& span) { s.write(CharCast(span.data()), span.size()); }
 template<typename Stream> inline void Serialize(Stream& s, const Span<unsigned char>& span) { s.write(CharCast(span.data()), span.size()); }
 
+#ifndef CHAR_EQUALS_INT8
 template<typename Stream> inline void Unserialize(Stream& s, char& a    ) { a = ser_readdata8(s); } // TODO Get rid of bare char
+#endif
 template<typename Stream> inline void Unserialize(Stream& s, int8_t& a  ) { a = ser_readdata8(s); }
 template<typename Stream> inline void Unserialize(Stream& s, uint8_t& a ) { a = ser_readdata8(s); }
 template<typename Stream> inline void Unserialize(Stream& s, int16_t& a ) { a = ser_readdata16(s); }
@@ -292,16 +312,16 @@ uint64_t ReadCompactSize(Stream& is)
  * sure the encoding is one-to-one, one is subtracted from all but the last digit.
  * Thus, the byte sequence a[] with length len, where all but the last byte
  * has bit 128 set, encodes the number:
- * 
+ *
  *  (a[len-1] & 0x7F) + sum(i=1..len-1, 128^i*((a[len-i-1] & 0x7F)+1))
- * 
+ *
  * Properties:
  * * Very small (0-127: 1 byte, 128-16511: 2 bytes, 16512-2113663: 3 bytes)
  * * Every integer has exactly one encoding
  * * Encoding does not depend on size of original integer type
  * * No redundancy: every (infinite) byte sequence corresponds to a list
  *   of encoded integers.
- * 
+ *
  * 0:         [0x00]  256:        [0x81 0x00]
  * 1:         [0x01]  16383:      [0xFE 0x7F]
  * 127:       [0x7F]  16384:      [0xFF 0x00]
@@ -411,6 +431,40 @@ public:
     }
 };
 
+/** Serialization wrapper class for big-endian integers.
+ *
+ * Use this wrapper around integer types that are stored in memory in native
+ * byte order, but serialized in big endian notation. This is only intended
+ * to implement serializers that are compatible with existing formats, and
+ * its use is not recommended for new data structures.
+ *
+ * Only 16-bit types are supported for now.
+ */
+template<typename I>
+class BigEndian
+{
+protected:
+    I& m_val;
+public:
+    explicit BigEndian(I& val) : m_val(val)
+    {
+        static_assert(std::is_unsigned<I>::value, "BigEndian type must be unsigned integer");
+        static_assert(sizeof(I) == 2 && std::numeric_limits<I>::min() == 0 && std::numeric_limits<I>::max() == std::numeric_limits<uint16_t>::max(), "Unsupported BigEndian size");
+    }
+
+    template<typename Stream>
+    void Serialize(Stream& s) const
+    {
+        ser_writedata16be(s, m_val);
+    }
+
+    template<typename Stream>
+    void Unserialize(Stream& s)
+    {
+        m_val = ser_readdata16be(s);
+    }
+};
+
 class CCompactSize
 {
 protected:
@@ -460,6 +514,9 @@ public:
 
 template<VarIntMode Mode=VarIntMode::DEFAULT, typename I>
 CVarInt<Mode, I> WrapVarInt(I& n) { return CVarInt<Mode, I>{n}; }
+
+template<typename I>
+BigEndian<I> WrapBigEndian(I& n) { return BigEndian<I>(n); }
 
 /**
  * Forward declarations
@@ -932,6 +989,14 @@ template <typename S, typename T>
 size_t GetSerializeSize(const S& s, const T& t)
 {
     return (CSizeComputer(s.GetType(), s.GetVersion()) << t).size();
+}
+
+template <typename S, typename... T>
+size_t GetSerializeSizeMany(const S& s, const T&... t)
+{
+    CSizeComputer sc(s.GetType(), s.GetVersion());
+    SerializeMany(sc, t...);
+    return sc.size();
 }
 
 #endif // BITCOIN_SERIALIZE_H

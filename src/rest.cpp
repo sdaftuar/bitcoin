@@ -6,6 +6,7 @@
 #include <chain.h>
 #include <chainparams.h>
 #include <core_io.h>
+#include <index/txindex.h>
 #include <primitives/block.h>
 #include <primitives/transaction.h>
 #include <validation.h>
@@ -32,7 +33,7 @@ enum class RetFormat {
 };
 
 static const struct {
-    enum RetFormat rf;
+    RetFormat rf;
     const char* name;
 } rf_names[] = {
       {RetFormat::UNDEF, ""},
@@ -67,7 +68,7 @@ static bool RESTERR(HTTPRequest* req, enum HTTPStatusCode status, std::string me
     return false;
 }
 
-static enum RetFormat ParseDataFormat(std::string& param, const std::string& strReq)
+static RetFormat ParseDataFormat(std::string& param, const std::string& strReq)
 {
     const std::string::size_type pos = strReq.rfind('.');
     if (pos == std::string::npos)
@@ -216,7 +217,7 @@ static bool rest_block(HTTPRequest* req,
             return RESTERR(req, HTTP_NOT_FOUND, hashStr + " not found");
         }
 
-        if (fHavePruned && !(pblockindex->nStatus & BLOCK_HAVE_DATA) && pblockindex->nTx > 0)
+        if (IsBlockPruned(pblockindex))
             return RESTERR(req, HTTP_NOT_FOUND, hashStr + " not available (pruned data)");
 
         if (!ReadBlockFromDisk(block, pblockindex, Params().GetConsensus()))
@@ -349,6 +350,10 @@ static bool rest_tx(HTTPRequest* req, const std::string& strURIPart)
     uint256 hash;
     if (!ParseHashStr(hashStr, hash))
         return RESTERR(req, HTTP_BAD_REQUEST, "Invalid hash: " + hashStr);
+
+    if (g_txindex) {
+        g_txindex->BlockUntilSyncedToCurrentChain();
+    }
 
     CTransactionRef tx;
     uint256 hashBlock = uint256();

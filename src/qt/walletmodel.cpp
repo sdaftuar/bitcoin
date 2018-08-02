@@ -274,7 +274,8 @@ WalletModel::SendCoinsReturn WalletModel::sendCoins(WalletModelTransaction &tran
             {
                 // Check if we have a new address or an updated label
                 std::string name;
-                if (!m_wallet->getAddress(dest, &name))
+                if (!m_wallet->getAddress(
+                     dest, &name, /* is_mine= */ nullptr, /* purpose= */ nullptr))
                 {
                     m_wallet->setAddressBook(dest, strLabel, "send");
                 }
@@ -363,6 +364,12 @@ bool WalletModel::changePassphrase(const SecureString &oldPass, const SecureStri
 }
 
 // Handlers for core signals
+static void NotifyUnload(WalletModel* walletModel)
+{
+    qDebug() << "NotifyUnload";
+    QMetaObject::invokeMethod(walletModel, "unload", Qt::QueuedConnection);
+}
+
 static void NotifyKeyStoreStatusChanged(WalletModel *walletmodel)
 {
     qDebug() << "NotifyKeyStoreStatusChanged";
@@ -410,6 +417,7 @@ static void NotifyWatchonlyChanged(WalletModel *walletmodel, bool fHaveWatchonly
 void WalletModel::subscribeToCoreSignals()
 {
     // Connect signals to wallet
+    m_handler_unload = m_wallet->handleUnload(boost::bind(&NotifyUnload, this));
     m_handler_status_changed = m_wallet->handleStatusChanged(boost::bind(&NotifyKeyStoreStatusChanged, this));
     m_handler_address_book_changed = m_wallet->handleAddressBookChanged(boost::bind(NotifyAddressBookChanged, this, _1, _2, _3, _4, _5));
     m_handler_transaction_changed = m_wallet->handleTransactionChanged(boost::bind(NotifyTransactionChanged, this, _1, _2));
@@ -420,6 +428,7 @@ void WalletModel::subscribeToCoreSignals()
 void WalletModel::unsubscribeFromCoreSignals()
 {
     // Disconnect signals from wallet
+    m_handler_unload->disconnect();
     m_handler_status_changed->disconnect();
     m_handler_address_book_changed->disconnect();
     m_handler_transaction_changed->disconnect();
@@ -486,7 +495,7 @@ bool WalletModel::saveReceiveRequest(const std::string &sAddress, const int64_t 
 bool WalletModel::bumpFee(uint256 hash)
 {
     CCoinControl coin_control;
-    coin_control.signalRbf = true;
+    coin_control.m_signal_bip125_rbf = true;
     std::vector<std::string> errors;
     CAmount old_fee;
     CAmount new_fee;
@@ -547,6 +556,11 @@ bool WalletModel::bumpFee(uint256 hash)
 bool WalletModel::isWalletEnabled()
 {
    return !gArgs.GetBoolArg("-disablewallet", DEFAULT_DISABLE_WALLET);
+}
+
+bool WalletModel::privateKeysDisabled() const
+{
+    return m_wallet->IsWalletFlagSet(WALLET_FLAG_DISABLE_PRIVATE_KEYS);
 }
 
 QString WalletModel::getWalletName() const
