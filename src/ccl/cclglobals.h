@@ -21,7 +21,6 @@ using namespace std;
  * A container object for (unmerged CCL) global data structures.
  *
  * Usage: Create a CCLGlobals at startup.
- *           * Call UpdateUsage for bitcoind options unique to ccl
  *           * Call Init to instantiate ccl datastructures with cmd line options
  *           * Call Run (for sim mode -- returns false if no sim started)
  *           * Call Shutdown to cleanup at process shutdown
@@ -35,7 +34,7 @@ public:
     ~CCLGlobals();
 
     // Global stuff -- for using the class at all
-    void UpdateUsage(string &strUsage);
+    void SetupArgs();
     bool Init();
     bool IsSim(); // true if running in historical sim mode
     bool Run(boost::thread_group &threadGroup);

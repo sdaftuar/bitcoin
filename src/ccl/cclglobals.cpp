@@ -18,25 +18,19 @@ CCLGlobals::CCLGlobals()
 {
 }
 
+void CCLGlobals::SetupArgs()
+{
+    gArgs.AddArg("-dlogdir=<dir>", "Turn on data logging to specified output directory", false, OptionsCategory::CCL);
+    gArgs.AddArg("-simulation", "Sim mode! Don't call add networking threads to threadgroup", false, OptionsCategory::CCL);
+    gArgs.AddArg("-simdatadir=<dir>","For simulations: specify data directory (default: /chaincode/data/)", false, OptionsCategory::CCL);
+    gArgs.AddArg("-start=<YYYYMMDD>", "For simulations: start date", false, OptionsCategory::CCL);
+    gArgs.AddArg("-end=<YYYYMMDD>", "For simulations: end date (defaults to start date)", false, OptionsCategory::CCL);
+    gArgs.AddArg("-loadmempool=[1/0]", "Turn on/off loading initial mempool (default: 0)", false, OptionsCategory::CCL);
+}
+
 CCLGlobals::~CCLGlobals()
 {
     LogPrintf("CCLGlobals: destructor\n");
-}
-
-void CCLGlobals::UpdateUsage(std::string &strUsage)
-{
-    strUsage += "\n" + _("CCL Options:") + "\n";
-
-    // DataLogger options
-    strUsage += "  -dlogdir=<dirname>      " + _("Turn on data logging to specified output directory") + "\n";
-
-    // Simulation options
-    strUsage += "  -simulation            " + _("Sim mode! Don't call add networking threads to threadgroup") + "\n";
-    strUsage += "      -simdatadir=<dir>  " + _("For simulations: specify data directory (default: /chaincode/data/)") + "\n";
-    strUsage += "      -start=<YYYYMMDD>  " + _("For simulations: start date") + "\n";
-    strUsage += "      -end=<YYYYMMDD>    " + _("For simulations: end date (defaults to start date)") + "\n";
-    strUsage += "      -loadmempool=[1/0] " + _("Turn on/off loading initial mempool (default: 0)") + "\n";
-
 }
 
 bool CCLGlobals::Init()

@@ -28,6 +28,7 @@ class PruneTest(BitcoinTestFramework):
     def set_test_params(self):
         self.setup_clean_chain = True
         self.num_nodes = 6
+        self.rpc_timewait = 900
 
         # Create nodes 0 and 1 to mine.
         # Create node 2 to test pruning.
@@ -54,7 +55,7 @@ class PruneTest(BitcoinTestFramework):
         sync_blocks(self.nodes[0:5])
 
     def setup_nodes(self):
-        self.add_nodes(self.num_nodes, self.extra_args, timewait=900)
+        self.add_nodes(self.num_nodes, self.extra_args)
         self.start_nodes()
 
     def create_big_chain(self):
@@ -124,7 +125,7 @@ class PruneTest(BitcoinTestFramework):
         # Reboot node 1 to clear its mempool (hopefully make the invalidate faster)
         # Lower the block max size so we don't keep mining all our big mempool transactions (from disconnected blocks)
         self.stop_node(1)
-        self.start_node(1, extra_args=["-maxreceivebuffer=20000","-blockmaxweight=20000", "-checkblocks=5", "-disablesafemode"])
+        self.start_node(1, extra_args=["-maxreceivebuffer=20000","-blockmaxweight=20000", "-checkblocks=5"])
 
         height = self.nodes[1].getblockcount()
         self.log.info("Current block height: %d" % height)
@@ -147,7 +148,7 @@ class PruneTest(BitcoinTestFramework):
 
         # Reboot node1 to clear those giant tx's from mempool
         self.stop_node(1)
-        self.start_node(1, extra_args=["-maxreceivebuffer=20000","-blockmaxweight=20000", "-checkblocks=5", "-disablesafemode"])
+        self.start_node(1, extra_args=["-maxreceivebuffer=20000","-blockmaxweight=20000", "-checkblocks=5"])
 
         self.log.info("Generating new longer chain of 300 more blocks")
         self.nodes[1].generate(300)
@@ -260,9 +261,16 @@ class PruneTest(BitcoinTestFramework):
         # should not prune because chain tip of node 3 (995) < PruneAfterHeight (1000)
         assert_raises_rpc_error(-1, "Blockchain is too short for pruning", node.pruneblockchain, height(500))
 
+        # Save block transaction count before pruning, assert value
+        block1_details = node.getblock(node.getblockhash(1))
+        assert_equal(block1_details["nTx"], len(block1_details["tx"]))
+
         # mine 6 blocks so we are at height 1001 (i.e., above PruneAfterHeight)
         node.generate(6)
         assert_equal(node.getblockchaininfo()["blocks"], 1001)
+
+        # Pruned block should still know the number of transactions
+        assert_equal(node.getblockheader(node.getblockhash(1))["nTx"], block1_details["nTx"])
 
         # negative heights should raise an exception
         assert_raises_rpc_error(-8, "Negative", node.pruneblockchain, -10)

@@ -197,6 +197,7 @@ public:
     bool bumpFee(uint256 hash);
 
     static bool isWalletEnabled();
+    bool privateKeysDisabled() const;
 
     interfaces::Node& node() const { return m_node; }
     interfaces::Wallet& wallet() const { return *m_wallet; }
@@ -204,8 +205,11 @@ public:
     QString getWalletName() const;
 
     bool isMultiwallet();
+
+    AddressTableModel* getAddressTableModel() const { return addressTableModel; }
 private:
     std::unique_ptr<interfaces::Wallet> m_wallet;
+    std::unique_ptr<interfaces::Handler> m_handler_unload;
     std::unique_ptr<interfaces::Handler> m_handler_status_changed;
     std::unique_ptr<interfaces::Handler> m_handler_address_book_changed;
     std::unique_ptr<interfaces::Handler> m_handler_transaction_changed;
@@ -258,6 +262,9 @@ Q_SIGNALS:
 
     // Watch-only address added
     void notifyWatchonlyChanged(bool fHaveWatchonly);
+
+    // Signal that wallet is about to be removed
+    void unload();
 
 public Q_SLOTS:
     /* Wallet status might have changed */

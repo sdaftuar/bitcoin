@@ -40,10 +40,6 @@
 #include <QTimer>
 #include <QStringList>
 
-#if QT_VERSION < 0x050000
-#include <QUrl>
-#endif
-
 // TODO: add a scrollback limit, as there is currently none
 // TODO: make it possible to filter out categories (esp debug messages when implemented)
 // TODO: receive errors and debug messages through ClientModel
@@ -70,6 +66,7 @@ namespace {
 const QStringList historyFilter = QStringList()
     << "importprivkey"
     << "importmulti"
+    << "sethdseed"
     << "signmessagewithprivkey"
     << "signrawtransaction"
     << "signrawtransactionwithkey"
@@ -311,7 +308,7 @@ bool RPCConsole::RPCParseCommandLine(interfaces::Node* node, std::string &strRes
                             std::string method = stack.back()[0];
                             std::string uri;
 #ifdef ENABLE_WALLET
-                            if (walletID && !walletID->empty()) {
+                            if (walletID) {
                                 QByteArray encodedName = QUrl::toPercentEncoding(QString::fromStdString(*walletID));
                                 uri = "/wallet/"+std::string(encodedName.constData(), encodedName.length());
                             }
@@ -424,7 +421,7 @@ void RPCExecutor::request(const QString &command, const QString &walletID)
             return;
         }
         std::string wallet_id = walletID.toStdString();
-        if(!RPCConsole::RPCExecuteCommandLine(m_node, result, executableCommand, nullptr, &wallet_id))
+        if (!RPCConsole::RPCExecuteCommandLine(m_node, result, executableCommand, nullptr, walletID.isNull() ? nullptr : &wallet_id))
         {
             Q_EMIT reply(RPCConsole::CMD_ERROR, QString("Parse error: unbalanced ' or \""));
             return;
@@ -455,12 +452,7 @@ RPCConsole::RPCConsole(interfaces::Node& node, const PlatformStyle *_platformSty
     QWidget(parent),
     m_node(node),
     ui(new Ui::RPCConsole),
-    clientModel(0),
-    historyPtr(0),
-    platformStyle(_platformStyle),
-    peersTableContextMenu(0),
-    banTableContextMenu(0),
-    consoleFontSize(0)
+    platformStyle(_platformStyle)
 {
     ui->setupUi(this);
     QSettings settings;
@@ -706,7 +698,8 @@ void RPCConsole::addWallet(WalletModel * const walletModel)
 {
     const QString name = walletModel->getWalletName();
     // use name for text and internal data object (to allow to move to a wallet id later)
-    ui->WalletSelector->addItem(name, name);
+    QString display_name = name.isEmpty() ? "["+tr("default wallet")+"]" : name;
+    ui->WalletSelector->addItem(display_name, name);
     if (ui->WalletSelector->count() == 2 && !isVisible()) {
         // First wallet added, set to default so long as the window isn't presently visible (and potentially in use)
         ui->WalletSelector->setCurrentIndex(1);
@@ -714,6 +707,16 @@ void RPCConsole::addWallet(WalletModel * const walletModel)
     if (ui->WalletSelector->count() > 2) {
         ui->WalletSelector->setVisible(true);
         ui->WalletSelectorLabel->setVisible(true);
+    }
+}
+
+void RPCConsole::removeWallet(WalletModel * const walletModel)
+{
+    const QString name = walletModel->getWalletName();
+    ui->WalletSelector->removeItem(ui->WalletSelector->findData(name));
+    if (ui->WalletSelector->count() == 2) {
+        ui->WalletSelector->setVisible(false);
+        ui->WalletSelectorLabel->setVisible(false);
     }
 }
 #endif
@@ -913,7 +916,7 @@ void RPCConsole::on_lineEdit_returnPressed()
         }
 
         if (m_last_wallet_id != walletID) {
-            if (walletID.isEmpty()) {
+            if (walletID.isNull()) {
                 message(CMD_REQUEST, tr("Executing command without any wallet"));
             } else {
                 message(CMD_REQUEST, tr("Executing command using \"%1\" wallet").arg(walletID));

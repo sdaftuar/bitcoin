@@ -6,7 +6,7 @@
 #define BITCOIN_INTERFACES_WALLET_H
 
 #include <amount.h>                    // For CAmount
-#include <pubkey.h>                    // For CTxDestination (CKeyID and CScriptID)
+#include <pubkey.h>                    // For CKeyID and CScriptID (definitions needed in CTxDestination instantiation)
 #include <script/ismine.h>             // For isminefilter, isminetype
 #include <script/standard.h>           // For CTxDestination
 #include <support/allocators/secure.h> // For SecureString
@@ -22,8 +22,10 @@
 #include <vector>
 
 class CCoinControl;
+class CFeeRate;
 class CKey;
 class CWallet;
+enum class FeeReason;
 enum class OutputType;
 struct CRecipient;
 
@@ -97,8 +99,9 @@ public:
 
     //! Look up address in wallet, return whether exists.
     virtual bool getAddress(const CTxDestination& dest,
-        std::string* name = nullptr,
-        isminetype* is_mine = nullptr) = 0;
+        std::string* name,
+        isminetype* is_mine,
+        std::string* purpose) = 0;
 
     //! Get wallet address list.
     virtual std::vector<WalletAddress> getAddresses() = 0;
@@ -218,14 +221,33 @@ public:
     //! Return wallet transaction output information.
     virtual std::vector<WalletTxOut> getCoins(const std::vector<COutPoint>& outputs) = 0;
 
+    //! Get required fee.
+    virtual CAmount getRequiredFee(unsigned int tx_bytes) = 0;
+
+    //! Get minimum fee.
+    virtual CAmount getMinimumFee(unsigned int tx_bytes,
+        const CCoinControl& coin_control,
+        int* returned_target,
+        FeeReason* reason) = 0;
+
+    //! Get tx confirm target.
+    virtual unsigned int getConfirmTarget() = 0;
+
     // Return whether HD enabled.
     virtual bool hdEnabled() = 0;
+
+    // check if a certain wallet flag is set.
+    virtual bool IsWalletFlagSet(uint64_t flag) = 0;
 
     // Get default address type.
     virtual OutputType getDefaultAddressType() = 0;
 
     // Get default change type.
     virtual OutputType getDefaultChangeType() = 0;
+
+    //! Register handler for unload message.
+    using UnloadFn = std::function<void()>;
+    virtual std::unique_ptr<Handler> handleUnload(UnloadFn fn) = 0;
 
     //! Register handler for show progress messages.
     using ShowProgressFn = std::function<void(const std::string& title, int progress)>;
@@ -327,7 +349,6 @@ struct WalletTxStatus
     int block_height;
     int blocks_to_maturity;
     int depth_in_main_chain;
-    int request_count;
     unsigned int time_received;
     uint32_t lock_time;
     bool is_final;
@@ -348,7 +369,7 @@ struct WalletTxOut
 
 //! Return implementation of Wallet interface. This function will be undefined
 //! in builds where ENABLE_WALLET is false.
-std::unique_ptr<Wallet> MakeWallet(CWallet& wallet);
+std::unique_ptr<Wallet> MakeWallet(const std::shared_ptr<CWallet>& wallet);
 
 } // namespace interfaces
 

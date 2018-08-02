@@ -8,6 +8,7 @@
 #include "consensus/validation.h"
 #include "primitives/transaction.h"
 #include "primitives/block.h"
+#include "shutdown.h"
 #include "util.h"
 
 #include <string>

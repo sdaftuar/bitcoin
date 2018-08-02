@@ -21,6 +21,7 @@
 #include <primitives/block.h>
 #include <rpc/server.h>
 #include <scheduler.h>
+#include <shutdown.h>
 #include <sync.h>
 #include <txmempool.h>
 #include <ui_interface.h>
@@ -48,11 +49,11 @@ namespace {
 
 class NodeImpl : public Node
 {
-    void parseParameters(int argc, const char* const argv[]) override
+    bool parseParameters(int argc, const char* const argv[], std::string& error) override
     {
-        gArgs.ParseParameters(argc, argv);
+        return gArgs.ParseParameters(argc, argv, error);
     }
-    void readConfigFile(const std::string& conf_path) override { gArgs.ReadConfigFile(conf_path); }
+    bool readConfigFiles(std::string& error) override { return gArgs.ReadConfigFiles(error, true); }
     bool softSetArg(const std::string& arg, const std::string& value) override { return gArgs.SoftSetArg(arg, value); }
     bool softSetBoolArg(const std::string& arg, bool value) override { return gArgs.SoftSetBoolArg(arg, value); }
     void selectParams(const std::string& network) override { SelectParams(network); }
@@ -60,7 +61,7 @@ class NodeImpl : public Node
     void initLogging() override { InitLogging(); }
     void initParameterInteraction() override { InitParameterInteraction(); }
     std::string getWarnings(const std::string& type) override { return GetWarnings(type); }
-    uint32_t getLogCategories() override { return ::logCategories; }
+    uint32_t getLogCategories() override { return g_logger->GetCategoryMask(); }
     bool baseInitialize() override
     {
         return AppInitBasicSetup() && AppInitParameterInteraction() && AppInitSanityChecks() &&
@@ -83,7 +84,7 @@ class NodeImpl : public Node
             StopMapPort();
         }
     }
-    std::string helpMessage(HelpMessageMode mode) override { return HelpMessage(mode); }
+    void setupServerArgs() override { return SetupServerArgs(); }
     bool getProxy(Network net, proxyType& proxy_info) override { return GetProxy(net, proxy_info); }
     size_t getNodeCount(CConnman::NumConnections flags) override
     {
@@ -191,20 +192,6 @@ class NodeImpl : public Node
         }
     }
     bool getNetworkActive() override { return g_connman && g_connman->GetNetworkActive(); }
-    unsigned int getTxConfirmTarget() override { CHECK_WALLET(return ::nTxConfirmTarget); }
-    CAmount getRequiredFee(unsigned int tx_bytes) override { CHECK_WALLET(return GetRequiredFee(tx_bytes)); }
-    CAmount getMinimumFee(unsigned int tx_bytes,
-        const CCoinControl& coin_control,
-        int* returned_target,
-        FeeReason* reason) override
-    {
-        FeeCalculation fee_calc;
-        CAmount result;
-        CHECK_WALLET(result = GetMinimumFee(tx_bytes, coin_control, ::mempool, ::feeEstimator, &fee_calc));
-        if (returned_target) *returned_target = fee_calc.returnedTarget;
-        if (reason) *reason = fee_calc.reason;
-        return result;
-    }
     CAmount getMaxTxFee() override { return ::maxTxFee; }
     CFeeRate estimateSmartFee(int num_blocks, bool conservative, int* returned_target = nullptr) override
     {
@@ -216,9 +203,6 @@ class NodeImpl : public Node
         return result;
     }
     CFeeRate getDustRelayFee() override { return ::dustRelayFee; }
-    CFeeRate getFallbackFee() override { CHECK_WALLET(return CWallet::fallbackFee); }
-    CFeeRate getPayTxFee() override { CHECK_WALLET(return ::payTxFee); }
-    void setPayTxFee(CFeeRate rate) override { CHECK_WALLET(::payTxFee = rate); }
     UniValue executeRpc(const std::string& command, const UniValue& params, const std::string& uri) override
     {
         JSONRPCRequest req;
@@ -239,8 +223,8 @@ class NodeImpl : public Node
     {
 #ifdef ENABLE_WALLET
         std::vector<std::unique_ptr<Wallet>> wallets;
-        for (CWalletRef wallet : ::vpwallets) {
-            wallets.emplace_back(MakeWallet(*wallet));
+        for (const std::shared_ptr<CWallet>& wallet : GetWallets()) {
+            wallets.emplace_back(MakeWallet(wallet));
         }
         return wallets;
 #else
@@ -266,7 +250,7 @@ class NodeImpl : public Node
     std::unique_ptr<Handler> handleLoadWallet(LoadWalletFn fn) override
     {
         CHECK_WALLET(
-            return MakeHandler(::uiInterface.LoadWallet.connect([fn](CWallet* wallet) { fn(MakeWallet(*wallet)); })));
+            return MakeHandler(::uiInterface.LoadWallet.connect([fn](std::shared_ptr<CWallet> wallet) { fn(MakeWallet(wallet)); })));
     }
     std::unique_ptr<Handler> handleNotifyNumConnectionsChanged(NotifyNumConnectionsChangedFn fn) override
     {

@@ -21,7 +21,8 @@ import argparse
 import hashlib
 import subprocess
 import sys
-import json,codecs
+import json
+import codecs
 try:
     from urllib.request import Request,urlopen
 except:
@@ -190,7 +191,7 @@ def main():
     merge_branch = 'pull/'+pull+'/merge'
     local_merge_branch = 'pull/'+pull+'/local-merge'
 
-    devnull = open(os.devnull,'w')
+    devnull = open(os.devnull, 'w', encoding="utf8")
     try:
         subprocess.check_call([GIT,'checkout','-q',branch])
     except subprocess.CalledProcessError:

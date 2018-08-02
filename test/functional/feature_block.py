@@ -20,7 +20,7 @@ from test_framework.messages import (
     uint256_from_compact,
     uint256_from_str,
 )
-from test_framework.mininode import P2PDataStore, network_thread_start, network_thread_join
+from test_framework.mininode import P2PDataStore
 from test_framework.script import (
     CScript,
     MAX_SCRIPT_ELEMENT_SIZE,
@@ -32,6 +32,7 @@ from test_framework.script import (
     OP_ELSE,
     OP_ENDIF,
     OP_EQUAL,
+    OP_DROP,
     OP_FALSE,
     OP_HASH160,
     OP_IF,
@@ -82,10 +83,7 @@ class FullBlockTest(BitcoinTestFramework):
     def run_test(self):
         node = self.nodes[0]  # convenience reference to the node
 
-        # reconnect_p2p() expects the network thread to be running
-        network_thread_start()
-
-        self.reconnect_p2p()
+        self.bootstrap_p2p()  # Add one p2p connection to the node
 
         self.block_heights = {}
         self.coinbase_key = CECKey()
@@ -1218,7 +1216,7 @@ class FullBlockTest(BitcoinTestFramework):
         block.vtx.extend(tx_list)
 
     # this is a little handier to use than the version in blocktools.py
-    def create_tx(self, spend_tx, n, value, script=CScript([OP_TRUE])):
+    def create_tx(self, spend_tx, n, value, script=CScript([OP_TRUE, OP_DROP] * 15 + [OP_TRUE])):
         return create_transaction(spend_tx, n, b"", value, script)
 
     # sign a transaction, using the key we know about
@@ -1296,17 +1294,26 @@ class FullBlockTest(BitcoinTestFramework):
         self.blocks[block_number] = block
         return block
 
-    def reconnect_p2p(self):
+    def bootstrap_p2p(self):
         """Add a P2P connection to the node.
+
+        Helper to connect and wait for version handshake."""
+        self.nodes[0].add_p2p_connection(P2PDataStore())
+        # We need to wait for the initial getheaders from the peer before we
+        # start populating our blockstore. If we don't, then we may run ahead
+        # to the next subtest before we receive the getheaders. We'd then send
+        # an INV for the next block and receive two getheaders - one for the
+        # IBD and one for the INV. We'd respond to both and could get
+        # unexpectedly disconnected if the DoS score for that error is 50.
+        self.nodes[0].p2p.wait_for_getheaders(timeout=5)
+
+    def reconnect_p2p(self):
+        """Tear down and bootstrap the P2P connection to the node.
 
         The node gets disconnected several times in this test. This helper
         method reconnects the p2p and restarts the network thread."""
-
-        network_thread_join()
         self.nodes[0].disconnect_p2ps()
-        self.nodes[0].add_p2p_connection(P2PDataStore())
-        network_thread_start()
-        self.nodes[0].p2p.wait_for_verack()
+        self.bootstrap_p2p()
 
     def sync_blocks(self, blocks, success=True, reject_code=None, reject_reason=None, request_block=True, reconnect=False, timeout=60):
         """Sends blocks to test node. Syncs and verifies that tip has advanced to most recent block.

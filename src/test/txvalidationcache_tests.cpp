@@ -24,7 +24,7 @@ bool CheckInputs(const CTransaction& tx, CValidationState &state, const CCoinsVi
 BOOST_AUTO_TEST_SUITE(tx_validationcache_tests)
 
 static bool
-ToMemPool(CMutableTransaction& tx)
+ToMemPool(const CMutableTransaction& tx)
 {
     LOCK(cs_main);
 
@@ -48,7 +48,7 @@ BOOST_FIXTURE_TEST_CASE(tx_mempool_block_doublespend, TestChain100Setup)
     {
         spends[i].nVersion = 1;
         spends[i].vin.resize(1);
-        spends[i].vin[0].prevout.hash = coinbaseTxns[0].GetHash();
+        spends[i].vin[0].prevout.hash = m_coinbase_txns[0]->GetHash();
         spends[i].vin[0].prevout.n = 0;
         spends[i].vout.resize(1);
         spends[i].vout[0].nValue = 11*CENT;
@@ -102,7 +102,7 @@ BOOST_FIXTURE_TEST_CASE(tx_mempool_block_doublespend, TestChain100Setup)
 // should fail.
 // Capture this interaction with the upgraded_nop argument: set it when evaluating
 // any script flag that is implemented as an upgraded NOP code.
-void ValidateCheckInputsForAllFlags(CMutableTransaction &tx, uint32_t failing_flags, bool add_to_cache)
+static void ValidateCheckInputsForAllFlags(const CTransaction &tx, uint32_t failing_flags, bool add_to_cache)
 {
     PrecomputedTransactionData txdata(tx);
     // If we add many more flags, this loop can get too expensive, but we can
@@ -167,7 +167,7 @@ BOOST_FIXTURE_TEST_CASE(checkinputs_test, TestChain100Setup)
 
     spend_tx.nVersion = 1;
     spend_tx.vin.resize(1);
-    spend_tx.vin[0].prevout.hash = coinbaseTxns[0].GetHash();
+    spend_tx.vin[0].prevout.hash = m_coinbase_txns[0]->GetHash();
     spend_tx.vin[0].prevout.n = 0;
     spend_tx.vout.resize(4);
     spend_tx.vout[0].nValue = 11*CENT;
@@ -315,7 +315,7 @@ BOOST_FIXTURE_TEST_CASE(checkinputs_test, TestChain100Setup)
         // Sign
         SignatureData sigdata;
         ProduceSignature(keystore, MutableTransactionSignatureCreator(&valid_with_witness_tx, 0, 11*CENT, SIGHASH_ALL), spend_tx.vout[1].scriptPubKey, sigdata);
-        UpdateTransaction(valid_with_witness_tx, 0, sigdata);
+        UpdateInput(valid_with_witness_tx.vin[0], sigdata);
 
         // This should be valid under all script flags.
         ValidateCheckInputsForAllFlags(valid_with_witness_tx, 0, true);
@@ -343,7 +343,7 @@ BOOST_FIXTURE_TEST_CASE(checkinputs_test, TestChain100Setup)
         for (int i=0; i<2; ++i) {
             SignatureData sigdata;
             ProduceSignature(keystore, MutableTransactionSignatureCreator(&tx, i, 11*CENT, SIGHASH_ALL), spend_tx.vout[i].scriptPubKey, sigdata);
-            UpdateTransaction(tx, i, sigdata);
+            UpdateInput(tx.vin[i], sigdata);
         }
 
         // This should be valid under all script flags
