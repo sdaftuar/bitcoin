@@ -3982,7 +3982,12 @@ bool CWallet::Verify(std::string wallet_file, bool salvage_wallet, std::string& 
         }
     }
 
-    if (!WalletBatch::VerifyEnvironment(wallet_path, error_string)) {
+    try {
+        if (!WalletBatch::VerifyEnvironment(wallet_path, error_string)) {
+            return false;
+        }
+    } catch (const fs::filesystem_error& e) {
+        error_string = strprintf("Error loading wallet %s. %s", wallet_file, e.what());
         return false;
     }
 
@@ -4016,7 +4021,7 @@ std::shared_ptr<CWallet> CWallet::CreateWalletFromFile(const std::string& name, 
         }
     }
 
-    uiInterface.InitMessage(strprintf(_("Loading wallet %s..."), walletFile));
+    uiInterface.InitMessage(_("Loading wallet..."));
 
     int64_t nStart = GetTimeMillis();
     bool fFirstRun = true;
@@ -4228,7 +4233,7 @@ std::shared_ptr<CWallet> CWallet::CreateWalletFromFile(const std::string& name, 
     walletInstance->m_spend_zero_conf_change = gArgs.GetBoolArg("-spendzeroconfchange", DEFAULT_SPEND_ZEROCONF_CHANGE);
     walletInstance->m_signal_rbf = gArgs.GetBoolArg("-walletrbf", DEFAULT_WALLET_RBF);
 
-    walletInstance->WalletLogPrintf("wallet      %15dms\n", GetTimeMillis() - nStart);
+    walletInstance->WalletLogPrintf("Wallet completed loading in %15dms\n", GetTimeMillis() - nStart);
 
     // Try to top up keypool. No-op if the wallet is locked.
     walletInstance->TopUpKeyPool();
@@ -4281,7 +4286,7 @@ std::shared_ptr<CWallet> CWallet::CreateWalletFromFile(const std::string& name, 
             }
             walletInstance->ScanForWalletTransactions(pindexRescan, nullptr, reserver, true);
         }
-        walletInstance->WalletLogPrintf("rescan      %15dms\n", GetTimeMillis() - nStart);
+        walletInstance->WalletLogPrintf("Rescan completed in %15dms\n", GetTimeMillis() - nStart);
         walletInstance->ChainStateFlushed(chainActive.GetLocator());
         walletInstance->database->IncrementUpdateCounter();
 
