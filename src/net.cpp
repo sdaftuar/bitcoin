@@ -1310,7 +1310,7 @@ bool CConnman::GenerateSelectSet(std::set<SOCKET> &recv_set, std::set<SOCKET> &s
     return !recv_set.empty() || !send_set.empty() || !error_set.empty();
 }
 
-void CConnman::SocketHandler()
+void CConnman::SocketEvents(std::set<SOCKET> &recv_set, std::set<SOCKET> &send_set, std::set<SOCKET> &error_set)
 {
     std::set<SOCKET> recv_select_set, send_select_set, error_select_set;
     if (!GenerateSelectSet(recv_select_set, send_select_set, error_select_set)) {
@@ -1332,52 +1332,66 @@ void CConnman::SocketHandler()
     FD_ZERO(&fdsetSend);
     FD_ZERO(&fdsetError);
     SOCKET hSocketMax = 0;
-    bool have_fds = false;
 
     for (SOCKET hSocket : recv_select_set) {
         FD_SET(hSocket, &fdsetRecv);
-        have_fds = true;
         hSocketMax = std::max(hSocketMax, hSocket);
     }
 
     for (SOCKET hSocket : send_select_set) {
         FD_SET(hSocket, &fdsetSend);
-        have_fds = true;
         hSocketMax = std::max(hSocketMax, hSocket);
     }
 
     for (SOCKET hSocket : error_select_set) {
         FD_SET(hSocket, &fdsetError);
-        have_fds = true;
         hSocketMax = std::max(hSocketMax, hSocket);
     }
 
-    int nSelect = select(have_fds ? hSocketMax + 1 : 0,
-                         &fdsetRecv, &fdsetSend, &fdsetError, &timeout);
+    int nSelect = select(hSocketMax + 1, &fdsetRecv, &fdsetSend, &fdsetError, &timeout);
+
     if (interruptNet)
         return;
 
     if (nSelect == SOCKET_ERROR)
     {
-        if (have_fds)
-        {
-            int nErr = WSAGetLastError();
-            LogPrintf("socket select error %s\n", NetworkErrorString(nErr));
-            for (unsigned int i = 0; i <= hSocketMax; i++)
-                FD_SET(i, &fdsetRecv);
-        }
+        int nErr = WSAGetLastError();
+        LogPrintf("socket select error %s\n", NetworkErrorString(nErr));
+        for (unsigned int i = 0; i <= hSocketMax; i++)
+            FD_SET(i, &fdsetRecv);
         FD_ZERO(&fdsetSend);
         FD_ZERO(&fdsetError);
         if (!interruptNet.sleep_for(std::chrono::milliseconds(SELECT_TIMEOUT_MILLISECONDS)))
             return;
     }
 
+    for (SOCKET hSocket : recv_select_set)
+        if(FD_ISSET(hSocket, &fdsetRecv))
+            recv_set.insert(hSocket);
+
+    for (SOCKET hSocket : send_select_set)
+        if(FD_ISSET(hSocket, &fdsetSend))
+            send_set.insert(hSocket);
+
+    for (SOCKET hSocket : error_select_set)
+        if(FD_ISSET(hSocket, &fdsetError))
+            error_set.insert(hSocket);
+}
+
+void CConnman::SocketHandler()
+{
+    std::set<SOCKET> recv_set, send_set, error_set;
+    SocketEvents(recv_set, send_set, error_set);
+
+    if (interruptNet)
+        return;
+
     //
     // Accept new connections
     //
     for (const ListenSocket& hListenSocket : vhListenSocket)
     {
-        if (hListenSocket.socket != INVALID_SOCKET && FD_ISSET(hListenSocket.socket, &fdsetRecv))
+        if (hListenSocket.socket != INVALID_SOCKET && recv_set.count(hListenSocket.socket) > 0)
         {
             AcceptConnection(hListenSocket);
         }
@@ -1408,9 +1422,9 @@ void CConnman::SocketHandler()
             LOCK(pnode->cs_hSocket);
             if (pnode->hSocket == INVALID_SOCKET)
                 continue;
-            recvSet = FD_ISSET(pnode->hSocket, &fdsetRecv);
-            sendSet = FD_ISSET(pnode->hSocket, &fdsetSend);
-            errorSet = FD_ISSET(pnode->hSocket, &fdsetError);
+            recvSet = recv_set.count(pnode->hSocket) > 0;
+            sendSet = send_set.count(pnode->hSocket) > 0;
+            errorSet = error_set.count(pnode->hSocket) > 0;
         }
         if (recvSet || errorSet)
         {
