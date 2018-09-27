@@ -102,12 +102,12 @@ typedef void* sockopt_arg_type;
 typedef char* sockopt_arg_type;
 #endif
 
-bool static inline IsSelectableSocket(const SOCKET& s) {
-#ifdef WIN32
-    return true;
-#else
-    return (s < FD_SETSIZE);
+#if not defined WIN32
+#define USE_POLL
 #endif
+
+bool static inline IsSelectableSocket(const SOCKET& s) {
+    return true;
 }
 
 #endif // BITCOIN_COMPAT_H

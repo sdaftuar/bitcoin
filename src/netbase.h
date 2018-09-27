@@ -17,6 +17,10 @@
 #include <string>
 #include <vector>
 
+#ifndef WIN32
+#include <poll.h>
+#endif
+
 extern int nConnectTimeout;
 extern bool fNameLookup;
 
