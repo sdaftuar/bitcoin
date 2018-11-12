@@ -1,5 +1,4 @@
 #include "streams.h"
-#include "util.h"
 #include "primitives/block.h"
 #include "primitives/transaction.h"
 #include "simulation.h"
