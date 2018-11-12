@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Copyright (c) 2014-2017 The Bitcoin Core developers
+# Copyright (c) 2014-2018 The Bitcoin Core developers
 # Distributed under the MIT software license, see the accompanying
 # file COPYING or http://www.opensource.org/licenses/mit-license.php.
 """Base class for RPC testing."""
@@ -7,7 +7,7 @@
 import configparser
 from enum import Enum
 import logging
-import optparse
+import argparse
 import os
 import pdb
 import shutil
@@ -42,6 +42,13 @@ class TestStatus(Enum):
 TEST_EXIT_PASSED = 0
 TEST_EXIT_FAILED = 1
 TEST_EXIT_SKIPPED = 77
+
+
+class SkipTest(Exception):
+    """This exception is raised to skip a test"""
+
+    def __init__(self, message):
+        self.message = message
 
 
 class BitcoinTestMetaClass(type):
@@ -96,31 +103,31 @@ class BitcoinTestFramework(metaclass=BitcoinTestMetaClass):
     def main(self):
         """Main function. This should not be overridden by the subclass test scripts."""
 
-        parser = optparse.OptionParser(usage="%prog [options]")
-        parser.add_option("--nocleanup", dest="nocleanup", default=False, action="store_true",
-                          help="Leave bitcoinds and test.* datadir on exit or error")
-        parser.add_option("--noshutdown", dest="noshutdown", default=False, action="store_true",
-                          help="Don't stop bitcoinds after the test execution")
-        parser.add_option("--cachedir", dest="cachedir", default=os.path.abspath(os.path.dirname(os.path.realpath(__file__)) + "/../../cache"),
-                          help="Directory for caching pregenerated datadirs (default: %default)")
-        parser.add_option("--tmpdir", dest="tmpdir", help="Root directory for datadirs")
-        parser.add_option("-l", "--loglevel", dest="loglevel", default="INFO",
-                          help="log events at this level and higher to the console. Can be set to DEBUG, INFO, WARNING, ERROR or CRITICAL. Passing --loglevel DEBUG will output all logs to console. Note that logs at all levels are always written to the test_framework.log file in the temporary test directory.")
-        parser.add_option("--tracerpc", dest="trace_rpc", default=False, action="store_true",
-                          help="Print out all RPC calls as they are made")
-        parser.add_option("--portseed", dest="port_seed", default=os.getpid(), type='int',
-                          help="The seed to use for assigning port numbers (default: current process id)")
-        parser.add_option("--coveragedir", dest="coveragedir",
-                          help="Write tested RPC commands into this directory")
-        parser.add_option("--configfile", dest="configfile",
-                          default=os.path.abspath(os.path.dirname(os.path.realpath(__file__)) + "/../../config.ini"),
-                          help="Location of the test framework config file (default: %default)")
-        parser.add_option("--pdbonfailure", dest="pdbonfailure", default=False, action="store_true",
-                          help="Attach a python debugger if test fails")
-        parser.add_option("--usecli", dest="usecli", default=False, action="store_true",
-                          help="use bitcoin-cli instead of RPC for all commands")
+        parser = argparse.ArgumentParser(usage="%(prog)s [options]")
+        parser.add_argument("--nocleanup", dest="nocleanup", default=False, action="store_true",
+                            help="Leave bitcoinds and test.* datadir on exit or error")
+        parser.add_argument("--noshutdown", dest="noshutdown", default=False, action="store_true",
+                            help="Don't stop bitcoinds after the test execution")
+        parser.add_argument("--cachedir", dest="cachedir", default=os.path.abspath(os.path.dirname(os.path.realpath(__file__)) + "/../../cache"),
+                            help="Directory for caching pregenerated datadirs (default: %(default)s)")
+        parser.add_argument("--tmpdir", dest="tmpdir", help="Root directory for datadirs")
+        parser.add_argument("-l", "--loglevel", dest="loglevel", default="INFO",
+                            help="log events at this level and higher to the console. Can be set to DEBUG, INFO, WARNING, ERROR or CRITICAL. Passing --loglevel DEBUG will output all logs to console. Note that logs at all levels are always written to the test_framework.log file in the temporary test directory.")
+        parser.add_argument("--tracerpc", dest="trace_rpc", default=False, action="store_true",
+                            help="Print out all RPC calls as they are made")
+        parser.add_argument("--portseed", dest="port_seed", default=os.getpid(), type=int,
+                            help="The seed to use for assigning port numbers (default: current process id)")
+        parser.add_argument("--coveragedir", dest="coveragedir",
+                            help="Write tested RPC commands into this directory")
+        parser.add_argument("--configfile", dest="configfile",
+                            default=os.path.abspath(os.path.dirname(os.path.realpath(__file__)) + "/../../config.ini"),
+                            help="Location of the test framework config file (default: %(default)s)")
+        parser.add_argument("--pdbonfailure", dest="pdbonfailure", default=False, action="store_true",
+                            help="Attach a python debugger if test fails")
+        parser.add_argument("--usecli", dest="usecli", default=False, action="store_true",
+                            help="use bitcoin-cli instead of RPC for all commands")
         self.add_options(parser)
-        (self.options, self.args) = parser.parse_args()
+        self.options = parser.parse_args()
 
         PortSeed.n = self.options.port_seed
 
@@ -154,8 +161,11 @@ class BitcoinTestFramework(metaclass=BitcoinTestMetaClass):
         success = TestStatus.FAILED
 
         try:
-            if self.options.usecli and not self.supports_cli:
-                raise SkipTest("--usecli specified but test does not support using CLI")
+            if self.options.usecli:
+                if not self.supports_cli:
+                    raise SkipTest("--usecli specified but test does not support using CLI")
+                self.skip_if_no_cli()
+            self.skip_test_if_missing_module()
             self.setup_chain()
             self.setup_network()
             self.run_test()
@@ -220,6 +230,10 @@ class BitcoinTestFramework(metaclass=BitcoinTestMetaClass):
         """Override this method to add command-line options to the test"""
         pass
 
+    def skip_test_if_missing_module(self):
+        """Override this method to skip a test if a module is not compiled"""
+        pass
+
     def setup_chain(self):
         """Override this method to customize blockchain setup"""
         self.log.info("Initializing test directory " + self.options.tmpdir)
@@ -246,6 +260,17 @@ class BitcoinTestFramework(metaclass=BitcoinTestMetaClass):
             extra_args = self.extra_args
         self.add_nodes(self.num_nodes, extra_args)
         self.start_nodes()
+        self.import_deterministic_coinbase_privkeys()
+
+    def import_deterministic_coinbase_privkeys(self):
+        for n in self.nodes:
+            try:
+                n.getwalletinfo()
+            except JSONRPCException as e:
+                assert str(e).startswith('Method not found')
+                continue
+
+            n.importprivkey(privkey=n.get_deterministic_priv_key().key, label='coinbase')
 
     def run_test(self):
         """Tests must override this method to define test logic"""
@@ -415,7 +440,7 @@ class BitcoinTestFramework(metaclass=BitcoinTestMetaClass):
             # Create cache directories, run bitcoinds:
             for i in range(MAX_NODES):
                 datadir = initialize_datadir(self.options.cachedir, i)
-                args = [self.options.bitcoind, "-datadir=" + datadir]
+                args = [self.options.bitcoind, "-datadir=" + datadir, '-disablewallet']
                 if i > 0:
                     args.append("-connect=127.0.0.1:" + str(p2p_port(0)))
                 self.nodes.append(TestNode(i, get_datadir_path(self.options.cachedir, i), extra_conf=["bind=127.0.0.1"], extra_args=[], rpchost=None, timewait=self.rpc_timewait, bitcoind=self.options.bitcoind, bitcoin_cli=self.options.bitcoincli, mocktime=self.mocktime, coverage_dir=None))
@@ -439,7 +464,7 @@ class BitcoinTestFramework(metaclass=BitcoinTestMetaClass):
                 for peer in range(4):
                     for j in range(25):
                         set_node_times(self.nodes, block_time)
-                        self.nodes[peer].generate(1)
+                        self.nodes[peer].generatetoaddress(1, self.nodes[peer].get_deterministic_priv_key().address)
                         block_time += 10 * 60
                     # Must sync before next peer starts generating blocks
                     sync_blocks(self.nodes)
@@ -453,8 +478,9 @@ class BitcoinTestFramework(metaclass=BitcoinTestMetaClass):
                 return os.path.join(get_datadir_path(self.options.cachedir, n), "regtest", *paths)
 
             for i in range(MAX_NODES):
+                os.rmdir(cache_path(i, 'wallets'))  # Remove empty wallets dir
                 for entry in os.listdir(cache_path(i)):
-                    if entry not in ['wallets', 'chainstate', 'blocks']:
+                    if entry not in ['chainstate', 'blocks']:
                         os.remove(cache_path(i, entry))
 
         for i in range(self.num_nodes):
@@ -471,25 +497,45 @@ class BitcoinTestFramework(metaclass=BitcoinTestMetaClass):
         for i in range(self.num_nodes):
             initialize_datadir(self.options.tmpdir, i)
 
+    def skip_if_no_py3_zmq(self):
+        """Attempt to import the zmq package and skip the test if the import fails."""
+        try:
+            import zmq  # noqa
+        except ImportError:
+            raise SkipTest("python3-zmq module not available.")
 
-class SkipTest(Exception):
-    """This exception is raised to skip a test"""
-    def __init__(self, message):
-        self.message = message
+    def skip_if_no_bitcoind_zmq(self):
+        """Skip the running test if bitcoind has not been compiled with zmq support."""
+        if not self.is_zmq_compiled():
+            raise SkipTest("bitcoind has not been built with zmq enabled.")
 
+    def skip_if_no_wallet(self):
+        """Skip the running test if wallet has not been compiled."""
+        if not self.is_wallet_compiled():
+            raise SkipTest("wallet has not been compiled.")
 
-def skip_if_no_py3_zmq():
-    """Attempt to import the zmq package and skip the test if the import fails."""
-    try:
-        import zmq  # noqa
-    except ImportError:
-        raise SkipTest("python3-zmq module not available.")
+    def skip_if_no_cli(self):
+        """Skip the running test if bitcoin-cli has not been compiled."""
+        if not self.is_cli_compiled():
+            raise SkipTest("bitcoin-cli has not been compiled.")
 
+    def is_cli_compiled(self):
+        """Checks whether bitcoin-cli was compiled."""
+        config = configparser.ConfigParser()
+        config.read_file(open(self.options.configfile))
 
-def skip_if_no_bitcoind_zmq(test_instance):
-    """Skip the running test if bitcoind has not been compiled with zmq support."""
-    config = configparser.ConfigParser()
-    config.read_file(open(test_instance.options.configfile))
+        return config["components"].getboolean("ENABLE_CLI")
 
-    if not config["components"].getboolean("ENABLE_ZMQ"):
-        raise SkipTest("bitcoind has not been built with zmq enabled.")
+    def is_wallet_compiled(self):
+        """Checks whether the wallet module was compiled."""
+        config = configparser.ConfigParser()
+        config.read_file(open(self.options.configfile))
+
+        return config["components"].getboolean("ENABLE_WALLET")
+
+    def is_zmq_compiled(self):
+        """Checks whether the zmq module was compiled."""
+        config = configparser.ConfigParser()
+        config.read_file(open(self.options.configfile))
+
+        return config["components"].getboolean("ENABLE_ZMQ")

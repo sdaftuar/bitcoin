@@ -1,4 +1,4 @@
-// Copyright (c) 2011-2017 The Bitcoin Core developers
+// Copyright (c) 2011-2018 The Bitcoin Core developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
@@ -9,7 +9,7 @@
 
 #include <qt/paymentrequestplus.h>
 
-#include <util.h>
+#include <util/system.h>
 
 #include <stdexcept>
 
@@ -142,7 +142,6 @@ bool PaymentRequestPlus::getMerchant(X509_STORE* certStore, QString& merchant) c
         if (result != 1) {
             int error = X509_STORE_CTX_get_error(store_ctx);
             // For testing payment requests, we allow self signed root certs!
-            // This option is just shown in the UI options, if -help-debug is enabled.
             if (!(error == X509_V_ERR_DEPTH_ZERO_SELF_SIGNED_CERT && gArgs.GetBoolArg("-allowselfsignedrootcertificates", DEFAULT_SELFSIGNED_ROOTCERTS))) {
                 throw SSLVerifyError(X509_verify_cert_error_string(error));
             } else {

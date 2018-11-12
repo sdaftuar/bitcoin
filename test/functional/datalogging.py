@@ -45,10 +45,10 @@ from test_framework.util import (
 
 class DataLoggingTest(BitcoinTestFramework):
     def setup_network(self):
-        self.extra_args = [[], [], ["-dlogdir=" + self.options.tmpdir]]
         self.num_nodes = 3
-        self.add_nodes(self.num_nodes, self.extra_args)
-        self.start_nodes()
+        self.extra_args = [[], [], ["-dlogdir=" + self.options.tmpdir]]
+        self.setup_nodes()
+
         connect_nodes_bi(self.nodes, 0, 1)
         connect_nodes_bi(self.nodes, 1, 2)
         self.sync_all()

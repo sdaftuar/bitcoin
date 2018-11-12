@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Copyright (c) 2017 The Bitcoin Core developers
+# Copyright (c) 2017-2018 The Bitcoin Core developers
 # Distributed under the MIT software license, see the accompanying
 # file COPYING or http://www.opensource.org/licenses/mit-license.php.
 """An example functional test
@@ -15,8 +15,8 @@ from collections import defaultdict
 
 # Avoid wildcard * imports if possible
 from test_framework.blocktools import (create_block, create_coinbase)
+from test_framework.messages import CInv
 from test_framework.mininode import (
-    CInv,
     P2PInterface,
     mininode_lock,
     msg_block,
@@ -67,22 +67,28 @@ def custom_function():
     # self.log.info("running custom_function")  # Oops! Can't run self.log outside the BitcoinTestFramework
     pass
 
+
 class ExampleTest(BitcoinTestFramework):
     # Each functional test is a subclass of the BitcoinTestFramework class.
 
-    # Override the set_test_params(), add_options(), setup_chain(), setup_network()
+    # Override the set_test_params(), skip_test_if_missing_module(), add_options(), setup_chain(), setup_network()
     # and setup_nodes() methods to customize the test setup as required.
 
     def set_test_params(self):
         """Override test parameters for your individual test.
 
-        This method must be overridden and num_nodes must be exlicitly set."""
+        This method must be overridden and num_nodes must be explicitly set."""
         self.setup_clean_chain = True
         self.num_nodes = 3
         # Use self.extra_args to change command-line arguments for the nodes
         self.extra_args = [[], ["-logips"], []]
 
         # self.log.info("I've finished set_test_params")  # Oops! Can't run self.log before run_test()
+
+    # Use skip_test_if_missing_module() to skip the test if your test requires certain modules to be present.
+    # This test uses generate which requires wallet to be compiled
+    def skip_test_if_missing_module(self):
+        self.skip_if_no_wallet()
 
     # Use add_options() to add specific command-line options for your test.
     # In practice this is not used very much, since the tests are mostly written
@@ -111,7 +117,7 @@ class ExampleTest(BitcoinTestFramework):
         # sync_all() should not include node2, since we're not expecting it to
         # sync.
         connect_nodes(self.nodes[0], 1)
-        self.sync_all([self.nodes[0:1]])
+        self.sync_all([self.nodes[0:2]])
 
     # Use setup_nodes() to customize the node start behaviour (for example if
     # you don't want to start all nodes at the start of the test).
@@ -130,15 +136,12 @@ class ExampleTest(BitcoinTestFramework):
     def run_test(self):
         """Main test logic"""
 
-        # Create P2P connections to two of the nodes
+        # Create P2P connections will wait for a verack to make sure the connection is fully up
         self.nodes[0].add_p2p_connection(BaseNode())
-
-        # wait_for_verack ensures that the P2P connection is fully up.
-        self.nodes[0].p2p.wait_for_verack()
 
         # Generating a block on one of the nodes will get us out of IBD
         blocks = [int(self.nodes[0].generate(nblocks=1)[0], 16)]
-        self.sync_all([self.nodes[0:1]])
+        self.sync_all([self.nodes[0:2]])
 
         # Notice above how we called an RPC by calling a method with the same
         # name on the node object. Notice also how we used a keyword argument
@@ -161,13 +164,13 @@ class ExampleTest(BitcoinTestFramework):
         self.tip = int(self.nodes[0].getbestblockhash(), 16)
         self.block_time = self.nodes[0].getblock(self.nodes[0].getbestblockhash())['time'] + 1
 
-        height = 1
+        height = self.nodes[0].getblockcount()
 
         for i in range(10):
             # Use the mininode and blocktools functionality to manually build a block
             # Calling the generate() rpc is easier, but this allows us to exactly
             # control the blocks and transactions.
-            block = create_block(self.tip, create_coinbase(height), self.block_time)
+            block = create_block(self.tip, create_coinbase(height+1), self.block_time)
             block.solve()
             block_message = msg_block(block)
             # Send message is used to send a P2P message to the node over our P2PInterface
@@ -187,7 +190,6 @@ class ExampleTest(BitcoinTestFramework):
         self.nodes[0].disconnect_p2ps()
 
         self.nodes[2].add_p2p_connection(BaseNode())
-        self.nodes[2].p2p.wait_for_verack()
 
         self.log.info("Wait for node2 reach current tip. Test that it has propagated all the blocks to us")
 

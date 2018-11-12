@@ -1,4 +1,4 @@
-// Copyright (c) 2009-2017 The Bitcoin Core developers
+// Copyright (c) 2009-2018 The Bitcoin Core developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
@@ -11,6 +11,7 @@
 #include <vector>
 
 class CBlock;
+class CBlockHeader;
 class CScript;
 class CTransaction;
 struct CMutableTransaction;
@@ -23,7 +24,17 @@ CScript ParseScript(const std::string& s);
 std::string ScriptToAsmStr(const CScript& script, const bool fAttemptSighashDecode = false);
 bool DecodeHexTx(CMutableTransaction& tx, const std::string& hex_tx, bool try_no_witness = false, bool try_witness = true);
 bool DecodeHexBlk(CBlock&, const std::string& strHexBlk);
-uint256 ParseHashStr(const std::string&, const std::string& strName);
+bool DecodeHexBlockHeader(CBlockHeader&, const std::string& hex_header);
+
+/**
+ * Parse a hex string into 256 bits
+ * @param[in] strHex a hex-formatted, 64-character string
+ * @param[out] result the result of the parasing
+ * @returns true if successful, false if not
+ *
+ * @see ParseHashV for an RPC-oriented version of this
+ */
+bool ParseHashStr(const std::string& strHex, uint256& result);
 std::vector<unsigned char> ParseHexUV(const UniValue& v, const std::string& strName);
 bool DecodePSBT(PartiallySignedTransaction& psbt, const std::string& base64_tx, std::string& error);
 int ParseSighashString(const UniValue& sighash);

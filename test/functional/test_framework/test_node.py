@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-# Copyright (c) 2017 The Bitcoin Core developers
+# Copyright (c) 2017-2018 The Bitcoin Core developers
 # Distributed under the MIT software license, see the accompanying
 # file COPYING or http://www.opensource.org/licenses/mit-license.php.
 """Class for bitcoind node under test"""
 
+import contextlib
 import decimal
 import errno
 from enum import Enum
@@ -16,6 +17,7 @@ import subprocess
 import tempfile
 import time
 import urllib.parse
+import collections
 
 from .authproxy import JSONRPCException
 from .util import (
@@ -96,6 +98,45 @@ class TestNode():
 
         self.p2ps = []
 
+    def get_deterministic_priv_key(self):
+        """Return a deterministic priv key in base58, that only depends on the node's index"""
+        AddressKeyPair = collections.namedtuple('AddressKeyPair', ['address', 'key'])
+        PRIV_KEYS = [
+            # address , privkey
+            AddressKeyPair('mjTkW3DjgyZck4KbiRusZsqTgaYTxdSz6z', 'cVpF924EspNh8KjYsfhgY96mmxvT6DgdWiTYMtMjuM74hJaU5psW'),
+            AddressKeyPair('msX6jQXvxiNhx3Q62PKeLPrhrqZQdSimTg', 'cUxsWyKyZ9MAQTaAhUQWJmBbSvHMwSmuv59KgxQV7oZQU3PXN3KE'),
+            AddressKeyPair('mnonCMyH9TmAsSj3M59DsbH8H63U3RKoFP', 'cTrh7dkEAeJd6b3MRX9bZK8eRmNqVCMH3LSUkE3dSFDyzjU38QxK'),
+            AddressKeyPair('mqJupas8Dt2uestQDvV2NH3RU8uZh2dqQR', 'cVuKKa7gbehEQvVq717hYcbE9Dqmq7KEBKqWgWrYBa2CKKrhtRim'),
+            AddressKeyPair('msYac7Rvd5ywm6pEmkjyxhbCDKqWsVeYws', 'cQDCBuKcjanpXDpCqacNSjYfxeQj8G6CAtH1Dsk3cXyqLNC4RPuh'),
+            AddressKeyPair('n2rnuUnwLgXqf9kk2kjvVm8R5BZK1yxQBi', 'cQakmfPSLSqKHyMFGwAqKHgWUiofJCagVGhiB4KCainaeCSxeyYq'),
+            AddressKeyPair('myzuPxRwsf3vvGzEuzPfK9Nf2RfwauwYe6', 'cQMpDLJwA8DBe9NcQbdoSb1BhmFxVjWD5gRyrLZCtpuF9Zi3a9RK'),
+            AddressKeyPair('mumwTaMtbxEPUswmLBBN3vM9oGRtGBrys8', 'cSXmRKXVcoouhNNVpcNKFfxsTsToY5pvB9DVsFksF1ENunTzRKsy'),
+            AddressKeyPair('mpV7aGShMkJCZgbW7F6iZgrvuPHjZjH9qg', 'cSoXt6tm3pqy43UMabY6eUTmR3eSUYFtB2iNQDGgb3VUnRsQys2k'),
+        ]
+        return PRIV_KEYS[self.index]
+
+    def get_mem_rss(self):
+        """Get the memory usage (RSS) per `ps`.
+
+        If process is stopped or `ps` is unavailable, return None.
+        """
+        if not (self.running and self.process):
+            self.log.warning("Couldn't get memory usage; process isn't running.")
+            return None
+
+        try:
+            return int(subprocess.check_output(
+                "ps h -o rss {}".format(self.process.pid),
+                shell=True, stderr=subprocess.DEVNULL).strip())
+
+        # Catching `Exception` broadly to avoid failing on platforms where ps
+        # isn't installed or doesn't work as expected, e.g. OpenBSD.
+        #
+        # We could later use something like `psutils` to work across platforms.
+        except Exception:
+            self.log.exception("Unable to get memory usage")
+            return None
+
     def _node_msg(self, msg: str) -> str:
         """Return a modified msg that identifies this node by its index as a debugging aid."""
         return "[node %d] %s" % (self.index, msg)
@@ -122,7 +163,7 @@ class TestNode():
             assert self.rpc_connected and self.rpc is not None, self._node_msg("Error: no RPC connection")
             return getattr(self.rpc, name)
 
-    def start(self, extra_args=None, stdout=None, stderr=None, *args, **kwargs):
+    def start(self, extra_args=None, *, stdout=None, stderr=None, **kwargs):
         """Start the node."""
         if extra_args is None:
             extra_args = self.extra_args
@@ -143,7 +184,7 @@ class TestNode():
         # add environment variable LIBC_FATAL_STDERR_=1 so that libc errors are written to stderr and not the terminal
         subp_env = dict(os.environ, LIBC_FATAL_STDERR_="1")
 
-        self.process = subprocess.Popen(self.args + extra_args, env=subp_env, stdout=stdout, stderr=stderr, *args, **kwargs)
+        self.process = subprocess.Popen(self.args + extra_args, env=subp_env, stdout=stdout, stderr=stderr, **kwargs)
 
         self.running = True
         self.log.debug("bitcoind started, waiting for RPC to come up")
@@ -168,13 +209,19 @@ class TestNode():
                 if e.errno != errno.ECONNREFUSED:  # Port not yet open?
                     raise  # unknown IO error
             except JSONRPCException as e:  # Initialization phase
-                if e.error['code'] != -28:  # RPC in warmup?
+                # -28 RPC in warmup
+                # -342 Service unavailable, RPC server started but is shutting down due to error
+                if e.error['code'] != -28 and e.error['code'] != -342:
                     raise  # unknown JSON RPC exception
             except ValueError as e:  # cookie file not found and no rpcuser or rpcassword. bitcoind still starting
                 if "No RPC credentials" not in str(e):
                     raise
             time.sleep(1.0 / poll_per_s)
         self._raise_assertion_error("Unable to connect to bitcoind")
+
+    def generate(self, nblocks, maxtries=1000000):
+        self.log.debug("TestNode.generate() dispatches `generate` call to `generatetoaddress`")
+        return self.generatetoaddress(nblocks=nblocks, address=self.get_deterministic_priv_key().address, maxtries=maxtries)
 
     def get_wallet_rpc(self, wallet_name):
         if self.use_cli:
@@ -199,6 +246,9 @@ class TestNode():
         stderr = self.stderr.read().decode('utf-8').strip()
         if stderr != expected_stderr:
             raise AssertionError("Unexpected stderr {} != {}".format(stderr, expected_stderr))
+
+        self.stdout.close()
+        self.stderr.close()
 
         del self.p2ps[:]
 
@@ -225,6 +275,46 @@ class TestNode():
 
     def wait_until_stopped(self, timeout=BITCOIND_PROC_WAIT_TIMEOUT):
         wait_until(self.is_node_stopped, timeout=timeout)
+
+    @contextlib.contextmanager
+    def assert_debug_log(self, expected_msgs):
+        debug_log = os.path.join(self.datadir, 'regtest', 'debug.log')
+        with open(debug_log, encoding='utf-8') as dl:
+            dl.seek(0, 2)
+            prev_size = dl.tell()
+        try:
+            yield
+        finally:
+            with open(debug_log, encoding='utf-8') as dl:
+                dl.seek(prev_size)
+                log = dl.read()
+            print_log = " - " + "\n - ".join(log.splitlines())
+            for expected_msg in expected_msgs:
+                if re.search(re.escape(expected_msg), log, flags=re.MULTILINE) is None:
+                    self._raise_assertion_error('Expected message "{}" does not partially match log:\n\n{}\n\n'.format(expected_msg, print_log))
+
+    @contextlib.contextmanager
+    def assert_memory_usage_stable(self, perc_increase_allowed=0.03):
+        """Context manager that allows the user to assert that a node's memory usage (RSS)
+        hasn't increased beyond some threshold percentage.
+        """
+        before_memory_usage = self.get_mem_rss()
+
+        yield
+
+        after_memory_usage = self.get_mem_rss()
+
+        if not (before_memory_usage and after_memory_usage):
+            self.log.warning("Unable to detect memory usage (RSS) - skipping memory check.")
+            return
+
+        perc_increase_memory_usage = 1 - (float(before_memory_usage) / after_memory_usage)
+
+        if perc_increase_memory_usage > perc_increase_allowed:
+            self._raise_assertion_error(
+                "Memory usage increased over threshold of {:.3f}% from {} to {} ({:.3f}%)".format(
+                    perc_increase_allowed * 100, before_memory_usage, after_memory_usage,
+                    perc_increase_memory_usage * 100))
 
     def assert_start_raises_init_error(self, extra_args=None, expected_msg=None, match=ErrorMatch.FULL_TEXT, *args, **kwargs):
         """Attempt to start the node and expect it to raise an error.
@@ -268,15 +358,7 @@ class TestNode():
                     assert_msg = "bitcoind should have exited with expected error " + expected_msg
                 self._raise_assertion_error(assert_msg)
 
-    def node_encrypt_wallet(self, passphrase):
-        """"Encrypts the wallet.
-
-        This causes bitcoind to shutdown, so this method takes
-        care of cleaning up resources."""
-        self.encryptwallet(passphrase)
-        self.wait_until_stopped()
-
-    def add_p2p_connection(self, p2p_conn, *args, **kwargs):
+    def add_p2p_connection(self, p2p_conn, *, wait_for_verack=True, **kwargs):
         """Add a p2p connection to the node.
 
         This method adds the p2p connection to the self.p2ps list and also
@@ -286,8 +368,10 @@ class TestNode():
         if 'dstaddr' not in kwargs:
             kwargs['dstaddr'] = '127.0.0.1'
 
-        p2p_conn.peer_connect(*args, **kwargs)()
+        p2p_conn.peer_connect(**kwargs)()
         self.p2ps.append(p2p_conn)
+        if wait_for_verack:
+            p2p_conn.wait_for_verack()
 
         return p2p_conn
 

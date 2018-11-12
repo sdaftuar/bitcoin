@@ -1,4 +1,4 @@
-// Copyright (c) 2012-2017 The Bitcoin Core developers
+// Copyright (c) 2012-2018 The Bitcoin Core developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 #include <boost/test/unit_test.hpp>
@@ -82,11 +82,11 @@ static double test_cache(size_t megabytes, double load)
      */
     std::vector<uint256> hashes_insert_copy = hashes;
     /** Do the insert */
-    for (uint256& h : hashes_insert_copy)
+    for (const uint256& h : hashes_insert_copy)
         set.insert(h);
     /** Count the hits */
     uint32_t count = 0;
-    for (uint256& h : hashes)
+    for (const uint256& h : hashes)
         count += set.contains(h, false);
     double hit_rate = ((double)count) / ((double)n_insert);
     return hit_rate;
@@ -323,7 +323,7 @@ static void test_cache_generations()
                 reads.push_back(inserts[i]);
             for (uint32_t i = n_insert - (n_insert / 4); i < n_insert; ++i)
                 reads.push_back(inserts[i]);
-            for (auto h : inserts)
+            for (const auto& h : inserts)
                 c.insert(h);
         }
     };
