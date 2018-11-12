@@ -8,6 +8,8 @@
 
 using namespace std;
 
+const std::function<std::string(const char*)> G_TRANSLATION_FUN = nullptr;
+
 int main(int argc, char **argv)
 {
     std::stringstream rawoutput;
