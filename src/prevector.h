@@ -10,6 +10,7 @@
 #include <stdint.h>
 #include <string.h>
 
+#include <algorithm>
 #include <cstddef>
 #include <iterator>
 #include <type_traits>
@@ -198,22 +199,11 @@ private:
     const T* item_ptr(difference_type pos) const { return is_direct() ? direct_ptr(pos) : indirect_ptr(pos); }
 
     void fill(T* dst, ptrdiff_t count) {
-        if (IS_TRIVIALLY_CONSTRUCTIBLE<T>::value) {
-            // The most common use of prevector is where T=unsigned char. For
-            // trivially constructible types, we can use memset() to avoid
-            // looping.
-            ::memset(dst, 0, count * sizeof(T));
-        } else {
-            for (auto i = 0; i < count; ++i) {
-                new(static_cast<void*>(dst + i)) T();
-            }
-        }
+        std::fill_n(dst, count, T{});
     }
 
     void fill(T* dst, ptrdiff_t count, const T& value) {
-        for (auto i = 0; i < count; ++i) {
-            new(static_cast<void*>(dst + i)) T(value);
-        }
+        std::fill_n(dst, count, value);
     }
 
     template<typename InputIterator>
@@ -248,32 +238,32 @@ public:
 
     prevector() : _size(0), _union{{}} {}
 
-    explicit prevector(size_type n) : _size(0) {
+    explicit prevector(size_type n) : prevector() {
         resize(n);
     }
 
-    explicit prevector(size_type n, const T& val = T()) : _size(0) {
+    explicit prevector(size_type n, const T& val) : prevector() {
         change_capacity(n);
         _size += n;
         fill(item_ptr(0), n, val);
     }
 
     template<typename InputIterator>
-    prevector(InputIterator first, InputIterator last) : _size(0) {
+    prevector(InputIterator first, InputIterator last) : prevector() {
         size_type n = last - first;
         change_capacity(n);
         _size += n;
         fill(item_ptr(0), first, last);
     }
 
-    prevector(const prevector<N, T, Size, Diff>& other) : _size(0) {
+    prevector(const prevector<N, T, Size, Diff>& other) : prevector() {
         size_type n = other.size();
         change_capacity(n);
         _size += n;
         fill(item_ptr(0), other.begin(),  other.end());
     }
 
-    prevector(prevector<N, T, Size, Diff>&& other) : _size(0) {
+    prevector(prevector<N, T, Size, Diff>&& other) : prevector() {
         swap(other);
     }
 

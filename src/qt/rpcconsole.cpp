@@ -18,7 +18,7 @@
 #include <netbase.h>
 #include <rpc/server.h>
 #include <rpc/client.h>
-#include <util.h>
+#include <util/system.h>
 
 #include <openssl/crypto.h>
 
@@ -82,7 +82,7 @@ class RPCExecutor : public QObject
 {
     Q_OBJECT
 public:
-    RPCExecutor(interfaces::Node& node) : m_node(node) {}
+    explicit RPCExecutor(interfaces::Node& node) : m_node(node) {}
 
 public Q_SLOTS:
     void request(const QString &command, const QString &walletID);
@@ -101,7 +101,7 @@ class QtRPCTimerBase: public QObject, public RPCTimerBase
 {
     Q_OBJECT
 public:
-    QtRPCTimerBase(std::function<void(void)>& _func, int64_t millis):
+    QtRPCTimerBase(std::function<void()>& _func, int64_t millis):
         func(_func)
     {
         timer.setSingleShot(true);
@@ -111,7 +111,7 @@ public:
     ~QtRPCTimerBase() {}
 private:
     QTimer timer;
-    std::function<void(void)> func;
+    std::function<void()> func;
 };
 
 class QtRPCTimerInterface: public RPCTimerInterface
@@ -119,7 +119,7 @@ class QtRPCTimerInterface: public RPCTimerInterface
 public:
     ~QtRPCTimerInterface() {}
     const char *Name() { return "Qt"; }
-    RPCTimerBase* NewTimer(std::function<void(void)>& func, int64_t millis)
+    RPCTimerBase* NewTimer(std::function<void()>& func, int64_t millis)
     {
         return new QtRPCTimerBase(func, millis);
     }
@@ -142,7 +142,7 @@ public:
  *   - Within single quotes, no escaping is possible and no special interpretation takes place
  *
  * @param[in]    node    optional node to execute command on
- * @param[out]   result      stringified Result from the executed command(chain)
+ * @param[out]   strResult   stringified result from the executed command(chain)
  * @param[in]    strCommand  Command line to split
  * @param[in]    fExecute    set true if you want the command to be executed
  * @param[out]   pstrFilteredOut  Command line, filtered to remove any sensitive data
@@ -459,6 +459,9 @@ RPCConsole::RPCConsole(interfaces::Node& node, const PlatformStyle *_platformSty
         move(QApplication::desktop()->availableGeometry().center() - frameGeometry().center());
     }
 
+    QChar nonbreaking_hyphen(8209);
+    ui->dataDir->setToolTip(ui->dataDir->toolTip().arg(QString(nonbreaking_hyphen) + "datadir"));
+    ui->blocksDir->setToolTip(ui->blocksDir->toolTip().arg(QString(nonbreaking_hyphen) + "blocksdir"));
     ui->openDebugLogfileButton->setToolTip(ui->openDebugLogfileButton->toolTip().arg(tr(PACKAGE_NAME)));
 
     if (platformStyle->getImagesOnButtons()) {
@@ -536,6 +539,7 @@ bool RPCConsole::eventFilter(QObject* obj, QEvent *event)
             // forward these events to lineEdit
             if(obj == autoCompleter->popup()) {
                 QApplication::postEvent(ui->lineEdit, new QKeyEvent(*keyevt));
+                autoCompleter->popup()->hide();
                 return true;
             }
             break;
@@ -661,6 +665,7 @@ void RPCConsole::setClientModel(ClientModel *model)
         ui->clientVersion->setText(model->formatFullVersion());
         ui->clientUserAgent->setText(model->formatSubVersion());
         ui->dataDir->setText(model->dataDir());
+        ui->blocksDir->setText(model->blocksDir());
         ui->startupTime->setText(model->formatClientStartupTime());
         ui->networkName->setText(QString::fromStdString(Params().NetworkIDString()));
 

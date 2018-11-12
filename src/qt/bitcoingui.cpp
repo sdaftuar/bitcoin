@@ -31,8 +31,9 @@
 #include <chainparams.h>
 #include <interfaces/handler.h>
 #include <interfaces/node.h>
+#include <noui.h>
 #include <ui_interface.h>
-#include <util.h>
+#include <util/system.h>
 
 #include <iostream>
 
@@ -56,6 +57,8 @@
 #include <QToolBar>
 #include <QUrlQuery>
 #include <QVBoxLayout>
+
+#include <boost/bind.hpp>
 
 const std::string BitcoinGUI::DEFAULT_UIPLATFORM =
 #if defined(Q_OS_MAC)
@@ -89,12 +92,8 @@ BitcoinGUI::BitcoinGUI(interfaces::Node& node, const PlatformStyle *_platformSty
         windowTitle += tr("Node");
     }
     windowTitle += " " + networkStyle->getTitleAddText();
-#ifndef Q_OS_MAC
     QApplication::setWindowIcon(networkStyle->getTrayAndWindowIcon());
     setWindowIcon(networkStyle->getTrayAndWindowIcon());
-#else
-    MacDockIconHandler::instance()->setIcon(networkStyle->getAppIcon());
-#endif
     setWindowTitle(windowTitle);
 
     rpcConsole = new RPCConsole(node, _platformStyle, 0);
@@ -128,7 +127,9 @@ BitcoinGUI::BitcoinGUI(interfaces::Node& node, const PlatformStyle *_platformSty
     createToolBars();
 
     // Create system tray icon and notification
-    createTrayIcon(networkStyle);
+    if (QSystemTrayIcon::isSystemTrayAvailable()) {
+        createTrayIcon(networkStyle);
+    }
 
     // Create status bar
     statusBar();
@@ -208,6 +209,10 @@ BitcoinGUI::BitcoinGUI(interfaces::Node& node, const PlatformStyle *_platformSty
         connect(progressBar, &GUIUtil::ClickableProgressBar::clicked, this, &BitcoinGUI::showModalOverlay);
     }
 #endif
+
+#ifdef Q_OS_MAC
+    m_app_nap_inhibitor = new CAppNapInhibitor;
+#endif
 }
 
 BitcoinGUI::~BitcoinGUI()
@@ -220,6 +225,7 @@ BitcoinGUI::~BitcoinGUI()
     if(trayIcon) // Hide tray icon, as deleting will let it linger until quit (on Ubuntu)
         trayIcon->hide();
 #ifdef Q_OS_MAC
+    delete m_app_nap_inhibitor;
     delete appMenuBar;
     MacDockIconHandler::cleanup();
 #endif
@@ -270,17 +276,17 @@ void BitcoinGUI::createActions()
 #ifdef ENABLE_WALLET
     // These showNormalIfMinimized are needed because Send Coins and Receive Coins
     // can be triggered from the tray menu, and need to show the GUI to be useful.
-    connect(overviewAction, &QAction::triggered, this, static_cast<void (BitcoinGUI::*)()>(&BitcoinGUI::showNormalIfMinimized));
+    connect(overviewAction, &QAction::triggered, [this]{ showNormalIfMinimized(); });
     connect(overviewAction, &QAction::triggered, this, &BitcoinGUI::gotoOverviewPage);
-    connect(sendCoinsAction, &QAction::triggered, this, static_cast<void (BitcoinGUI::*)()>(&BitcoinGUI::showNormalIfMinimized));
+    connect(sendCoinsAction, &QAction::triggered, [this]{ showNormalIfMinimized(); });
     connect(sendCoinsAction, &QAction::triggered, [this]{ gotoSendCoinsPage(); });
-    connect(sendCoinsMenuAction, &QAction::triggered, this, static_cast<void (BitcoinGUI::*)()>(&BitcoinGUI::showNormalIfMinimized));
+    connect(sendCoinsMenuAction, &QAction::triggered, [this]{ showNormalIfMinimized(); });
     connect(sendCoinsMenuAction, &QAction::triggered, [this]{ gotoSendCoinsPage(); });
-    connect(receiveCoinsAction, &QAction::triggered, this, static_cast<void (BitcoinGUI::*)()>(&BitcoinGUI::showNormalIfMinimized));
+    connect(receiveCoinsAction, &QAction::triggered, [this]{ showNormalIfMinimized(); });
     connect(receiveCoinsAction, &QAction::triggered, this, &BitcoinGUI::gotoReceiveCoinsPage);
-    connect(receiveCoinsMenuAction, &QAction::triggered, this, static_cast<void (BitcoinGUI::*)()>(&BitcoinGUI::showNormalIfMinimized));
+    connect(receiveCoinsMenuAction, &QAction::triggered, [this]{ showNormalIfMinimized(); });
     connect(receiveCoinsMenuAction, &QAction::triggered, this, &BitcoinGUI::gotoReceiveCoinsPage);
-    connect(historyAction, &QAction::triggered, this, static_cast<void (BitcoinGUI::*)()>(&BitcoinGUI::showNormalIfMinimized));
+    connect(historyAction, &QAction::triggered, [this]{ showNormalIfMinimized(); });
     connect(historyAction, &QAction::triggered, this, &BitcoinGUI::gotoHistoryPage);
 #endif // ENABLE_WALLET
 
@@ -347,7 +353,9 @@ void BitcoinGUI::createActions()
         connect(encryptWalletAction, &QAction::triggered, walletFrame, &WalletFrame::encryptWallet);
         connect(backupWalletAction, &QAction::triggered, walletFrame, &WalletFrame::backupWallet);
         connect(changePassphraseAction, &QAction::triggered, walletFrame, &WalletFrame::changePassphrase);
+        connect(signMessageAction, &QAction::triggered, [this]{ showNormalIfMinimized(); });
         connect(signMessageAction, &QAction::triggered, [this]{ gotoSignMessageTab(); });
+        connect(verifyMessageAction, &QAction::triggered, [this]{ showNormalIfMinimized(); });
         connect(verifyMessageAction, &QAction::triggered, [this]{ gotoVerifyMessageTab(); });
         connect(usedSendingAddressesAction, &QAction::triggered, walletFrame, &WalletFrame::usedSendingAddresses);
         connect(usedReceivingAddressesAction, &QAction::triggered, walletFrame, &WalletFrame::usedReceivingAddresses);
@@ -582,6 +590,8 @@ void BitcoinGUI::setWalletActionsEnabled(bool enabled)
 
 void BitcoinGUI::createTrayIcon(const NetworkStyle *networkStyle)
 {
+    assert(QSystemTrayIcon::isSystemTrayAvailable());
+
 #ifndef Q_OS_MAC
     trayIcon = new QSystemTrayIcon(this);
     QString toolTip = tr("%1 client").arg(tr(PACKAGE_NAME)) + " " + networkStyle->getTitleAddText();
@@ -596,7 +606,7 @@ void BitcoinGUI::createTrayIcon(const NetworkStyle *networkStyle)
 void BitcoinGUI::createTrayIconMenu()
 {
 #ifndef Q_OS_MAC
-    // return if trayIcon is unset (only on non-Mac OSes)
+    // return if trayIcon is unset (only on non-macOSes)
     if (!trayIcon)
         return;
 
@@ -605,24 +615,31 @@ void BitcoinGUI::createTrayIconMenu()
 
     connect(trayIcon, &QSystemTrayIcon::activated, this, &BitcoinGUI::trayIconActivated);
 #else
-    // Note: On Mac, the dock icon is used to provide the tray's functionality.
+    // Note: On macOS, the Dock icon is used to provide the tray's functionality.
     MacDockIconHandler *dockIconHandler = MacDockIconHandler::instance();
-    dockIconHandler->setMainWindow(static_cast<QMainWindow*>(this));
-    trayIconMenu = dockIconHandler->dockMenu();
+    connect(dockIconHandler, &MacDockIconHandler::dockIconClicked, this, &BitcoinGUI::macosDockIconActivated);
+
+    trayIconMenu = new QMenu(this);
+    trayIconMenu->setAsDockMenu();
 #endif
 
-    // Configuration of the tray icon (or dock icon) icon menu
+    // Configuration of the tray icon (or Dock icon) menu
+#ifndef Q_OS_MAC
+    // Note: On macOS, the Dock icon's menu already has Show / Hide action.
     trayIconMenu->addAction(toggleHideAction);
     trayIconMenu->addSeparator();
-    trayIconMenu->addAction(sendCoinsMenuAction);
-    trayIconMenu->addAction(receiveCoinsMenuAction);
-    trayIconMenu->addSeparator();
-    trayIconMenu->addAction(signMessageAction);
-    trayIconMenu->addAction(verifyMessageAction);
-    trayIconMenu->addSeparator();
+#endif
+    if (enableWallet) {
+        trayIconMenu->addAction(sendCoinsMenuAction);
+        trayIconMenu->addAction(receiveCoinsMenuAction);
+        trayIconMenu->addSeparator();
+        trayIconMenu->addAction(signMessageAction);
+        trayIconMenu->addAction(verifyMessageAction);
+        trayIconMenu->addSeparator();
+        trayIconMenu->addAction(openRPCConsoleAction);
+    }
     trayIconMenu->addAction(optionsAction);
-    trayIconMenu->addAction(openRPCConsoleAction);
-#ifndef Q_OS_MAC // This is built-in on Mac
+#ifndef Q_OS_MAC // This is built-in on macOS
     trayIconMenu->addSeparator();
     trayIconMenu->addAction(quitAction);
 #endif
@@ -636,6 +653,12 @@ void BitcoinGUI::trayIconActivated(QSystemTrayIcon::ActivationReason reason)
         // Click on system tray icon triggers show/hide of the main window
         toggleHidden();
     }
+}
+#else
+void BitcoinGUI::macosDockIconActivated()
+{
+    show();
+    activateWindow();
 }
 #endif
 
@@ -655,10 +678,7 @@ void BitcoinGUI::aboutClicked()
 
 void BitcoinGUI::showDebugWindow()
 {
-    rpcConsole->showNormal();
-    rpcConsole->show();
-    rpcConsole->raise();
-    rpcConsole->activateWindow();
+    GUIUtil::bringToFront(rpcConsole);
 }
 
 void BitcoinGUI::showDebugWindowActivateConsole()
@@ -778,6 +798,11 @@ void BitcoinGUI::openOptionsDialogWithTab(OptionsDialog::Tab tab)
 
 void BitcoinGUI::setNumBlocks(int count, const QDateTime& blockDate, double nVerificationProgress, bool header)
 {
+// Disabling macOS App Nap on initial sync, disk and reindex operations.
+#ifdef Q_OS_MAC
+    (m_node.isInitialBlockDownload() || m_node.getReindex() || m_node.getImporting()) ? m_app_nap_inhibitor->disableAppNap() : m_app_nap_inhibitor->enableAppNap();
+#endif
+
     if (modalOverlay)
     {
         if (header)
@@ -1140,24 +1165,11 @@ void BitcoinGUI::showNormalIfMinimized(bool fToggleHidden)
     if(!clientModel)
         return;
 
-    // activateWindow() (sometimes) helps with keyboard focus on Windows
-    if (isHidden())
-    {
-        show();
-        activateWindow();
-    }
-    else if (isMinimized())
-    {
-        showNormal();
-        activateWindow();
-    }
-    else if (GUIUtil::isObscured(this))
-    {
-        raise();
-        activateWindow();
-    }
-    else if(fToggleHidden)
+    if (!isHidden() && !isMinimized() && !GUIUtil::isObscured(this) && fToggleHidden) {
         hide();
+    } else {
+        GUIUtil::bringToFront(this);
+    }
 }
 
 void BitcoinGUI::toggleHidden()
@@ -1212,8 +1224,11 @@ void BitcoinGUI::showModalOverlay()
         modalOverlay->toggleVisibility();
 }
 
-static bool ThreadSafeMessageBox(BitcoinGUI *gui, const std::string& message, const std::string& caption, unsigned int style)
+static bool ThreadSafeMessageBox(BitcoinGUI* gui, const std::string& message, const std::string& caption, unsigned int style)
 {
+    // Redundantly log and print message in non-gui fashion
+    noui_ThreadSafeMessageBox(message, caption, style);
+
     bool modal = (style & CClientUIInterface::MODAL);
     // The SECURE flag has no effect in the Qt GUI.
     // bool secure = (style & CClientUIInterface::SECURE);
@@ -1271,7 +1286,7 @@ void UnitDisplayStatusBarControl::mousePressEvent(QMouseEvent *event)
 void UnitDisplayStatusBarControl::createContextMenu()
 {
     menu = new QMenu(this);
-    for (BitcoinUnits::Unit u : BitcoinUnits::availableUnits())
+    for (const BitcoinUnits::Unit u : BitcoinUnits::availableUnits())
     {
         QAction *menuAction = new QAction(QString(BitcoinUnits::longName(u)), this);
         menuAction->setData(QVariant(u));

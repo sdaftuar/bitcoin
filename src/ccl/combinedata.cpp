@@ -1,9 +1,9 @@
 #include "streams.h"
-#include "util.h"
 #include "primitives/block.h"
 #include "primitives/transaction.h"
 #include "simulation.h"
 #include "clientversion.h"
+#include "util/system.h"
 
 #include "boost/filesystem.hpp"
 #include <vector>
@@ -19,6 +19,8 @@ void print(BlockTransactionsEvent &);
 void printTime(int64_t timeMicros);
 
 enum DataType { TX, BLOCK, HEADERS, CMPCTBLOCK, BLOCKTXN, INVALID };
+
+const std::function<std::string(const char*)> G_TRANSLATION_FUN = nullptr;
 
 int main(int argc, char **argv)
 {

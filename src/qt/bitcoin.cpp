@@ -28,10 +28,11 @@
 
 #include <interfaces/handler.h>
 #include <interfaces/node.h>
+#include <noui.h>
 #include <rpc/server.h>
 #include <ui_interface.h>
 #include <uint256.h>
-#include <util.h>
+#include <util/system.h>
 #include <warnings.h>
 
 #include <walletinitinterface.h>
@@ -50,7 +51,6 @@
 #include <QThread>
 #include <QTimer>
 #include <QTranslator>
-#include <QSslConfiguration>
 
 #if defined(QT_STATICPLUGIN)
 #include <QtPlugin>
@@ -71,18 +71,15 @@ Q_DECLARE_METATYPE(bool*)
 Q_DECLARE_METATYPE(CAmount)
 Q_DECLARE_METATYPE(uint256)
 
-static void InitMessage(const std::string &message)
+static void InitMessage(const std::string& message)
 {
-    LogPrintf("init message: %s\n", message);
+    noui_InitMessage(message);
 }
 
-/*
-   Translate string to current locale using Qt.
- */
-static std::string Translate(const char* psz)
-{
+/** Translate string to current locale using Qt. */
+const std::function<std::string(const char*)> G_TRANSLATION_FUN = [](const char* psz) {
     return QCoreApplication::translate("bitcoin-core", psz).toStdString();
-}
+};
 
 static QString GetLangTerritory()
 {
@@ -419,7 +416,7 @@ void BitcoinApplication::requestShutdown()
 
 #ifdef ENABLE_WALLET
     window->removeAllWallets();
-    for (WalletModel *walletModel : m_wallet_models) {
+    for (const WalletModel* walletModel : m_wallet_models) {
         delete walletModel;
     }
     m_wallet_models.clear();
@@ -442,8 +439,10 @@ void BitcoinApplication::addWallet(WalletModel* walletModel)
         window->setCurrentWallet(walletModel->getWalletName());
     }
 
+#ifdef ENABLE_BIP70
     connect(walletModel, &WalletModel::coinsSent,
         paymentServer, &PaymentServer::fetchPaymentACK);
+#endif
     connect(walletModel, &WalletModel::unload, this, &BitcoinApplication::removeWallet);
 
     m_wallet_models.push_back(walletModel);
@@ -470,7 +469,9 @@ void BitcoinApplication::initializeResult(bool success)
         // Log this only after AppInitMain finishes, as then logging setup is guaranteed complete
         qWarning() << "Platform customization:" << platformStyle->getName();
 #ifdef ENABLE_WALLET
+#ifdef ENABLE_BIP70
         PaymentServer::LoadRootCAs();
+#endif
         paymentServer->setOptionsModel(optionsModel);
 #endif
 
@@ -539,7 +540,7 @@ WId BitcoinApplication::getMainWinId() const
 
 static void SetupUIArgs()
 {
-#ifdef ENABLE_WALLET
+#if defined(ENABLE_WALLET) && defined(ENABLE_BIP70)
     gArgs.AddArg("-allowselfsignedrootcertificates", strprintf("Allow self signed root certificates (default: %u)", DEFAULT_SELFSIGNED_ROOTCERTS), true, OptionsCategory::GUI);
 #endif
     gArgs.AddArg("-choosedatadir", strprintf("Choose data directory on startup (default: %u)", DEFAULT_CHOOSE_DATADIR), false, OptionsCategory::GUI);
@@ -554,6 +555,10 @@ static void SetupUIArgs()
 #ifndef BITCOIN_QT_TEST
 int main(int argc, char *argv[])
 {
+#ifdef WIN32
+    util::WinCmdLineArgs winArgs;
+    std::tie(argc, argv) = winArgs.get();
+#endif
     SetupEnvironment();
 
     std::unique_ptr<interfaces::Node> node = interfaces::MakeNode();
@@ -575,20 +580,13 @@ int main(int argc, char *argv[])
 #ifdef Q_OS_MAC
     QApplication::setAttribute(Qt::AA_DontShowIconsInMenus);
 #endif
-#if QT_VERSION >= 0x050500
-    // Because of the POODLE attack it is recommended to disable SSLv3 (https://disablessl3.com/),
-    // so set SSL protocols to TLS1.0+.
-    QSslConfiguration sslconf = QSslConfiguration::defaultConfiguration();
-    sslconf.setProtocol(QSsl::TlsV1_0OrLater);
-    QSslConfiguration::setDefaultConfiguration(sslconf);
-#endif
 
     // Register meta types used for QMetaObject::invokeMethod
     qRegisterMetaType< bool* >();
     //   Need to pass name here as CAmount is a typedef (see http://qt-project.org/doc/qt-5/qmetatype.html#qRegisterMetaType)
     //   IMPORTANT if it is no longer a typedef use the normal variant above
     qRegisterMetaType< CAmount >("CAmount");
-    qRegisterMetaType< std::function<void(void)> >("std::function<void(void)>");
+    qRegisterMetaType< std::function<void()> >("std::function<void()>");
 #ifdef ENABLE_WALLET
     qRegisterMetaType<WalletModel*>("WalletModel*");
 #endif
@@ -618,7 +616,6 @@ int main(int argc, char *argv[])
     // Now that QSettings are accessible, initialize translations
     QTranslator qtTranslatorBase, qtTranslator, translatorBase, translator;
     initTranslations(qtTranslatorBase, qtTranslator, translatorBase, translator);
-    translationInterface.Translate.connect(Translate);
 
     // Show help message immediately after parsing command-line options (for "-lang") and setting locale,
     // but before showing splash screen.

@@ -18,7 +18,7 @@
 #include <protocol.h>
 #include <script/script.h>
 #include <script/standard.h>
-#include <util.h>
+#include <util/system.h>
 
 #ifdef WIN32
 #ifdef _WIN32_WINNT
@@ -37,8 +37,6 @@
 #include <shlobj.h>
 #include <shlwapi.h>
 #endif
-
-#include <boost/scoped_array.hpp>
 
 #include <QAbstractItemView>
 #include <QApplication>
@@ -62,7 +60,13 @@
 #include <QFontDatabase>
 #endif
 
-static fs::detail::utf8_codecvt_facet utf8;
+#if defined(Q_OS_MAC)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+
+#include <objc/objc-runtime.h>
+#include <CoreServices/CoreServices.h>
+#endif
 
 namespace GUIUtil {
 
@@ -357,6 +361,27 @@ bool isObscured(QWidget *w)
         && checkPoint(QPoint(w->width() / 2, w->height() / 2), w));
 }
 
+void bringToFront(QWidget* w)
+{
+#ifdef Q_OS_MAC
+    // Force application activation on macOS. With Qt 5.4 this is required when
+    // an action in the dock menu is triggered.
+    id app = objc_msgSend((id) objc_getClass("NSApplication"), sel_registerName("sharedApplication"));
+    objc_msgSend(app, sel_registerName("activateIgnoringOtherApps:"), YES);
+#endif
+
+    if (w) {
+        // activateWindow() (sometimes) helps with keyboard focus on Windows
+        if (w->isMinimized()) {
+            w->showNormal();
+        } else {
+            w->show();
+        }
+        w->activateWindow();
+        w->raise();
+    }
+}
+
 void openDebugLogfile()
 {
     fs::path pathDebug = GetDataDir() / "debug.log";
@@ -371,7 +396,7 @@ bool openBitcoinConf()
     fs::path pathConfig = GetConfigFile(gArgs.GetArg("-conf", BITCOIN_CONF_FILENAME));
 
     /* Create the file */
-    fs::ofstream configFile(pathConfig, std::ios_base::app);
+    fsbridge::ofstream configFile(pathConfig, std::ios_base::app);
 
     if (!configFile.good())
         return false;
@@ -548,40 +573,28 @@ bool SetStartOnSystemStartup(bool fAutoStart)
         CoInitialize(nullptr);
 
         // Get a pointer to the IShellLink interface.
-        IShellLink* psl = nullptr;
+        IShellLinkW* psl = nullptr;
         HRESULT hres = CoCreateInstance(CLSID_ShellLink, nullptr,
-            CLSCTX_INPROC_SERVER, IID_IShellLink,
+            CLSCTX_INPROC_SERVER, IID_IShellLinkW,
             reinterpret_cast<void**>(&psl));
 
         if (SUCCEEDED(hres))
         {
             // Get the current executable path
-            TCHAR pszExePath[MAX_PATH];
-            GetModuleFileName(nullptr, pszExePath, sizeof(pszExePath));
+            WCHAR pszExePath[MAX_PATH];
+            GetModuleFileNameW(nullptr, pszExePath, ARRAYSIZE(pszExePath));
 
             // Start client minimized
             QString strArgs = "-min";
             // Set -testnet /-regtest options
             strArgs += QString::fromStdString(strprintf(" -testnet=%d -regtest=%d", gArgs.GetBoolArg("-testnet", false), gArgs.GetBoolArg("-regtest", false)));
 
-#ifdef UNICODE
-            boost::scoped_array<TCHAR> args(new TCHAR[strArgs.length() + 1]);
-            // Convert the QString to TCHAR*
-            strArgs.toWCharArray(args.get());
-            // Add missing '\0'-termination to string
-            args[strArgs.length()] = '\0';
-#endif
-
             // Set the path to the shortcut target
             psl->SetPath(pszExePath);
-            PathRemoveFileSpec(pszExePath);
+            PathRemoveFileSpecW(pszExePath);
             psl->SetWorkingDirectory(pszExePath);
             psl->SetShowCmd(SW_SHOWMINNOACTIVE);
-#ifndef UNICODE
-            psl->SetArguments(strArgs.toStdString().c_str());
-#else
-            psl->SetArguments(args.get());
-#endif
+            psl->SetArguments(strArgs.toStdWString().c_str());
 
             // Query IShellLink for the IPersistFile interface for
             // saving the shortcut in persistent storage.
@@ -589,11 +602,8 @@ bool SetStartOnSystemStartup(bool fAutoStart)
             hres = psl->QueryInterface(IID_IPersistFile, reinterpret_cast<void**>(&ppf));
             if (SUCCEEDED(hres))
             {
-                WCHAR pwsz[MAX_PATH];
-                // Ensure that the string is ANSI.
-                MultiByteToWideChar(CP_ACP, 0, StartupShortcutPath().string().c_str(), -1, pwsz, MAX_PATH);
                 // Save the link by calling IPersistFile::Save.
-                hres = ppf->Save(pwsz, TRUE);
+                hres = ppf->Save(StartupShortcutPath().wstring().c_str(), TRUE);
                 ppf->Release();
                 psl->Release();
                 CoUninitialize();
@@ -630,7 +640,7 @@ fs::path static GetAutostartFilePath()
 
 bool GetStartOnSystemStartup()
 {
-    fs::ifstream optionFile(GetAutostartFilePath());
+    fsbridge::ifstream optionFile(GetAutostartFilePath());
     if (!optionFile.good())
         return false;
     // Scan through file for "Hidden=true":
@@ -661,7 +671,7 @@ bool SetStartOnSystemStartup(bool fAutoStart)
 
         fs::create_directories(GetAutostartDir());
 
-        fs::ofstream optionFile(GetAutostartFilePath(), std::ios_base::out|std::ios_base::trunc);
+        fsbridge::ofstream optionFile(GetAutostartFilePath(), std::ios_base::out | std::ios_base::trunc);
         if (!optionFile.good())
             return false;
         std::string chain = gArgs.GetChainName();
@@ -682,12 +692,7 @@ bool SetStartOnSystemStartup(bool fAutoStart)
 
 
 #elif defined(Q_OS_MAC)
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
 // based on: https://github.com/Mozketo/LaunchAtLoginController/blob/master/LaunchAtLoginController.m
-
-#include <CoreFoundation/CoreFoundation.h>
-#include <CoreServices/CoreServices.h>
 
 LSSharedFileListItemRef findStartupItemInList(LSSharedFileListRef list, CFURLRef findUrl);
 LSSharedFileListItemRef findStartupItemInList(LSSharedFileListRef list, CFURLRef findUrl)
@@ -781,12 +786,12 @@ void setClipboard(const QString& str)
 
 fs::path qstringToBoostPath(const QString &path)
 {
-    return fs::path(path.toStdString(), utf8);
+    return fs::path(path.toStdString());
 }
 
 QString boostPathToQString(const fs::path &path)
 {
-    return QString::fromStdString(path.string(utf8));
+    return QString::fromStdString(path.string());
 }
 
 QString formatDurationStr(int secs)
