@@ -9,7 +9,6 @@
 #include "primitives/transaction.h"
 #include "primitives/block.h"
 #include "shutdown.h"
-#include "util.h"
 
 #include <string>
 #include <boost/interprocess/sync/file_lock.hpp>

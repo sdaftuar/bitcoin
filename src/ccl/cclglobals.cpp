@@ -4,7 +4,6 @@
 #include "ui_interface.h" // Defines the _() function!
 #include "arith_uint256.h"
 #include "uint256.h"
-#include "util.h"
 #include "validation.h"
 #include "net_processing.h"
 
