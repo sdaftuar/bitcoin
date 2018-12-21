@@ -70,11 +70,18 @@ public:
     /** If we have extra outbound peers, try to disconnect the one with the oldest block announcement */
     void EvictExtraOutboundPeers(int64_t time_in_seconds) EXCLUSIVE_LOCKS_REQUIRED(cs_main);
 
+    void EraseTxRequest(uint256& txid) EXCLUSIVE_LOCKS_REQUIRED(cs_main) { mapAlreadyAskedFor.erase(txid); }
+private:
+    void UpdateTxRequestTime(uint256& txid, int64_t request_time) EXCLUSIVE_LOCKS_REQUIRED(cs_main);
+    int64_t GetTxRequestTime(uint256& txid) EXCLUSIVE_LOCKS_REQUIRED(cs_main);
+
 private:
     int64_t m_stale_tip_check_time; //!< Next time to check for stale tip
 
     /** Enable BIP61 (sending reject messages) */
     const bool m_enable_bip61;
+
+    limitedmap<uint256, int64_t> mapAlreadyAskedFor GUARDED_BY(cs_main);
 };
 
 struct CNodeStateStats {
