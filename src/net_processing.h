@@ -82,6 +82,7 @@ private:
     const bool m_enable_bip61;
 
     limitedmap<uint256, int64_t> mapAlreadyAskedFor GUARDED_BY(cs_main);
+    std::set<NodeId> outbound_peers GUARDED_BY(cs_main);
 };
 
 struct CNodeStateStats {
