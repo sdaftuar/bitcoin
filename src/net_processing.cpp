@@ -71,6 +71,8 @@ static constexpr int32_t MAX_PEER_TX_ANNOUNCEMENTS = 2*MAX_INV_SZ;
 static constexpr int64_t INBOUND_PEER_TX_DELAY = 1000000;
 /** How long to wait (in microseconds) before downloading a transaction from an additional peer */
 static constexpr int64_t MAX_GETDATA_TX_DELAY = 60*1000000;
+/** Maximum number of NOTFOUND notifications we'll push to other peers */
+static constexpr int32_t MAX_PEER_NOTFOUND = 100;
 
 struct COrphanTx {
     // When modifying, adapt the copy of this definition in tests/DoS_tests.
@@ -3075,9 +3077,17 @@ bool static ProcessMessage(PeerLogicValidation *peer_logic, CNode* pfrom, const 
                 if (inv.type == MSG_TX || inv.type == MSG_WITNESS_TX) {
                     state->m_tx_download.m_tx_announced.erase(inv.hash);
                     state->m_tx_download.m_in_flight.erase(inv.hash);
-                    // TODO: add these notfound transactions to the outbound
-                    // peer's download info, so they can attempt download
-                    // sooner.
+                    if (!AlreadyHave(inv)) {
+                        for (auto it = g_outbound_peers.begin(); it != g_outbound_peers.end(); ++it) {
+                            if (*it == pfrom->GetId()) continue;
+                            CNodeState *state = State(*it);
+                            if (!state->m_tx_download.m_tx_announced.count(inv.hash)) continue;
+                            while (state->m_tx_download.m_not_found.size() >= MAX_PEER_NOTFOUND) {
+                                state->m_tx_download.m_not_found.erase(state->m_tx_download.m_not_found.begin());
+                            }
+                            state->m_tx_download.m_not_found.push_back(inv.hash);
+                        }
+                    }
                 }
             }
         } else {
