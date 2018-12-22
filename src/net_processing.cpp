@@ -3077,6 +3077,7 @@ bool static ProcessMessage(PeerLogicValidation *peer_logic, CNode* pfrom, const 
                 if (inv.type == MSG_TX || inv.type == MSG_WITNESS_TX) {
                     state->m_tx_download.m_tx_announced.erase(inv.hash);
                     state->m_tx_download.m_in_flight.erase(inv.hash);
+                    peer_logic->EraseTxRequest(inv.hash);
                     if (!AlreadyHave(inv)) {
                         for (auto it = g_outbound_peers.begin(); it != g_outbound_peers.end(); ++it) {
                             if (*it == pfrom->GetId()) continue;
