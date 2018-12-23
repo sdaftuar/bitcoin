@@ -3076,7 +3076,15 @@ bool static ProcessMessage(PeerLogicValidation *peer_logic, CNode* pfrom, const 
             for (CInv &inv : vInv) {
                 if (inv.type == MSG_TX || inv.type == MSG_WITNESS_TX) {
                     state->m_tx_download.m_tx_announced.erase(inv.hash);
-                    state->m_tx_download.m_in_flight.erase(inv.hash);
+                    auto in_flight_it = state->m_tx_download.m_in_flight.find(inv.hash);
+                    if (in_flight_it == state->m_tx_download.m_in_flight.end()) {
+                        // Ignore NOTFOUND messages unless we requested the
+                        // transaction from the peer, to prevent misbehaving peers from
+                        // polluting the NOTFOUND queues or triggering multiple
+                        // concurrent download of transacions
+                        continue;
+                    }
+                    state->m_tx_download.m_in_flight.erase(in_flight_it);
                     peer_logic->EraseTxRequest(inv.hash);
                     if (!AlreadyHave(inv)) {
                         for (auto it = g_outbound_peers.begin(); it != g_outbound_peers.end(); ++it) {
