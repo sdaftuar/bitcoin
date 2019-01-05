@@ -4,11 +4,7 @@
 # file COPYING or http://www.opensource.org/licenses/mit-license.php.
 """Test transaction download behavior.
 
-- Create two connected bitcoind nodes, and p2p connect to each.
-- Create a transaction and announce to one.  Verify we receive a getdata
-  request.
-- Create a transaction and announce to one, deliver to the other. Verify that
-  we sometimes do NOT get a getdata request.
+- Create some connected bitcoind nodes, and p2p connect to one of them.
 - Send a NOTFOUND in response to the getdata requests. Verify that the node
   gets the transaction in less than 50 seconds.
 
@@ -29,7 +25,6 @@ class TxDownloadTest(BitcoinTestFramework):
     def set_test_params(self):
         self.setup_clean_chain = True
         self.num_nodes = 5
-        # set timeout to receive version/verack to 3 seconds
         self.extra_args = [[], [], ["-walletbroadcast=0"], [], []]
 
     def setup_network(self):
@@ -45,7 +40,6 @@ class TxDownloadTest(BitcoinTestFramework):
     def run_test(self):
         # Setup the p2p connections
         peer0 = self.nodes[0].add_p2p_connection(TestP2PConn())
-        peer1 = self.nodes[1].add_p2p_connection(TestP2PConn())
 
         self.nodes[2].generate(200)
 
@@ -61,7 +55,8 @@ class TxDownloadTest(BitcoinTestFramework):
             txid = int(txid_string, 16)
             message = msg_inv([CInv(t=1, h=txid)])
             peer0.send_message(message)
-            self.nodes[1].sendrawtransaction(tx_hex)
+            for node in self.nodes[1:5]:
+                node.sendrawtransaction(tx_hex)
 
             sleep(2)
             got_getdata = False
@@ -74,12 +69,14 @@ class TxDownloadTest(BitcoinTestFramework):
                     assert txid_string in self.nodes[0].getrawmempool()
             if got_getdata:
                 # Send a NOTFOUND and see that the node still gets it quickly
-                sleep(20)
                 message = msg_notfound([CInv(t=1, h=txid)])
                 peer0.send_message(message)
-                wait_until(lambda: txid_string in self.nodes[0].getrawmempool(), timeout=10, lock=mininode_lock)
+                wait_until(lambda: txid_string in self.nodes[0].getrawmempool(), timeout=30, lock=mininode_lock)
 
-        assert peer0_getdata < 20
+        if (peer0_getdata == 0):
+            raise AssertionError("Expected peer0 to receive some getdata requests -- either timing is very unlucky, this test is broken, or there is unexpected bitcoind behavior")
+        if (peer0_getdata == 20):
+            raise AssertionError("No getdata requests went to outbound peers, either very unlucky or there is a bug in transaction download")
 
 if __name__ == '__main__':
     TxDownloadTest().main()
