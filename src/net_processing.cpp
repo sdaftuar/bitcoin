@@ -960,6 +960,8 @@ void Misbehaving(NodeId pnode, int howmuch, const std::string& message) EXCLUSIV
 }
 
 static bool MayResultInDisconnect(const CValidationState& state, bool via_compact_block) {
+    assert(!via_compact_block);
+    assert(state.GetDoS() == state.GetDoSForReason());
     return (state.GetDoS() > 0);
 }
 
@@ -974,6 +976,7 @@ static bool MayResultInDisconnect(const CValidationState& state, bool via_compac
  * txs, the peer should not be punished. See BIP 152.
  */
 static bool MaybePunishNode(NodeId nodeid, const CValidationState& state, bool via_compact_block, const std::string& message = "") {
+    assert(state.GetDoS() == state.GetDoSForReason());
     int nDoS = state.GetDoS();
     if (nDoS > 0 && !via_compact_block) {
          LOCK(cs_main);
