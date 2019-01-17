@@ -2411,11 +2411,11 @@ bool static ProcessMessage(CNode* pfrom, const std::string& strCommand, CDataStr
                 // Never relay transactions that we would assign a non-zero DoS
                 // score for, as we expect peers to do the same with us in that
                 // case.
-                if (!state.IsInvalid() || !MayResultInDisconnect(state, false)) {
+                if (state.IsInvalid() && MayResultInDisconnect(state, false)) {
+                    LogPrintf("Not relaying invalid transaction %s from whitelisted peer=%d (%s)\n", tx.GetHash().ToString(), pfrom->GetId(), FormatStateMessage(state));
+                } else {
                     LogPrintf("Force relaying tx %s from whitelisted peer=%d\n", tx.GetHash().ToString(), pfrom->GetId());
                     RelayTransaction(tx, connman);
-                } else {
-                    LogPrintf("Not relaying invalid transaction %s from whitelisted peer=%d (%s)\n", tx.GetHash().ToString(), pfrom->GetId(), FormatStateMessage(state));
                 }
             }
         }
