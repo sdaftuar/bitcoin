@@ -80,18 +80,9 @@ private:
     std::string strDebugMessage;
 public:
     CValidationState() : mode(MODE_VALID), reason(ValidationInvalidReason::NONE), chRejectCode(0) {}
-    bool DoS(int level, ValidationInvalidReason reasonIn, bool ret = false,
-             unsigned int chRejectCodeIn=0, const std::string &strRejectReasonIn="",
-             bool corruptionPossibleIn=false,
-             const std::string &strDebugMessageIn="") {
-        ret = Invalid(reasonIn, ret, chRejectCodeIn, strRejectReasonIn, strDebugMessageIn);
-        assert(level == GetDoS());
-        assert(corruptionPossibleIn == CorruptionPossible());
-        return ret;
-    }
     bool Invalid(ValidationInvalidReason reasonIn, bool ret = false,
-                 unsigned int chRejectCodeIn=0, const std::string &strRejectReasonIn="",
-                 const std::string &strDebugMessageIn="") {
+            unsigned int chRejectCodeIn=0, const std::string &strRejectReasonIn="",
+            const std::string &strDebugMessageIn="") {
         reason = reasonIn;
         chRejectCode = chRejectCodeIn;
         strRejectReason = strRejectReasonIn;
@@ -115,34 +106,6 @@ public:
     }
     bool IsError() const {
         return mode == MODE_ERROR;
-    }
-    bool CorruptionPossible() const {
-        return reason == ValidationInvalidReason::BLOCK_MUTATED || reason == ValidationInvalidReason::TX_WITNESS_MUTATED;
-    }
-    int GetDoS() const {
-        switch (reason) {
-        case ValidationInvalidReason::NONE:
-            return 0;
-        case ValidationInvalidReason::CONSENSUS:
-        case ValidationInvalidReason::BLOCK_MUTATED:
-        case ValidationInvalidReason::BLOCK_INVALID_HEADER:
-        case ValidationInvalidReason::BLOCK_CHECKPOINT:
-        case ValidationInvalidReason::BLOCK_INVALID_PREV:
-            return 100;
-        case ValidationInvalidReason::BLOCK_MISSING_PREV:
-            return 10;
-        case ValidationInvalidReason::CACHED_INVALID:
-        case ValidationInvalidReason::RECENT_CONSENSUS_CHANGE:
-        case ValidationInvalidReason::BLOCK_BAD_TIME:
-        case ValidationInvalidReason::TX_NOT_STANDARD:
-        case ValidationInvalidReason::TX_MISSING_INPUTS:
-        case ValidationInvalidReason::TX_WITNESS_MUTATED:
-        case ValidationInvalidReason::TX_CONFLICT:
-        case ValidationInvalidReason::TX_MEMPOOL_POLICY:
-            return 0;
-        default:
-            assert(false);
-        }
     }
     ValidationInvalidReason GetReason() const { return reason; }
     unsigned int GetRejectCode() const { return chRejectCode; }
