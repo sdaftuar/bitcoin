@@ -74,16 +74,16 @@ private:
         MODE_INVALID, //!< network rule violation (DoS value may be set)
         MODE_ERROR,   //!< run-time error
     } mode;
-    ValidationInvalidReason reason;
+    ValidationInvalidReason m_reason;
     std::string strRejectReason;
     unsigned int chRejectCode;
     std::string strDebugMessage;
 public:
-    CValidationState() : mode(MODE_VALID), reason(ValidationInvalidReason::NONE), chRejectCode(0) {}
+    CValidationState() : mode(MODE_VALID), m_reason(ValidationInvalidReason::NONE), chRejectCode(0) {}
     bool Invalid(ValidationInvalidReason reasonIn, bool ret = false,
             unsigned int chRejectCodeIn=0, const std::string &strRejectReasonIn="",
             const std::string &strDebugMessageIn="") {
-        reason = reasonIn;
+        m_reason = reasonIn;
         chRejectCode = chRejectCodeIn;
         strRejectReason = strRejectReasonIn;
         strDebugMessage = strDebugMessageIn;
@@ -107,7 +107,7 @@ public:
     bool IsError() const {
         return mode == MODE_ERROR;
     }
-    ValidationInvalidReason GetReason() const { return reason; }
+    ValidationInvalidReason GetReason() const { return m_reason; }
     unsigned int GetRejectCode() const { return chRejectCode; }
     std::string GetRejectReason() const { return strRejectReason; }
     std::string GetDebugMessage() const { return strDebugMessage; }
