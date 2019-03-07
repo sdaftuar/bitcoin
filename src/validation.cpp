@@ -1985,13 +1985,14 @@ bool CChainState::ConnectBlock(const CBlock& block, CValidationState& state, CBl
         {
             CAmount txfee = 0;
             if (!Consensus::CheckTxInputs(tx, state, view, pindex->nHeight, txfee)) {
-                if (state.GetReason() == ValidationInvalidReason::TX_MISSING_INPUTS) {
-                    // CheckTxInputs may return MISSING_INPUTS but we can't return that, as
-                    // it's not defined for a block, so we reset the reason flag to CONSENSUS here.
+                if (!IsBlockReason(state.GetReason())) {
+                    // CheckTxInputs may return MISSING_INPUTS or
+                    // PREMATURE_COINBASE but we can't return that, as it's not
+                    // defined for a block, so we reset the reason flag to
+                    // CONSENSUS here.
                     state.Invalid(ValidationInvalidReason::CONSENSUS, false,
                             state.GetRejectCode(), state.GetRejectReason(), state.GetDebugMessage());
                 }
-                assert(IsBlockReason(state.GetReason()));
                 return error("%s: Consensus::CheckTxInputs: %s, %s", __func__, tx.GetHash().ToString(), FormatStateMessage(state));
             }
             nFees += txfee;

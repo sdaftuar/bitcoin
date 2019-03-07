@@ -50,6 +50,7 @@ enum class ValidationInvalidReason {
     // Only loose txn:
     TX_NOT_STANDARD,          //!< didn't meet our local policy rules
     TX_MISSING_INPUTS,        //!< a transaction was missing some of its inputs (or its inputs were spent at < coinbase maturity height)
+    TX_PREMATURE_COINBASE,    //!< transaction spends a coinbase too early
     /**
      * Transaction might be missing a witness, have a witness prior to SegWit
      * activation, or witness may have been malleated (which includes
@@ -72,6 +73,7 @@ inline bool IsTransactionReason(ValidationInvalidReason r)
            r == ValidationInvalidReason::CONSENSUS ||
            r == ValidationInvalidReason::RECENT_CONSENSUS_CHANGE ||
            r == ValidationInvalidReason::TX_NOT_STANDARD ||
+           r == ValidationInvalidReason::TX_PREMATURE_COINBASE ||
            r == ValidationInvalidReason::TX_MISSING_INPUTS ||
            r == ValidationInvalidReason::TX_WITNESS_MUTATED ||
            r == ValidationInvalidReason::TX_CONFLICT ||
