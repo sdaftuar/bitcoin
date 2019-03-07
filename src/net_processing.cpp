@@ -957,10 +957,9 @@ void Misbehaving(NodeId pnode, int howmuch, const std::string& message) EXCLUSIV
 }
 
 /**
- * Returns true if the given validation state result may result in us banning/disconnecting a peer
- * which provided such an object. This is used to determine whether to relay transactions to
- * whitelisted peers, preventing us from relaying things which would result in them disconnecting
- * us.
+ * Returns true if the given validation state result may result in a peer
+ * banning/disconnecting us. We use this to determine which unaccepted
+ * transactions from a whitelisted peer that we can safely relay.
  */
 static bool TxRelayMayResultInDisconnect(const CValidationState& state)
 {
@@ -969,6 +968,7 @@ static bool TxRelayMayResultInDisconnect(const CValidationState& state)
 }
 
 //! Returns true if the peer was punished (probably disconnected)
+//! Changes here may need to be reflected in TxRelayMayResultInDisconnect().
 static bool MaybePunishNode(NodeId nodeid, const CValidationState& state, bool via_compact_block, const std::string& message = "") {
     switch (state.GetReason()) {
     case ValidationInvalidReason::NONE:
@@ -2518,9 +2518,8 @@ bool static ProcessMessage(CNode* pfrom, const std::string& strCommand, CDataStr
                 // to policy, allowing the node to function as a gateway for
                 // nodes hidden behind it.
                 //
-                // Never relay transactions that we would assign a non-zero DoS
-                // score for, as we expect peers to do the same with us in that
-                // case.
+                // Never relay transactions that might result in being
+                // disconnected (or banned).
                 if (state.IsInvalid() && TxRelayMayResultInDisconnect(state)) {
                     LogPrintf("Not relaying invalid transaction %s from whitelisted peer=%d (%s)\n", tx.GetHash().ToString(), pfrom->GetId(), FormatStateMessage(state));
                 } else {
