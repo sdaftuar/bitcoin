@@ -2627,8 +2627,10 @@ CNode::CNode(NodeId idIn, ServiceFlags nLocalServicesIn, int nMyStartingHeightIn
     addrName = addrNameIn == "" ? addr.ToStringIPPort() : addrNameIn;
     strSubVer = "";
     hashContinue = uint256();
-    tx_relay = MakeUnique<TxRelay>();
-    tx_relay->pfilter = MakeUnique<CBloomFilter>();
+    if (fRelayTxes) {
+        tx_relay = MakeUnique<TxRelay>();
+        tx_relay->pfilter = MakeUnique<CBloomFilter>();
+    }
 
     for (const std::string &msg : getAllNetMessageTypes())
         mapRecvBytesPerMsgCmd[msg] = 0;
