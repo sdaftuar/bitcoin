@@ -498,8 +498,8 @@ void CNode::copyStats(CNodeStats &stats)
     X(addr);
     X(addrBind);
     {
-        LOCK(cs_filter);
-        X(fRelayTxes);
+        LOCK(tx_relay.cs_filter);
+        stats.fRelayTxes = tx_relay.fRelayTxes;
     }
     X(nLastSend);
     X(nLastRecv);
@@ -526,8 +526,8 @@ void CNode::copyStats(CNodeStats &stats)
     }
     X(fWhitelisted);
     {
-        LOCK(cs_feeFilter);
-        X(minFeeFilter);
+        LOCK(tx_relay.cs_feeFilter);
+        stats.minFeeFilter = tx_relay.minFeeFilter;
     }
 
     // It is common for nodes with good ping times to suddenly become lagged,
@@ -815,11 +815,11 @@ bool CConnman::AttemptToEvictConnection()
                 continue;
             if (node->fDisconnect)
                 continue;
-            LOCK(node->cs_filter);
+            LOCK(node->tx_relay.cs_filter);
             NodeEvictionCandidate candidate = {node->GetId(), node->nTimeConnected, node->nMinPingUsecTime,
                                                node->nLastBlockTime, node->nLastTXTime,
                                                HasAllDesirableServiceFlags(node->nServices),
-                                               node->fRelayTxes, node->pfilter != nullptr, node->addr, node->nKeyedNetGroup,
+                                               node->tx_relay.fRelayTxes, node->tx_relay.pfilter != nullptr, node->addr, node->nKeyedNetGroup,
                                                node->m_prefer_evict};
             vEvictionCandidates.push_back(candidate);
         }
@@ -2612,7 +2612,6 @@ CNode::CNode(NodeId idIn, ServiceFlags nLocalServicesIn, int nMyStartingHeightIn
     addrBind(addrBindIn),
     fInbound(fInboundIn),
     nKeyedNetGroup(nKeyedNetGroupIn),
-    filterInventoryKnown(50000, 0.000001),
     id(idIn),
     nLocalHostNonce(nLocalHostNonceIn),
     nLocalServices(nLocalServicesIn),
@@ -2622,8 +2621,7 @@ CNode::CNode(NodeId idIn, ServiceFlags nLocalServicesIn, int nMyStartingHeightIn
     addrName = addrNameIn == "" ? addr.ToStringIPPort() : addrNameIn;
     strSubVer = "";
     hashContinue = uint256();
-    filterInventoryKnown.reset();
-    pfilter = MakeUnique<CBloomFilter>();
+    tx_relay.pfilter = MakeUnique<CBloomFilter>();
 
     for (const std::string &msg : getAllNetMessageTypes())
         mapRecvBytesPerMsgCmd[msg] = 0;

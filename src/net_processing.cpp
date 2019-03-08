@@ -1348,10 +1348,10 @@ void static ProcessGetBlockData(CNode* pfrom, const CChainParams& chainparams, c
                 bool sendMerkleBlock = false;
                 CMerkleBlock merkleBlock;
                 {
-                    LOCK(pfrom->cs_filter);
-                    if (pfrom->pfilter) {
+                    LOCK(pfrom->tx_relay.cs_filter);
+                    if (pfrom->tx_relay.pfilter) {
                         sendMerkleBlock = true;
-                        merkleBlock = CMerkleBlock(*pblock, *pfrom->pfilter);
+                        merkleBlock = CMerkleBlock(*pblock, *pfrom->tx_relay.pfilter);
                     }
                 }
                 if (sendMerkleBlock) {
@@ -1431,11 +1431,11 @@ void static ProcessGetData(CNode* pfrom, const CChainParams& chainparams, CConnm
             if (mi != mapRelay.end()) {
                 connman->PushMessage(pfrom, msgMaker.Make(nSendFlags, NetMsgType::TX, *mi->second));
                 push = true;
-            } else if (pfrom->timeLastMempoolReq) {
+            } else if (pfrom->tx_relay.timeLastMempoolReq) {
                 auto txinfo = mempool.info(inv.hash);
                 // To protect privacy, do not answer getdata using the mempool when
                 // that TX couldn't have been INVed in reply to a MEMPOOL request.
-                if (txinfo.tx && txinfo.nTime <= pfrom->timeLastMempoolReq) {
+                if (txinfo.tx && txinfo.nTime <= pfrom->tx_relay.timeLastMempoolReq) {
                     connman->PushMessage(pfrom, msgMaker.Make(nSendFlags, NetMsgType::TX, *txinfo.tx));
                     push = true;
                 }
@@ -1862,8 +1862,8 @@ bool static ProcessMessage(CNode* pfrom, const std::string& strCommand, CDataStr
         pfrom->m_limited_node = (!(nServices & NODE_NETWORK) && (nServices & NODE_NETWORK_LIMITED));
 
         {
-            LOCK(pfrom->cs_filter);
-            pfrom->fRelayTxes = fRelay; // set to true after we get the first filter* message
+            LOCK(pfrom->tx_relay.cs_filter);
+            pfrom->tx_relay.fRelayTxes = fRelay; // set to true after we get the first filter* message
         }
 
         // Change version
@@ -2935,8 +2935,8 @@ bool static ProcessMessage(CNode* pfrom, const std::string& strCommand, CDataStr
             return true;
         }
 
-        LOCK(pfrom->cs_inventory);
-        pfrom->fSendMempool = true;
+        LOCK(pfrom->tx_relay.cs_tx_inventory);
+        pfrom->tx_relay.fSendMempool = true;
         return true;
     }
 
@@ -3029,10 +3029,10 @@ bool static ProcessMessage(CNode* pfrom, const std::string& strCommand, CDataStr
         }
         else
         {
-            LOCK(pfrom->cs_filter);
-            pfrom->pfilter.reset(new CBloomFilter(filter));
-            pfrom->pfilter->UpdateEmptyFull();
-            pfrom->fRelayTxes = true;
+            LOCK(pfrom->tx_relay.cs_filter);
+            pfrom->tx_relay.pfilter.reset(new CBloomFilter(filter));
+            pfrom->tx_relay.pfilter->UpdateEmptyFull();
+            pfrom->tx_relay.fRelayTxes = true;
         }
         return true;
     }
@@ -3047,9 +3047,9 @@ bool static ProcessMessage(CNode* pfrom, const std::string& strCommand, CDataStr
         if (vData.size() > MAX_SCRIPT_ELEMENT_SIZE) {
             bad = true;
         } else {
-            LOCK(pfrom->cs_filter);
-            if (pfrom->pfilter) {
-                pfrom->pfilter->insert(vData);
+            LOCK(pfrom->tx_relay.cs_filter);
+            if (pfrom->tx_relay.pfilter) {
+                pfrom->tx_relay.pfilter->insert(vData);
             } else {
                 bad = true;
             }
@@ -3062,11 +3062,11 @@ bool static ProcessMessage(CNode* pfrom, const std::string& strCommand, CDataStr
     }
 
     if (strCommand == NetMsgType::FILTERCLEAR) {
-        LOCK(pfrom->cs_filter);
+        LOCK(pfrom->tx_relay.cs_filter);
         if (pfrom->GetLocalServices() & NODE_BLOOM) {
-            pfrom->pfilter.reset(new CBloomFilter());
+            pfrom->tx_relay.pfilter.reset(new CBloomFilter());
         }
-        pfrom->fRelayTxes = true;
+        pfrom->tx_relay.fRelayTxes = true;
         return true;
     }
 
@@ -3075,8 +3075,8 @@ bool static ProcessMessage(CNode* pfrom, const std::string& strCommand, CDataStr
         vRecv >> newFeeFilter;
         if (MoneyRange(newFeeFilter)) {
             {
-                LOCK(pfrom->cs_feeFilter);
-                pfrom->minFeeFilter = newFeeFilter;
+                LOCK(pfrom->tx_relay.cs_feeFilter);
+                pfrom->tx_relay.minFeeFilter = newFeeFilter;
             }
             LogPrint(BCLog::NET, "received: feefilter of %s from peer=%d\n", CFeeRate(newFeeFilter).ToString(), pfrom->GetId());
         }
@@ -3681,69 +3681,70 @@ bool PeerLogicValidation::SendMessages(CNode* pto)
             }
             pto->vInventoryBlockToSend.clear();
 
+            LOCK(pto->tx_relay.cs_tx_inventory);
             // Check whether periodic sends should happen
             bool fSendTrickle = pto->fWhitelisted;
-            if (pto->nNextInvSend < nNow) {
+            if (pto->tx_relay.nNextInvSend < nNow) {
                 fSendTrickle = true;
                 if (pto->fInbound) {
-                    pto->nNextInvSend = connman->PoissonNextSendInbound(nNow, INVENTORY_BROADCAST_INTERVAL);
+                    pto->tx_relay.nNextInvSend = connman->PoissonNextSendInbound(nNow, INVENTORY_BROADCAST_INTERVAL);
                 } else {
                     // Use half the delay for outbound peers, as there is less privacy concern for them.
-                    pto->nNextInvSend = PoissonNextSend(nNow, INVENTORY_BROADCAST_INTERVAL >> 1);
+                    pto->tx_relay.nNextInvSend = PoissonNextSend(nNow, INVENTORY_BROADCAST_INTERVAL >> 1);
                 }
             }
 
             // Time to send but the peer has requested we not relay transactions.
             if (fSendTrickle) {
-                LOCK(pto->cs_filter);
-                if (!pto->fRelayTxes) pto->setInventoryTxToSend.clear();
+                LOCK(pto->tx_relay.cs_filter);
+                if (!pto->tx_relay.fRelayTxes) pto->tx_relay.setInventoryTxToSend.clear();
             }
 
             // Respond to BIP35 mempool requests
-            if (fSendTrickle && pto->fSendMempool) {
+            if (fSendTrickle && pto->tx_relay.fSendMempool) {
                 auto vtxinfo = mempool.infoAll();
-                pto->fSendMempool = false;
+                pto->tx_relay.fSendMempool = false;
                 CAmount filterrate = 0;
                 {
-                    LOCK(pto->cs_feeFilter);
-                    filterrate = pto->minFeeFilter;
+                    LOCK(pto->tx_relay.cs_feeFilter);
+                    filterrate = pto->tx_relay.minFeeFilter;
                 }
 
-                LOCK(pto->cs_filter);
+                LOCK(pto->tx_relay.cs_filter);
 
                 for (const auto& txinfo : vtxinfo) {
                     const uint256& hash = txinfo.tx->GetHash();
                     CInv inv(MSG_TX, hash);
-                    pto->setInventoryTxToSend.erase(hash);
+                    pto->tx_relay.setInventoryTxToSend.erase(hash);
                     if (filterrate) {
                         if (txinfo.feeRate.GetFeePerK() < filterrate)
                             continue;
                     }
-                    if (pto->pfilter) {
-                        if (!pto->pfilter->IsRelevantAndUpdate(*txinfo.tx)) continue;
+                    if (pto->tx_relay.pfilter) {
+                        if (!pto->tx_relay.pfilter->IsRelevantAndUpdate(*txinfo.tx)) continue;
                     }
-                    pto->filterInventoryKnown.insert(hash);
+                    pto->tx_relay.filterInventoryKnown.insert(hash);
                     vInv.push_back(inv);
                     if (vInv.size() == MAX_INV_SZ) {
                         connman->PushMessage(pto, msgMaker.Make(NetMsgType::INV, vInv));
                         vInv.clear();
                     }
                 }
-                pto->timeLastMempoolReq = GetTime();
+                pto->tx_relay.timeLastMempoolReq = GetTime();
             }
 
             // Determine transactions to relay
             if (fSendTrickle) {
                 // Produce a vector with all candidates for sending
                 std::vector<std::set<uint256>::iterator> vInvTx;
-                vInvTx.reserve(pto->setInventoryTxToSend.size());
-                for (std::set<uint256>::iterator it = pto->setInventoryTxToSend.begin(); it != pto->setInventoryTxToSend.end(); it++) {
+                vInvTx.reserve(pto->tx_relay.setInventoryTxToSend.size());
+                for (std::set<uint256>::iterator it = pto->tx_relay.setInventoryTxToSend.begin(); it != pto->tx_relay.setInventoryTxToSend.end(); it++) {
                     vInvTx.push_back(it);
                 }
                 CAmount filterrate = 0;
                 {
-                    LOCK(pto->cs_feeFilter);
-                    filterrate = pto->minFeeFilter;
+                    LOCK(pto->tx_relay.cs_feeFilter);
+                    filterrate = pto->tx_relay.minFeeFilter;
                 }
                 // Topologically and fee-rate sort the inventory we send for privacy and priority reasons.
                 // A heap is used so that not all items need sorting if only a few are being sent.
@@ -3752,7 +3753,7 @@ bool PeerLogicValidation::SendMessages(CNode* pto)
                 // No reason to drain out at many times the network's capacity,
                 // especially since we have many peers and some will draw much shorter delays.
                 unsigned int nRelayedTransactions = 0;
-                LOCK(pto->cs_filter);
+                LOCK(pto->tx_relay.cs_filter);
                 while (!vInvTx.empty() && nRelayedTransactions < INVENTORY_BROADCAST_MAX) {
                     // Fetch the top element from the heap
                     std::pop_heap(vInvTx.begin(), vInvTx.end(), compareInvMempoolOrder);
@@ -3760,9 +3761,9 @@ bool PeerLogicValidation::SendMessages(CNode* pto)
                     vInvTx.pop_back();
                     uint256 hash = *it;
                     // Remove it from the to-be-sent set
-                    pto->setInventoryTxToSend.erase(it);
+                    pto->tx_relay.setInventoryTxToSend.erase(it);
                     // Check if not in the filter already
-                    if (pto->filterInventoryKnown.contains(hash)) {
+                    if (pto->tx_relay.filterInventoryKnown.contains(hash)) {
                         continue;
                     }
                     // Not in the mempool anymore? don't bother sending it.
@@ -3773,7 +3774,7 @@ bool PeerLogicValidation::SendMessages(CNode* pto)
                     if (filterrate && txinfo.feeRate.GetFeePerK() < filterrate) {
                         continue;
                     }
-                    if (pto->pfilter && !pto->pfilter->IsRelevantAndUpdate(*txinfo.tx)) continue;
+                    if (pto->tx_relay.pfilter && !pto->tx_relay.pfilter->IsRelevantAndUpdate(*txinfo.tx)) continue;
                     // Send
                     vInv.push_back(CInv(MSG_TX, hash));
                     nRelayedTransactions++;
@@ -3794,7 +3795,7 @@ bool PeerLogicValidation::SendMessages(CNode* pto)
                         connman->PushMessage(pto, msgMaker.Make(NetMsgType::INV, vInv));
                         vInv.clear();
                     }
-                    pto->filterInventoryKnown.insert(hash);
+                    pto->tx_relay.filterInventoryKnown.insert(hash);
                 }
             }
         }
@@ -3932,23 +3933,23 @@ bool PeerLogicValidation::SendMessages(CNode* pto)
             !(pto->fWhitelisted && gArgs.GetBoolArg("-whitelistforcerelay", DEFAULT_WHITELISTFORCERELAY))) {
             CAmount currentFilter = mempool.GetMinFee(gArgs.GetArg("-maxmempool", DEFAULT_MAX_MEMPOOL_SIZE) * 1000000).GetFeePerK();
             int64_t timeNow = GetTimeMicros();
-            if (timeNow > pto->nextSendTimeFeeFilter) {
+            if (timeNow > pto->tx_relay.nextSendTimeFeeFilter) {
                 static CFeeRate default_feerate(DEFAULT_MIN_RELAY_TX_FEE);
                 static FeeFilterRounder filterRounder(default_feerate);
                 CAmount filterToSend = filterRounder.round(currentFilter);
                 // We always have a fee filter of at least minRelayTxFee
                 filterToSend = std::max(filterToSend, ::minRelayTxFee.GetFeePerK());
-                if (filterToSend != pto->lastSentFeeFilter) {
+                if (filterToSend != pto->tx_relay.lastSentFeeFilter) {
                     connman->PushMessage(pto, msgMaker.Make(NetMsgType::FEEFILTER, filterToSend));
-                    pto->lastSentFeeFilter = filterToSend;
+                    pto->tx_relay.lastSentFeeFilter = filterToSend;
                 }
-                pto->nextSendTimeFeeFilter = PoissonNextSend(timeNow, AVG_FEEFILTER_BROADCAST_INTERVAL);
+                pto->tx_relay.nextSendTimeFeeFilter = PoissonNextSend(timeNow, AVG_FEEFILTER_BROADCAST_INTERVAL);
             }
             // If the fee filter has changed substantially and it's still more than MAX_FEEFILTER_CHANGE_DELAY
             // until scheduled broadcast, then move the broadcast to within MAX_FEEFILTER_CHANGE_DELAY.
-            else if (timeNow + MAX_FEEFILTER_CHANGE_DELAY * 1000000 < pto->nextSendTimeFeeFilter &&
-                     (currentFilter < 3 * pto->lastSentFeeFilter / 4 || currentFilter > 4 * pto->lastSentFeeFilter / 3)) {
-                pto->nextSendTimeFeeFilter = timeNow + GetRandInt(MAX_FEEFILTER_CHANGE_DELAY) * 1000000;
+            else if (timeNow + MAX_FEEFILTER_CHANGE_DELAY * 1000000 < pto->tx_relay.nextSendTimeFeeFilter &&
+                     (currentFilter < 3 * pto->tx_relay.lastSentFeeFilter / 4 || currentFilter > 4 * pto->tx_relay.lastSentFeeFilter / 3)) {
+                pto->tx_relay.nextSendTimeFeeFilter = timeNow + GetRandInt(MAX_FEEFILTER_CHANGE_DELAY) * 1000000;
             }
         }
     }

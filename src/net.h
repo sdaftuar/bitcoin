@@ -668,15 +668,8 @@ public:
     // Setting fDisconnect to true will cause the node to be disconnected the
     // next time DisconnectNodes() runs
     std::atomic_bool fDisconnect{false};
-    // We use fRelayTxes for two purposes -
-    // a) it allows us to not relay tx invs before receiving the peer's version message
-    // b) the peer may tell us in its version message that we should not relay tx invs
-    //    unless it loads a bloom filter.
-    bool fRelayTxes GUARDED_BY(cs_filter){false};
     bool fSentAddr{false};
     CSemaphoreGrant grantOutbound;
-    mutable CCriticalSection cs_filter;
-    std::unique_ptr<CBloomFilter> pfilter PT_GUARDED_BY(cs_filter);
     std::atomic<int> nRefCount{0};
 
     const uint64_t nKeyedNetGroup;
@@ -704,24 +697,44 @@ public:
 
     AddrRelay addr_relay;
 
-    // inventory based relay
-    CRollingBloomFilter filterInventoryKnown GUARDED_BY(cs_inventory);
-    // Set of transaction ids we still have to announce.
-    // They are sorted by the mempool before relay, so the order is not important.
-    std::set<uint256> setInventoryTxToSend;
     // List of block ids we still have announce.
     // There is no final sorting before sending, as they are always sent immediately
     // and in the order requested.
     std::vector<uint256> vInventoryBlockToSend GUARDED_BY(cs_inventory);
     CCriticalSection cs_inventory;
-    int64_t nNextInvSend{0};
+
+    struct TxRelay {
+        mutable CCriticalSection cs_filter;
+        // We use fRelayTxes for two purposes -
+        // a) it allows us to not relay tx invs before receiving the peer's version message
+        // b) the peer may tell us in its version message that we should not relay tx invs
+        //    unless it loads a bloom filter.
+        bool fRelayTxes GUARDED_BY(cs_filter){false};
+        std::unique_ptr<CBloomFilter> pfilter PT_GUARDED_BY(cs_filter);
+
+        mutable CCriticalSection cs_tx_inventory;
+        CRollingBloomFilter filterInventoryKnown GUARDED_BY(cs_tx_inventory);
+        // Set of transaction ids we still have to announce.
+        // They are sorted by the mempool before relay, so the order is not important.
+        std::set<uint256> setInventoryTxToSend;
+        // Used for BIP35 mempool sending
+        bool fSendMempool GUARDED_BY(cs_tx_inventory){false};
+        // Last time a "MEMPOOL" request was serviced.
+        std::atomic<int64_t> timeLastMempoolReq{0};
+        int64_t nNextInvSend{0};
+
+        CCriticalSection cs_feeFilter;
+        // Minimum fee rate with which to filter inv's to this node
+        CAmount minFeeFilter GUARDED_BY(cs_feeFilter){0};
+        CAmount lastSentFeeFilter{0};
+        int64_t nextSendTimeFeeFilter{0};
+
+        TxRelay() : filterInventoryKnown(50000, 0.000001) { filterInventoryKnown.reset(); }
+    };
+
+    TxRelay tx_relay;
     // Used for headers announcements - unfiltered blocks to relay
     std::vector<uint256> vBlockHashesToAnnounce GUARDED_BY(cs_inventory);
-    // Used for BIP35 mempool sending
-    bool fSendMempool GUARDED_BY(cs_inventory){false};
-
-    // Last time a "MEMPOOL" request was serviced.
-    std::atomic<int64_t> timeLastMempoolReq{0};
 
     // Block and TXN accept times
     std::atomic<int64_t> nLastBlockTime{0};
@@ -738,11 +751,6 @@ public:
     std::atomic<int64_t> nMinPingUsecTime{std::numeric_limits<int64_t>::max()};
     // Whether a ping is requested.
     std::atomic<bool> fPingQueued{false};
-    // Minimum fee rate with which to filter inv's to this node
-    CAmount minFeeFilter GUARDED_BY(cs_feeFilter){0};
-    CCriticalSection cs_feeFilter;
-    CAmount lastSentFeeFilter{0};
-    int64_t nextSendTimeFeeFilter{0};
 
     CNode(NodeId id, ServiceFlags nLocalServicesIn, int nMyStartingHeightIn, SOCKET hSocketIn, const CAddress &addrIn, uint64_t nKeyedNetGroupIn, uint64_t nLocalHostNonceIn, const CAddress &addrBindIn, const std::string &addrNameIn = "", bool fInboundIn = false);
     ~CNode();
@@ -839,19 +847,20 @@ public:
     void AddInventoryKnown(const CInv& inv)
     {
         {
-            LOCK(cs_inventory);
-            filterInventoryKnown.insert(inv.hash);
+            LOCK(tx_relay.cs_tx_inventory);
+            tx_relay.filterInventoryKnown.insert(inv.hash);
         }
     }
 
     void PushInventory(const CInv& inv)
     {
-        LOCK(cs_inventory);
         if (inv.type == MSG_TX) {
-            if (!filterInventoryKnown.contains(inv.hash)) {
-                setInventoryTxToSend.insert(inv.hash);
+            LOCK(tx_relay.cs_tx_inventory);
+            if (!tx_relay.filterInventoryKnown.contains(inv.hash)) {
+                tx_relay.setInventoryTxToSend.insert(inv.hash);
             }
         } else if (inv.type == MSG_BLOCK) {
+            LOCK(cs_inventory);
             vInventoryBlockToSend.push_back(inv.hash);
         }
     }
