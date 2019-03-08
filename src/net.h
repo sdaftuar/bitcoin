@@ -732,7 +732,7 @@ public:
         TxRelay() : filterInventoryKnown(50000, 0.000001) { filterInventoryKnown.reset(); }
     };
 
-    TxRelay tx_relay;
+    std::unique_ptr<TxRelay> tx_relay;
     // Used for headers announcements - unfiltered blocks to relay
     std::vector<uint256> vBlockHashesToAnnounce GUARDED_BY(cs_inventory);
 
@@ -847,17 +847,17 @@ public:
     void AddInventoryKnown(const CInv& inv)
     {
         {
-            LOCK(tx_relay.cs_tx_inventory);
-            tx_relay.filterInventoryKnown.insert(inv.hash);
+            LOCK(tx_relay->cs_tx_inventory);
+            tx_relay->filterInventoryKnown.insert(inv.hash);
         }
     }
 
     void PushInventory(const CInv& inv)
     {
         if (inv.type == MSG_TX) {
-            LOCK(tx_relay.cs_tx_inventory);
-            if (!tx_relay.filterInventoryKnown.contains(inv.hash)) {
-                tx_relay.setInventoryTxToSend.insert(inv.hash);
+            LOCK(tx_relay->cs_tx_inventory);
+            if (!tx_relay->filterInventoryKnown.contains(inv.hash)) {
+                tx_relay->setInventoryTxToSend.insert(inv.hash);
             }
         } else if (inv.type == MSG_BLOCK) {
             LOCK(cs_inventory);
