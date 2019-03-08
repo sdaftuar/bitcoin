@@ -691,12 +691,18 @@ public:
     uint256 hashContinue;
     std::atomic<int> nStartingHeight{-1};
 
-    // flood relay
-    std::vector<CAddress> vAddrToSend;
-    CRollingBloomFilter addrKnown;
-    bool fGetAddr{false};
-    int64_t nNextAddrSend GUARDED_BY(cs_sendProcessing){0};
-    int64_t nNextLocalAddrSend GUARDED_BY(cs_sendProcessing){0};
+    struct AddrRelay {
+        CCriticalSection cs_addrsend;
+        std::vector<CAddress> vAddrToSend GUARDED_BY(cs_addrsend);
+        CRollingBloomFilter addrKnown GUARDED_BY(cs_addrsend);
+        bool fGetAddr GUARDED_BY(cs_addrsend){false};
+        int64_t nNextAddrSend GUARDED_BY(cs_addrsend){0};
+        int64_t nNextLocalAddrSend GUARDED_BY(cs_addrsend){0};
+
+        AddrRelay() : addrKnown(5000, 0.001) {}
+    };
+
+    AddrRelay addr_relay;
 
     // inventory based relay
     CRollingBloomFilter filterInventoryKnown GUARDED_BY(cs_inventory);
@@ -810,19 +816,21 @@ public:
 
     void AddAddressKnown(const CAddress& _addr)
     {
-        addrKnown.insert(_addr.GetKey());
+        LOCK(addr_relay.cs_addrsend);
+        addr_relay.addrKnown.insert(_addr.GetKey());
     }
 
     void PushAddress(const CAddress& _addr, FastRandomContext &insecure_rand)
     {
+        LOCK(addr_relay.cs_addrsend);
         // Known checking here is only to save space from duplicates.
         // SendMessages will filter it again for knowns that were added
         // after addresses were pushed.
-        if (_addr.IsValid() && !addrKnown.contains(_addr.GetKey())) {
-            if (vAddrToSend.size() >= MAX_ADDR_TO_SEND) {
-                vAddrToSend[insecure_rand.randrange(vAddrToSend.size())] = _addr;
+        if (_addr.IsValid() && !addr_relay.addrKnown.contains(_addr.GetKey())) {
+            if (addr_relay.vAddrToSend.size() >= MAX_ADDR_TO_SEND) {
+                addr_relay.vAddrToSend[insecure_rand.randrange(addr_relay.vAddrToSend.size())] = _addr;
             } else {
-                vAddrToSend.push_back(_addr);
+                addr_relay.vAddrToSend.push_back(_addr);
             }
         }
     }

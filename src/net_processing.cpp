@@ -1904,7 +1904,8 @@ bool static ProcessMessage(CNode* pfrom, const std::string& strCommand, CDataStr
             if (pfrom->fOneShot || pfrom->nVersion >= CADDR_TIME_VERSION || connman->GetAddressCount() < 1000)
             {
                 connman->PushMessage(pfrom, CNetMsgMaker(nSendVersion).Make(NetMsgType::GETADDR));
-                pfrom->fGetAddr = true;
+                LOCK(pfrom->addr_relay.cs_addrsend);
+                pfrom->addr_relay.fGetAddr = true;
             }
             connman->MarkAddressGood(pfrom->addr);
         }
@@ -2008,6 +2009,7 @@ bool static ProcessMessage(CNode* pfrom, const std::string& strCommand, CDataStr
         std::vector<CAddress> vAddrOk;
         int64_t nNow = GetAdjustedTime();
         int64_t nSince = nNow - 10 * 60;
+        LOCK(pfrom->addr_relay.cs_addrsend);
         for (CAddress& addr : vAddr)
         {
             if (interruptMsgProc)
@@ -2023,7 +2025,7 @@ bool static ProcessMessage(CNode* pfrom, const std::string& strCommand, CDataStr
                 addr.nTime = nNow - 5 * 24 * 60 * 60;
             pfrom->AddAddressKnown(addr);
             bool fReachable = IsReachable(addr);
-            if (addr.nTime > nSince && !pfrom->fGetAddr && vAddr.size() <= 10 && addr.IsRoutable())
+            if (addr.nTime > nSince && !pfrom->addr_relay.fGetAddr && vAddr.size() <= 10 && addr.IsRoutable())
             {
                 // Relay to a limited number of other nodes
                 RelayAddress(addr, fReachable, connman);
@@ -2034,7 +2036,7 @@ bool static ProcessMessage(CNode* pfrom, const std::string& strCommand, CDataStr
         }
         connman->AddNewAddresses(vAddrOk, pfrom->addr, 2 * 60 * 60);
         if (vAddr.size() < 1000)
-            pfrom->fGetAddr = false;
+            pfrom->addr_relay.fGetAddr = false;
         if (pfrom->fOneShot)
             pfrom->fDisconnect = true;
         return true;
@@ -2909,7 +2911,8 @@ bool static ProcessMessage(CNode* pfrom, const std::string& strCommand, CDataStr
         }
         pfrom->fSentAddr = true;
 
-        pfrom->vAddrToSend.clear();
+        LOCK(pfrom->addr_relay.cs_addrsend);
+        pfrom->addr_relay.vAddrToSend.clear();
         std::vector<CAddress> vAddr = connman->GetAddresses();
         FastRandomContext insecure_rand;
         for (const CAddress &addr : vAddr)
@@ -3448,23 +3451,28 @@ bool PeerLogicValidation::SendMessages(CNode* pto)
 
         // Address refresh broadcast
         int64_t nNow = GetTimeMicros();
-        if (!IsInitialBlockDownload() && pto->nNextLocalAddrSend < nNow) {
-            AdvertiseLocal(pto);
-            pto->nNextLocalAddrSend = PoissonNextSend(nNow, AVG_LOCAL_ADDRESS_BROADCAST_INTERVAL);
+        {
+            LOCK(pto->addr_relay.cs_addrsend);
+            if (!IsInitialBlockDownload() && pto->addr_relay.nNextLocalAddrSend < nNow) {
+                AdvertiseLocal(pto);
+                pto->addr_relay.nNextLocalAddrSend = PoissonNextSend(nNow, AVG_LOCAL_ADDRESS_BROADCAST_INTERVAL);
+            }
         }
 
         //
         // Message: addr
         //
-        if (pto->nNextAddrSend < nNow) {
-            pto->nNextAddrSend = PoissonNextSend(nNow, AVG_ADDRESS_BROADCAST_INTERVAL);
+        {
+        LOCK(pto->addr_relay.cs_addrsend);
+        if (pto->addr_relay.nNextAddrSend < nNow) {
+            pto->addr_relay.nNextAddrSend = PoissonNextSend(nNow, AVG_ADDRESS_BROADCAST_INTERVAL);
             std::vector<CAddress> vAddr;
-            vAddr.reserve(pto->vAddrToSend.size());
-            for (const CAddress& addr : pto->vAddrToSend)
+            vAddr.reserve(pto->addr_relay.vAddrToSend.size());
+            for (const CAddress& addr : pto->addr_relay.vAddrToSend)
             {
-                if (!pto->addrKnown.contains(addr.GetKey()))
+                if (!pto->addr_relay.addrKnown.contains(addr.GetKey()))
                 {
-                    pto->addrKnown.insert(addr.GetKey());
+                    pto->addr_relay.addrKnown.insert(addr.GetKey());
                     vAddr.push_back(addr);
                     // receiver rejects addr messages larger than 1000
                     if (vAddr.size() >= 1000)
@@ -3474,12 +3482,13 @@ bool PeerLogicValidation::SendMessages(CNode* pto)
                     }
                 }
             }
-            pto->vAddrToSend.clear();
+            pto->addr_relay.vAddrToSend.clear();
             if (!vAddr.empty())
                 connman->PushMessage(pto, msgMaker.Make(NetMsgType::ADDR, vAddr));
             // we only send the big addr message once
-            if (pto->vAddrToSend.capacity() > 40)
-                pto->vAddrToSend.shrink_to_fit();
+            if (pto->addr_relay.vAddrToSend.capacity() > 40)
+                pto->addr_relay.vAddrToSend.shrink_to_fit();
+        }
         }
 
         // Start block sync
