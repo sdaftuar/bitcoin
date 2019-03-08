@@ -497,7 +497,7 @@ void CNode::copyStats(CNodeStats &stats)
     X(nServices);
     X(addr);
     X(addrBind);
-    {
+    if (tx_relay != nullptr) {
         LOCK(tx_relay->cs_filter);
         stats.fRelayTxes = tx_relay->fRelayTxes;
     }
@@ -525,7 +525,7 @@ void CNode::copyStats(CNodeStats &stats)
         X(nRecvBytes);
     }
     X(fWhitelisted);
-    {
+    if (tx_relay != nullptr) {
         LOCK(tx_relay->cs_feeFilter);
         stats.minFeeFilter = tx_relay->minFeeFilter;
     }
@@ -815,11 +815,17 @@ bool CConnman::AttemptToEvictConnection()
                 continue;
             if (node->fDisconnect)
                 continue;
-            LOCK(node->tx_relay->cs_filter);
+            bool peer_relay_txes = false;
+            bool peer_filter_not_null = false;
+            if (node->tx_relay != nullptr) {
+                LOCK(node->tx_relay->cs_filter);
+                peer_relay_txes = node->tx_relay->fRelayTxes;
+                peer_filter_not_null = node->tx_relay->pfilter != nullptr;
+            }
             NodeEvictionCandidate candidate = {node->GetId(), node->nTimeConnected, node->nMinPingUsecTime,
                                                node->nLastBlockTime, node->nLastTXTime,
                                                HasAllDesirableServiceFlags(node->nServices),
-                                               node->tx_relay->fRelayTxes, node->tx_relay->pfilter != nullptr, node->addr, node->nKeyedNetGroup,
+                                               peer_relay_txes, peer_filter_not_null, node->addr, node->nKeyedNetGroup,
                                                node->m_prefer_evict};
             vEvictionCandidates.push_back(candidate);
         }

@@ -846,7 +846,7 @@ public:
 
     void AddInventoryKnown(const CInv& inv)
     {
-        {
+        if (tx_relay != nullptr) {
             LOCK(tx_relay->cs_tx_inventory);
             tx_relay->filterInventoryKnown.insert(inv.hash);
         }
@@ -854,7 +854,7 @@ public:
 
     void PushInventory(const CInv& inv)
     {
-        if (inv.type == MSG_TX) {
+        if (inv.type == MSG_TX && tx_relay != nullptr) {
             LOCK(tx_relay->cs_tx_inventory);
             if (!tx_relay->filterInventoryKnown.contains(inv.hash)) {
                 tx_relay->setInventoryTxToSend.insert(inv.hash);
