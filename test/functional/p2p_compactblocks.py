@@ -138,6 +138,13 @@ class CompactBlocksTest(BitcoinTestFramework):
         self.utxos.extend([[tx.sha256, i, out_value] for i in range(10)])
         return
 
+    # Send balance to a segwit output
+    def make_segwit_output(self, node):
+        if node.getbalance() < 2:
+            node.generate(101)
+        address = node.getnewaddress("bech32")
+        node.sendtoaddress(address, node.getbalance()-1)
+
     # Test "sendcmpct" (between peers preferring the same version):
     # - No compact block announcements unless sendcmpct is sent.
     # - If sendcmpct is sent with version > preferred_version, the message is ignored.
@@ -789,15 +796,12 @@ class CompactBlocksTest(BitcoinTestFramework):
 
         # We will need UTXOs to construct transactions in later tests.
         self.make_utxos()
+        self.make_segwit_output(self.nodes[0])
 
         self.log.info("Running tests, pre-segwit activation:")
 
         self.log.info("Testing SENDCMPCT p2p message... ")
         self.test_sendcmpct(self.nodes[0], self.segwit_node, 2, old_node=self.old_node)
-
-        self.log.info("Testing compactblock construction...")
-        self.test_compactblock_construction(self.nodes[0], self.old_node, 1, False)
-        self.test_compactblock_construction(self.nodes[0], self.segwit_node, 2, False)
 
         self.log.info("Testing compactblock requests... ")
         self.test_compactblock_requests(self.nodes[0], self.segwit_node, 2, False)
