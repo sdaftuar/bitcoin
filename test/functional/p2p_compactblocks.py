@@ -803,10 +803,6 @@ class CompactBlocksTest(BitcoinTestFramework):
         self.log.info("Testing SENDCMPCT p2p message... ")
         self.test_sendcmpct(self.nodes[0], self.segwit_node, 2, old_node=self.old_node)
 
-        self.log.info("Testing handling of invalid compact blocks...")
-        self.test_invalid_tx_in_compactblock(self.nodes[0], self.segwit_node, False)
-        self.test_invalid_tx_in_compactblock(self.nodes[0], self.old_node, False)
-
         self.log.info("Testing reconstructing compact blocks from all peers...")
         self.test_compactblock_reconstruction_multiple_peers(self.nodes[0], self.segwit_node, self.old_node)
 
