@@ -242,8 +242,8 @@ class CompactBlocksTest(BitcoinTestFramework):
 
     # This test actually causes bitcoind to (reasonably!) disconnect us, so do this last.
     def test_invalid_cmpctblock_message(self):
-        self.nodes[0].generate(101)
-        block = self.build_block_on_tip(self.nodes[0])
+        self.nodes[1].generate(101)
+        block = self.build_block_on_tip(self.nodes[1])
 
         cmpct_block = P2PHeaderAndShortIDs()
         cmpct_block.header = CBlockHeader(block)
@@ -251,8 +251,8 @@ class CompactBlocksTest(BitcoinTestFramework):
         # This index will be too high
         prefilled_txn = PrefilledTransaction(1, block.vtx[0])
         cmpct_block.prefilled_txn = [prefilled_txn]
-        self.test_node.send_await_disconnect(msg_cmpctblock(cmpct_block))
-        assert_equal(int(self.nodes[0].getbestblockhash(), 16), block.hashPrevBlock)
+        self.segwit_node.send_await_disconnect(msg_cmpctblock(cmpct_block))
+        assert_equal(int(self.nodes[1].getbestblockhash(), 16), block.hashPrevBlock)
 
     # Compare the generated shortids to what we expect based on BIP 152, given
     # bitcoind's choice of nonce.
