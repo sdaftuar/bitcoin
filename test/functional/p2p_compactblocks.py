@@ -97,7 +97,6 @@ class CompactBlocksTest(BitcoinTestFramework):
         self.num_nodes = 1
         # This test was written assuming SegWit is activated using BIP9 at height 432 (3x confirmation window).
         # TODO: Rewrite this test to support SegWit being always active.
-        self.extra_args = [["-vbparams=segwit:0:999999999999"]]
         self.utxos = []
 
     def skip_test_if_missing_module(self):
@@ -679,10 +678,6 @@ class CompactBlocksTest(BitcoinTestFramework):
         with mininode_lock:
             assert "blocktxn" not in test_node.last_message
 
-    def activate_segwit(self, node):
-        node.generate(144 * 3)
-        assert_equal(get_bip9_status(node, "segwit")["status"], 'active')
-
     def test_end_to_end_block_relay(self, node, listeners):
         utxo = self.utxos.pop(0)
 
@@ -799,11 +794,7 @@ class CompactBlocksTest(BitcoinTestFramework):
         self.make_utxos()
         self.make_segwit_output(self.nodes[0])
 
-        self.log.info("Running tests, pre-segwit activation:")
-        # Advance to segwit activation
-        self.log.info("Advancing to segwit activation")
-        self.activate_segwit(self.nodes[0])
-        self.log.info("Running tests, post-segwit activation...")
+        assert_equal(get_bip9_status(self.nodes[0], "segwit")["status"], 'active')
 
         self.log.info("Testing SENDCMPCT p2p message... ")
         self.test_sendcmpct(self.nodes[0], self.segwit_node, 2, old_node=self.old_node)
