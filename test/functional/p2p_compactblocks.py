@@ -97,7 +97,7 @@ class CompactBlocksTest(BitcoinTestFramework):
         self.num_nodes = 1
         # This test was written assuming SegWit is activated using BIP9 at height 432 (3x confirmation window).
         # TODO: Rewrite this test to support SegWit being always active.
-        self.extra_args = [["-vbparams=segwit:0:999999999999", "-txindex"]]
+        self.extra_args = [["-vbparams=segwit:0:999999999999"]]
         self.utxos = []
 
     def skip_test_if_missing_module(self):
