@@ -117,11 +117,11 @@ class CompactBlocksTest(BitcoinTestFramework):
 
     # Create 10 more anyone-can-spend utxo's for testing.
     def make_utxos(self):
-        # Doesn't matter which node we use, just use node0.
-        block = self.build_block_on_tip(self.nodes[0])
-        self.test_node.send_and_ping(msg_block(block))
-        assert(int(self.nodes[0].getbestblockhash(), 16) == block.sha256)
-        self.nodes[0].generate(100)
+        # Doesn't matter which node we use, just use node1.
+        block = self.build_block_on_tip(self.nodes[1])
+        self.segwit_node.send_and_ping(msg_block(block))
+        assert(int(self.nodes[1].getbestblockhash(), 16) == block.sha256)
+        self.nodes[1].generate(100)
 
         total_value = block.vtx[0].vout[0].nValue
         out_value = total_value // 10
@@ -131,12 +131,12 @@ class CompactBlocksTest(BitcoinTestFramework):
             tx.vout.append(CTxOut(out_value, CScript([OP_TRUE])))
         tx.rehash()
 
-        block2 = self.build_block_on_tip(self.nodes[0])
+        block2 = self.build_block_on_tip(self.nodes[1])
         block2.vtx.append(tx)
         block2.hashMerkleRoot = block2.calc_merkle_root()
         block2.solve()
-        self.test_node.send_and_ping(msg_block(block2))
-        assert_equal(int(self.nodes[0].getbestblockhash(), 16), block2.sha256)
+        self.segwit_node.send_and_ping(msg_block(block2))
+        assert_equal(int(self.nodes[1].getbestblockhash(), 16), block2.sha256)
         self.utxos.extend([[tx.sha256, i, out_value] for i in range(10)])
         return
 
