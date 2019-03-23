@@ -803,14 +803,6 @@ class CompactBlocksTest(BitcoinTestFramework):
         self.log.info("Testing SENDCMPCT p2p message... ")
         self.test_sendcmpct(self.nodes[0], self.segwit_node, 2, old_node=self.old_node)
 
-        self.log.info("Testing getblocktxn requests...")
-        self.test_getblocktxn_requests(self.nodes[0], self.segwit_node, 2)
-        self.test_getblocktxn_requests(self.nodes[0], self.old_node, 1)
-
-        self.log.info("Testing getblocktxn handler...")
-        self.test_getblocktxn_handler(self.nodes[0], self.segwit_node, 2)
-        self.test_getblocktxn_handler(self.nodes[0], self.old_node, 1)
-
         self.log.info("Testing compactblock requests/announcements not at chain tip...")
         self.test_compactblocks_not_at_tip(self.nodes[0], self.segwit_node)
         self.test_compactblocks_not_at_tip(self.nodes[0], self.old_node)
