@@ -15,7 +15,7 @@ from test_framework.messages import BlockTransactions, BlockTransactionsRequest,
 from test_framework.mininode import mininode_lock, P2PInterface
 from test_framework.script import CScript, OP_TRUE, OP_DROP
 from test_framework.test_framework import BitcoinTestFramework
-from test_framework.util import assert_equal, get_bip9_status, satoshi_round, sync_blocks, wait_until
+from test_framework.util import assert_equal, get_bip9_status, satoshi_round, wait_until
 
 # TestP2PConn: A peer we use to send messages to bitcoind, and store responses.
 class TestP2PConn(P2PInterface):
@@ -791,42 +791,32 @@ class CompactBlocksTest(BitcoinTestFramework):
         self.make_utxos()
 
         self.log.info("Running tests, pre-segwit activation:")
-        sync_blocks(self.nodes)
 
         self.log.info("Testing SENDCMPCT p2p message... ")
         self.test_sendcmpct(self.nodes[0], self.segwit_node, 2, old_node=self.old_node)
-        sync_blocks(self.nodes)
 
         self.log.info("Testing compactblock construction...")
         self.test_compactblock_construction(self.nodes[0], self.old_node, 1, False)
-        sync_blocks(self.nodes)
         self.test_compactblock_construction(self.nodes[0], self.segwit_node, 2, False)
-        sync_blocks(self.nodes)
 
         self.log.info("Testing compactblock requests... ")
         self.test_compactblock_requests(self.nodes[0], self.segwit_node, 2, False)
-        sync_blocks(self.nodes)
 
         self.log.info("Testing getblocktxn requests...")
         self.test_getblocktxn_requests(self.nodes[0], self.segwit_node, 2)
-        sync_blocks(self.nodes)
         self.test_getblocktxn_requests(self.nodes[0], self.old_node, 1)
 
         self.log.info("Testing getblocktxn handler...")
         self.test_getblocktxn_handler(self.nodes[0], self.segwit_node, 2)
         self.test_getblocktxn_handler(self.nodes[0], self.old_node, 1)
-        sync_blocks(self.nodes)
 
         self.log.info("Testing compactblock requests/announcements not at chain tip...")
         self.test_compactblocks_not_at_tip(self.nodes[0], self.segwit_node)
         self.test_compactblocks_not_at_tip(self.nodes[0], self.old_node)
-        sync_blocks(self.nodes)
 
         self.log.info("Testing handling of incorrect blocktxn responses...")
-        sync_blocks(self.nodes)
         self.test_incorrect_blocktxn_response(self.nodes[0], self.segwit_node, 2)
         self.test_incorrect_blocktxn_response(self.nodes[0], self.old_node, 1)
-        sync_blocks(self.nodes)
 
         # End-to-end block relay tests
         self.log.info("Testing end-to-end block relay...")
@@ -840,7 +830,6 @@ class CompactBlocksTest(BitcoinTestFramework):
 
         self.log.info("Testing reconstructing compact blocks from all peers...")
         self.test_compactblock_reconstruction_multiple_peers(self.nodes[0], self.segwit_node, self.old_node)
-        sync_blocks(self.nodes)
 
         # Advance to segwit activation
         self.log.info("Advancing to segwit activation")
@@ -850,14 +839,12 @@ class CompactBlocksTest(BitcoinTestFramework):
         self.log.info("Testing compactblock construction...")
         self.test_compactblock_construction(self.nodes[0], self.old_node, 1, True)
         self.test_compactblock_construction(self.nodes[0], self.segwit_node, 2, True)
-        sync_blocks(self.nodes)
 
         self.log.info("Testing compactblock requests (segwit node)... ")
         self.test_compactblock_requests(self.nodes[0], self.segwit_node, 2, True)
 
         self.log.info("Testing getblocktxn requests (segwit node)...")
         self.test_getblocktxn_requests(self.nodes[0], self.segwit_node, 2)
-        sync_blocks(self.nodes)
 
         self.log.info("Testing getblocktxn handler (segwit node should return witnesses)...")
         self.test_getblocktxn_handler(self.nodes[0], self.segwit_node, 2)
