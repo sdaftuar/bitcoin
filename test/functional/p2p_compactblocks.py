@@ -260,7 +260,7 @@ class CompactBlocksTest(BitcoinTestFramework):
 
     # Compare the generated shortids to what we expect based on BIP 152, given
     # bitcoind's choice of nonce.
-    def test_compactblock_construction(self, node, test_node, version, use_witness_address):
+    def test_compactblock_construction(self, node, test_node, version, use_witness_address=True):
         # Generate a bunch of transactions.
         node.generate(101)
         num_transactions = 25
@@ -372,7 +372,7 @@ class CompactBlocksTest(BitcoinTestFramework):
     # Post-segwit: upgraded nodes would only make this request of cb-version-2,
     # NODE_WITNESS peers.  Unupgraded nodes would still make this request of
     # any cb-version-1-supporting peer.
-    def test_compactblock_requests(self, node, test_node, version, segwit):
+    def test_compactblock_requests(self, node, test_node, version, segwit=True):
         # Try announcing a block with an inv or header, expect a compactblock
         # request
         for announce in ["inv", "header"]:
@@ -699,7 +699,7 @@ class CompactBlocksTest(BitcoinTestFramework):
 
     # Test that we don't get disconnected if we relay a compact block with valid header,
     # but invalid transactions.
-    def test_invalid_tx_in_compactblock(self, node, test_node, use_segwit):
+    def test_invalid_tx_in_compactblock(self, node, test_node, use_segwit=True):
         assert(len(self.utxos))
         utxo = self.utxos[0]
 
@@ -801,11 +801,11 @@ class CompactBlocksTest(BitcoinTestFramework):
         self.test_sendcmpct(self.nodes[0], self.additional_segwit_node, 2)
 
         self.log.info("Testing compactblock construction...")
-        self.test_compactblock_construction(self.nodes[0], self.old_node, 1, True)
-        self.test_compactblock_construction(self.nodes[0], self.segwit_node, 2, True)
+        self.test_compactblock_construction(self.nodes[0], self.old_node, 1)
+        self.test_compactblock_construction(self.nodes[0], self.segwit_node, 2)
 
         self.log.info("Testing compactblock requests (segwit node)... ")
-        self.test_compactblock_requests(self.nodes[0], self.segwit_node, 2, True)
+        self.test_compactblock_requests(self.nodes[0], self.segwit_node, 2)
 
         self.log.info("Testing getblocktxn requests (segwit node)...")
         self.test_getblocktxn_requests(self.nodes[0], self.segwit_node, 2)
@@ -834,8 +834,8 @@ class CompactBlocksTest(BitcoinTestFramework):
         self.test_end_to_end_block_relay(self.nodes[0], [self.segwit_node, self.old_node])
 
         self.log.info("Testing handling of invalid compact blocks...")
-        self.test_invalid_tx_in_compactblock(self.nodes[0], self.segwit_node, True)
-        self.test_invalid_tx_in_compactblock(self.nodes[0], self.old_node, True)
+        self.test_invalid_tx_in_compactblock(self.nodes[0], self.segwit_node)
+        self.test_invalid_tx_in_compactblock(self.nodes[0], self.old_node)
 
         self.log.info("Testing invalid index in cmpctblock message...")
         self.test_invalid_cmpctblock_message()
