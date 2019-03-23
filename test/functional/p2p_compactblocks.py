@@ -800,15 +800,14 @@ class CompactBlocksTest(BitcoinTestFramework):
         self.make_segwit_output(self.nodes[0])
 
         self.log.info("Running tests, pre-segwit activation:")
-
-        self.log.info("Testing SENDCMPCT p2p message... ")
-        self.test_sendcmpct(self.nodes[0], self.segwit_node, 2, old_node=self.old_node)
-        self.test_sendcmpct(self.nodes[0], self.additional_segwit_node, 2)
-
         # Advance to segwit activation
         self.log.info("Advancing to segwit activation")
         self.activate_segwit(self.nodes[0])
         self.log.info("Running tests, post-segwit activation...")
+
+        self.log.info("Testing SENDCMPCT p2p message... ")
+        self.test_sendcmpct(self.nodes[0], self.segwit_node, 2, old_node=self.old_node)
+        self.test_sendcmpct(self.nodes[0], self.additional_segwit_node, 2)
 
         self.log.info("Testing compactblock construction...")
         self.test_compactblock_construction(self.nodes[0], self.old_node, 1, True)
