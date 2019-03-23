@@ -803,12 +803,6 @@ class CompactBlocksTest(BitcoinTestFramework):
         self.log.info("Testing SENDCMPCT p2p message... ")
         self.test_sendcmpct(self.nodes[0], self.segwit_node, 2, old_node=self.old_node)
 
-        # End-to-end block relay tests
-        self.log.info("Testing end-to-end block relay...")
-        self.request_cb_announcements(self.old_node, self.nodes[0], 1)
-        self.request_cb_announcements(self.segwit_node, self.nodes[0], 2)
-        self.test_end_to_end_block_relay(self.nodes[0], [self.segwit_node, self.old_node])
-
         self.log.info("Testing handling of invalid compact blocks...")
         self.test_invalid_tx_in_compactblock(self.nodes[0], self.segwit_node, False)
         self.test_invalid_tx_in_compactblock(self.nodes[0], self.old_node, False)
