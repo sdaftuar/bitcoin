@@ -807,10 +807,6 @@ class CompactBlocksTest(BitcoinTestFramework):
         self.test_compactblocks_not_at_tip(self.nodes[0], self.segwit_node)
         self.test_compactblocks_not_at_tip(self.nodes[0], self.old_node)
 
-        self.log.info("Testing handling of incorrect blocktxn responses...")
-        self.test_incorrect_blocktxn_response(self.nodes[0], self.segwit_node, 2)
-        self.test_incorrect_blocktxn_response(self.nodes[0], self.old_node, 1)
-
         # End-to-end block relay tests
         self.log.info("Testing end-to-end block relay...")
         self.request_cb_announcements(self.old_node, self.nodes[0], 1)
@@ -842,6 +838,9 @@ class CompactBlocksTest(BitcoinTestFramework):
         self.log.info("Testing getblocktxn handler (segwit node should return witnesses)...")
         self.test_getblocktxn_handler(self.nodes[0], self.segwit_node, 2)
         self.test_getblocktxn_handler(self.nodes[0], self.old_node, 1)
+
+        self.log.info("Testing handling of incorrect blocktxn responses...")
+        self.test_incorrect_blocktxn_response(self.nodes[0], self.segwit_node, 2)
 
         # Test that if we submitblock to node1, we'll get a compact block
         # announcement to all peers.
