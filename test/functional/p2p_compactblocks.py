@@ -834,7 +834,6 @@ class CompactBlocksTest(BitcoinTestFramework):
         self.log.info("Testing end-to-end block relay...")
         self.request_cb_announcements(self.old_node, self.nodes[1], 1)
         self.request_cb_announcements(self.segwit_node, self.nodes[1], 2)
-        self.test_end_to_end_block_relay(self.nodes[0], [self.segwit_node, self.old_node])
         self.test_end_to_end_block_relay(self.nodes[1], [self.segwit_node, self.old_node])
 
         self.log.info("Testing handling of invalid compact blocks...")
