@@ -261,13 +261,6 @@ class CompactBlocksTest(BitcoinTestFramework):
         node.generate(101)
         num_transactions = 25
         address = node.getnewaddress()
-        if use_witness_address:
-            # Want at least one segwit spend, so move all funds to
-            # a witness address.
-            address = node.getnewaddress(address_type='bech32')
-            value_to_send = node.getbalance()
-            node.sendtoaddress(address, satoshi_round(value_to_send - Decimal(0.1)))
-            node.generate(1)
 
         segwit_tx_generated = False
         for i in range(num_transactions):
@@ -861,14 +854,6 @@ class CompactBlocksTest(BitcoinTestFramework):
         self.test_compactblock_construction(self.nodes[1], self.old_node, 1, True)
         self.test_compactblock_construction(self.nodes[1], self.segwit_node, 2, True)
         sync_blocks(self.nodes)
-
-        # Need to manually sync node0 and node1, because post-segwit activation,
-        # node1 will not download blocks from node0.
-        self.log.info("Syncing nodes...")
-        while (self.nodes[0].getblockcount() > self.nodes[1].getblockcount()):
-            block_hash = self.nodes[0].getblockhash(self.nodes[1].getblockcount() + 1)
-            self.nodes[1].submitblock(self.nodes[0].getblock(block_hash, False))
-        assert_equal(self.nodes[0].getbestblockhash(), self.nodes[1].getbestblockhash())
 
         self.log.info("Testing compactblock requests (segwit node)... ")
         self.test_compactblock_requests(self.nodes[1], self.segwit_node, 2, True)
