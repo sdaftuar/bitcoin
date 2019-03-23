@@ -793,6 +793,7 @@ class CompactBlocksTest(BitcoinTestFramework):
         # Setup the p2p connections
         self.segwit_node = self.nodes[0].add_p2p_connection(TestP2PConn(), services=NODE_NETWORK | NODE_WITNESS)
         self.old_node = self.nodes[0].add_p2p_connection(TestP2PConn(), services=NODE_NETWORK)
+        self.additional_segwit_node = self.nodes[0].add_p2p_connection(TestP2PConn(), services=NODE_NETWORK | NODE_WITNESS)
 
         # We will need UTXOs to construct transactions in later tests.
         self.make_utxos()
@@ -802,9 +803,7 @@ class CompactBlocksTest(BitcoinTestFramework):
 
         self.log.info("Testing SENDCMPCT p2p message... ")
         self.test_sendcmpct(self.nodes[0], self.segwit_node, 2, old_node=self.old_node)
-
-        self.log.info("Testing reconstructing compact blocks from all peers...")
-        self.test_compactblock_reconstruction_multiple_peers(self.nodes[0], self.segwit_node, self.old_node)
+        self.test_sendcmpct(self.nodes[0], self.additional_segwit_node, 2)
 
         # Advance to segwit activation
         self.log.info("Advancing to segwit activation")
@@ -831,6 +830,9 @@ class CompactBlocksTest(BitcoinTestFramework):
 
         self.log.info("Testing handling of incorrect blocktxn responses...")
         self.test_incorrect_blocktxn_response(self.nodes[0], self.segwit_node, 2)
+
+        self.log.info("Testing reconstructing compact blocks from all peers...")
+        self.test_compactblock_reconstruction_multiple_peers(self.nodes[0], self.segwit_node, self.additional_segwit_node)
 
         # Test that if we submitblock to node1, we'll get a compact block
         # announcement to all peers.
