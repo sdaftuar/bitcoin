@@ -793,7 +793,6 @@ class CompactBlocksTest(BitcoinTestFramework):
 
     def run_test(self):
         # Setup the p2p connections
-        self.test_node = self.nodes[0].add_p2p_connection(TestP2PConn())
         self.segwit_node = self.nodes[1].add_p2p_connection(TestP2PConn(), services=NODE_NETWORK | NODE_WITNESS)
         self.old_node = self.nodes[1].add_p2p_connection(TestP2PConn(), services=NODE_NETWORK)
 
@@ -801,61 +800,51 @@ class CompactBlocksTest(BitcoinTestFramework):
         self.make_utxos()
 
         self.log.info("Running tests, pre-segwit activation:")
+        sync_blocks(self.nodes)
 
         self.log.info("Testing SENDCMPCT p2p message... ")
-        self.test_sendcmpct(self.nodes[0], self.test_node, 1)
-        sync_blocks(self.nodes)
         self.test_sendcmpct(self.nodes[1], self.segwit_node, 2, old_node=self.old_node)
         sync_blocks(self.nodes)
 
         self.log.info("Testing compactblock construction...")
-        self.test_compactblock_construction(self.nodes[0], self.test_node, 1, False)
+        self.test_compactblock_construction(self.nodes[1], self.old_node, 1, False)
         sync_blocks(self.nodes)
         self.test_compactblock_construction(self.nodes[1], self.segwit_node, 2, False)
         sync_blocks(self.nodes)
 
         self.log.info("Testing compactblock requests... ")
-        self.test_compactblock_requests(self.nodes[0], self.test_node, 1, False)
-        sync_blocks(self.nodes)
         self.test_compactblock_requests(self.nodes[1], self.segwit_node, 2, False)
         sync_blocks(self.nodes)
 
         self.log.info("Testing getblocktxn requests...")
-        self.test_getblocktxn_requests(self.nodes[0], self.test_node, 1)
-        sync_blocks(self.nodes)
         self.test_getblocktxn_requests(self.nodes[1], self.segwit_node, 2)
         sync_blocks(self.nodes)
+        self.test_getblocktxn_requests(self.nodes[1], self.old_node, 1)
 
         self.log.info("Testing getblocktxn handler...")
-        self.test_getblocktxn_handler(self.nodes[0], self.test_node, 1)
-        sync_blocks(self.nodes)
         self.test_getblocktxn_handler(self.nodes[1], self.segwit_node, 2)
         self.test_getblocktxn_handler(self.nodes[1], self.old_node, 1)
         sync_blocks(self.nodes)
 
         self.log.info("Testing compactblock requests/announcements not at chain tip...")
-        self.test_compactblocks_not_at_tip(self.nodes[0], self.test_node)
-        sync_blocks(self.nodes)
         self.test_compactblocks_not_at_tip(self.nodes[1], self.segwit_node)
         self.test_compactblocks_not_at_tip(self.nodes[1], self.old_node)
         sync_blocks(self.nodes)
 
         self.log.info("Testing handling of incorrect blocktxn responses...")
-        self.test_incorrect_blocktxn_response(self.nodes[0], self.test_node, 1)
         sync_blocks(self.nodes)
         self.test_incorrect_blocktxn_response(self.nodes[1], self.segwit_node, 2)
+        self.test_incorrect_blocktxn_response(self.nodes[1], self.old_node, 1)
         sync_blocks(self.nodes)
 
         # End-to-end block relay tests
         self.log.info("Testing end-to-end block relay...")
-        self.request_cb_announcements(self.test_node, self.nodes[0], 1)
         self.request_cb_announcements(self.old_node, self.nodes[1], 1)
         self.request_cb_announcements(self.segwit_node, self.nodes[1], 2)
-        self.test_end_to_end_block_relay(self.nodes[0], [self.segwit_node, self.test_node, self.old_node])
-        self.test_end_to_end_block_relay(self.nodes[1], [self.segwit_node, self.test_node, self.old_node])
+        self.test_end_to_end_block_relay(self.nodes[0], [self.segwit_node, self.old_node])
+        self.test_end_to_end_block_relay(self.nodes[1], [self.segwit_node, self.old_node])
 
         self.log.info("Testing handling of invalid compact blocks...")
-        self.test_invalid_tx_in_compactblock(self.nodes[0], self.test_node, False)
         self.test_invalid_tx_in_compactblock(self.nodes[1], self.segwit_node, False)
         self.test_invalid_tx_in_compactblock(self.nodes[1], self.old_node, False)
 
@@ -873,16 +862,9 @@ class CompactBlocksTest(BitcoinTestFramework):
         self.test_compactblock_construction(self.nodes[1], self.segwit_node, 2, True)
         sync_blocks(self.nodes)
 
-        self.log.info("Testing compactblock requests (unupgraded node)... ")
-        self.test_compactblock_requests(self.nodes[0], self.test_node, 1, True)
-
-        self.log.info("Testing getblocktxn requests (unupgraded node)...")
-        self.test_getblocktxn_requests(self.nodes[0], self.test_node, 1)
-
         # Need to manually sync node0 and node1, because post-segwit activation,
         # node1 will not download blocks from node0.
         self.log.info("Syncing nodes...")
-        assert(self.nodes[0].getbestblockhash() != self.nodes[1].getbestblockhash())
         while (self.nodes[0].getblockcount() > self.nodes[1].getblockcount()):
             block_hash = self.nodes[0].getblockhash(self.nodes[1].getblockcount() + 1)
             self.nodes[1].submitblock(self.nodes[0].getblock(block_hash, False))
@@ -904,13 +886,11 @@ class CompactBlocksTest(BitcoinTestFramework):
         # (Post-segwit activation, blocks won't propagate from node0 to node1
         # automatically, so don't bother testing a block announced to node0.)
         self.log.info("Testing end-to-end block relay...")
-        self.request_cb_announcements(self.test_node, self.nodes[0], 1)
         self.request_cb_announcements(self.old_node, self.nodes[1], 1)
         self.request_cb_announcements(self.segwit_node, self.nodes[1], 2)
-        self.test_end_to_end_block_relay(self.nodes[1], [self.segwit_node, self.test_node, self.old_node])
+        self.test_end_to_end_block_relay(self.nodes[1], [self.segwit_node, self.old_node])
 
         self.log.info("Testing handling of invalid compact blocks...")
-        self.test_invalid_tx_in_compactblock(self.nodes[0], self.test_node, False)
         self.test_invalid_tx_in_compactblock(self.nodes[1], self.segwit_node, True)
         self.test_invalid_tx_in_compactblock(self.nodes[1], self.old_node, True)
 
