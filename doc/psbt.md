@@ -67,6 +67,9 @@ hardware implementations will typically implement multiple roles simultaneously.
   input a PSBT, adds UTXO, key, and script data to inputs and outputs that miss
   it, and optionally signs inputs. Where possible it also finalizes the partial
   signatures.
+- **`utxoupdatepsbt` (Updater)** is a node RPC that takes a PSBT and updates it
+  to include information available from the UTXO set (works only for SegWit
+  inputs).
 - **`finalizepsbt` (Finalizer, Extractor)** is a utility RPC that finalizes any
   partial signatures, and if all inputs are finalized, converts the result to a
   fully signed transaction which can be broadcast with `sendrawtransaction`.
@@ -74,8 +77,15 @@ hardware implementations will typically implement multiple roles simultaneously.
   can be used at any point in the workflow to merge information added to
   different versions of the same PSBT. In particular it is useful to combine the
   output of multiple Updaters or Signers.
+- **`joinpsbts`** (Creator) is a utility RPC that joins multiple PSBTs together,
+  concatenating the inputs and outputs. This can be used to construct CoinJoin
+  transactions.
 - **`decodepsbt`** is a diagnostic utility RPC which will show all information in
   a PSBT in human-readable form, as well as compute its eventual fee if known.
+- **`analyzepsbt`** is a utility RPC that examines an RPC and reports the
+  next steps in the workflow if known, computes the fee of the resulting
+  transaction, and estimates the weight and feerate if possible.
+
 
 ### Workflows
 
@@ -124,7 +134,7 @@ does not need to be involved.
 - Finally anyone can broadcast the transaction using `sendrawtransaction "T"`.
 
 In case there are more signers, it may be advantageous to let them all sign in
-parallel, rather passing the PSBT from one signer to the next one. In the
+parallel, rather than passing the PSBT from one signer to the next one. In the
 above example this would translate to Carol handing a copy of *P* to each signer
 separately. They can then all invoke `walletprocesspsbt "P"`, and end up with
 their individually-signed PSBT structures. They then all send those back to

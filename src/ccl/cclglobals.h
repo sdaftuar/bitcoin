@@ -40,7 +40,10 @@ public:
     bool Run(boost::thread_group &threadGroup);
     void Shutdown();
 
-    uint256 GetDetRandHash(); // deterministic randomness
+    // Use the leveldb random number generator -- not a crypto secure
+    // random function, but we just need this to be deterministic so
+    // low expectations...
+    size_t GetDetRandomNumber(size_t max_val) { return rnd.Uniform(max_val); }
 
     unique_ptr<DataLogger> dlog;
     unique_ptr<Simulation> simulation;

@@ -54,7 +54,7 @@ class DataLoggingTest(BitcoinTestFramework):
         self.sync_all()
 
     def set_test_params(self):
-        self.setup_clean_chain = False
+        self.setup_clean_chain = True
         self.num_nodes = 4
 
     def run_test(self):
@@ -62,8 +62,15 @@ class DataLoggingTest(BitcoinTestFramework):
 
         mined_blocks = set()
 
-        # Mine one block to leave IBD.
-        mined_blocks.add(self.nodes[0].generate(1)[0])
+        # Mine some blocks
+        for i in range(25):
+            mined_blocks.add(self.nodes[0].generate(1)[0])
+        sync_blocks(self.nodes, wait=1, timeout=60)
+        for i in range(25):
+            mined_blocks.add(self.nodes[1].generate(1)[0])
+        sync_blocks(self.nodes, wait=1, timeout=60)
+        for i in range(100):
+            mined_blocks.add(self.nodes[0].generate(1)[0])
         sync_blocks(self.nodes, wait=1, timeout=60)
 
         # Send 12 random transactions. These will be included in the next block
@@ -76,10 +83,12 @@ class DataLoggingTest(BitcoinTestFramework):
         # Mine a block with node1 to confirm the transactions
         best_block_hash = self.nodes[1].generate(1)[0]
         mined_blocks.add(best_block_hash)
+        sync_blocks(self.nodes, wait=1, timeout=60)
 
         # Send 12 random transactions. These aren't confirmed in a block and remain in the mempool
         [random_transaction(txnodes, Decimal("1.1"), min_fee, min_fee, 20) for i in range(12)]
         sync_mempools(self.nodes)
+        num_blocks = self.nodes[2].getblockcount()
         self.stop_nodes()
         self.nodes = []
 
@@ -95,7 +104,7 @@ class DataLoggingTest(BitcoinTestFramework):
 
         self.log.info("Check all blocks were logged")
         allblocks = subprocess.check_output(["dataprinter", self.options.tmpdir + "/block." + today], universal_newlines=True)
-        assert_equal(len(re.findall('CBlock', allblocks)), 2)
+        assert_equal(len(list(dict.fromkeys(re.findall('CBlock.hash=([0-9a-fA-F]*)', allblocks)))), num_blocks)
 
         self.log.info("Check all headers and compact blocks were logged")
         headers_events = subprocess.check_output(["dataprinter", self.options.tmpdir + "/headers." + today], universal_newlines=True)
@@ -109,13 +118,13 @@ class DataLoggingTest(BitcoinTestFramework):
         self.log.info("Run SIMULATION test")
 
         datadir = os.path.join(self.options.tmpdir, "node3")
-        args = [os.getenv("BITCOIND", "bitcoind"), "-datadir=" + datadir, "-regtest", "-server", "-keypool=1", "-discover=0", "-rest", "-mocktime=" + str(self.mocktime), "-simulation", "-simdatadir=" + self.options.tmpdir, "-start=" + today, "-debug", "-disablewallet"]
+        args = [os.getenv("BITCOIND", "bitcoind"), "-datadir=" + datadir, "-regtest", "-server", "-keypool=1", "-discover=0", "-rest", "-simulation", "-simdatadir=" + self.options.tmpdir, "-start=" + today, "-debug", "-disablewallet"]
         sim_process = subprocess.Popen(args)
 
         self.log.info("Wait for simulation to end")
         assert_equal(sim_process.wait(timeout=60), 0)
 
-        block_accepted_match = "UpdateTip: new best=%s height=202" % str(best_block_hash)
+        block_accepted_match = "UpdateTip: new best=%s height=%d" % (str(best_block_hash), num_blocks)
         all_block_txs_accepted_match = "Connect 13 transactions"
         tx_accepted_match = "AcceptToMemoryPool"
         simulation_ended_match = "Simulation exiting"

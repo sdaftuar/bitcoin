@@ -97,16 +97,3 @@ void CCLGlobals::Shutdown()
 {
     if (dlog.get()) dlog->Shutdown();
 }
-
-// Use the leveldb random number generator -- not a crypto secure
-// random function, but we just need this to be deterministic so
-// low expectations...
-uint256 CCLGlobals::GetDetRandHash()
-{
-    arith_uint256 ret;
-    for (unsigned i=0; i<16; ++i) {
-        arith_uint256 val = rnd.Uniform(1<<16);
-        ret |= (val << i*16);
-    }
-    return ArithToUint256(ret);
-}
