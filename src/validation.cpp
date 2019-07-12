@@ -230,10 +230,9 @@ bool TestLockPointValidity(const LockPoints* lp)
     return true;
 }
 
-bool CheckSequenceLocks(const CTxMemPool& pool, const CTransaction& tx, int flags, LockPoints* lp, bool useExistingLockPoints)
+bool CheckSequenceLocks(CCoinsViewCache &view, const CTransaction& tx, int flags, LockPoints* lp, bool useExistingLockPoints)
 {
     AssertLockHeld(cs_main);
-    AssertLockHeld(pool.cs);
 
     CBlockIndex* tip = ::ChainActive().Tip();
     assert(tip != nullptr);
@@ -256,13 +255,12 @@ bool CheckSequenceLocks(const CTxMemPool& pool, const CTransaction& tx, int flag
     }
     else {
         // pcoinsTip contains the UTXO set for ::ChainActive().Tip()
-        CCoinsViewMemPool viewMemPool(pcoinsTip.get(), pool);
         std::vector<int> prevheights;
         prevheights.resize(tx.vin.size());
         for (size_t txinIndex = 0; txinIndex < tx.vin.size(); txinIndex++) {
             const CTxIn& txin = tx.vin[txinIndex];
             Coin coin;
-            if (!viewMemPool.GetCoin(txin.prevout, coin)) {
+            if (!view.GetCoin(txin.prevout, coin)) {
                 return error("%s: Missing input", __func__);
             }
             if (coin.nHeight == MEMPOOL_HEIGHT) {
@@ -300,6 +298,14 @@ bool CheckSequenceLocks(const CTxMemPool& pool, const CTransaction& tx, int flag
         }
     }
     return EvaluateSequenceLocks(index, lockPair);
+}
+
+bool CheckSequenceLocks(const CTxMemPool& pool, const CTransaction& tx, int flags, LockPoints* lp, bool useExistingLockPoints)
+{
+    AssertLockHeld(cs_main);
+    CCoinsViewMemPool viewMemPool(pcoinsTip.get(), pool);
+    CCoinsViewCache view(&viewMemPool);
+    return CheckSequenceLocks(view, tx, flags, lp, useExistingLockPoints);
 }
 
 // Returns the script flags which should be checked for a given block
@@ -421,7 +427,13 @@ static bool CheckInputsFromMempoolAndCache(const CTransaction& tx, CValidationSt
 class MemPoolAccept
 {
 public:
-    MemPoolAccept() : view(nullptr) {}
+    MemPoolAccept(CTxMemPool& mempool) : pool(mempool), view(&dummy), viewMemPool(pcoinsTip.get(), pool) {
+        nLimitAncestors = gArgs.GetArg("-limitancestorcount", DEFAULT_ANCESTOR_LIMIT);
+        nLimitAncestorSize = gArgs.GetArg("-limitancestorsize", DEFAULT_ANCESTOR_SIZE_LIMIT)*1000;
+        nLimitDescendants = gArgs.GetArg("-limitdescendantcount", DEFAULT_DESCENDANT_LIMIT);
+        nLimitDescendantSize = gArgs.GetArg("-limitdescendantsize", DEFAULT_DESCENDANT_SIZE_LIMIT)*1000;
+    }
+
     // Single-transaction acceptance:
     bool AcceptSingleTransaction(const CChainParams& chainparams, CTxMemPool& pool,
                   CValidationState& state, const CTransactionRef& ptx,
@@ -429,12 +441,18 @@ public:
                   std::list<CTransactionRef>* plTxnReplaced,
                   bool bypass_limits, const CAmount& nAbsurdFee,
                   std::vector<COutPoint>& coins_to_uncache, bool test_accept);
+
+    bool AcceptMultipleTransactions(const CChainParams& chainparams, CTxMemPool& pool,
+            CValidationState& state, std::list<CTransactionRef> tx_list,
+            bool* pfMissingInputs, int64_t nAcceptTime,
+            std::list<CTransactionRef>* replaced_transactions,
+            const CAmount& nAbsurdFee,
+            std::vector<COutPoint>& coins_to_uncache, bool test_accept);
 private:
     // We copy the arguments we're handed into a struct, so we can pass them
     // around easier.
     struct ATMPArgs {
         const CChainParams& chainparams;
-        CTxMemPool& pool;
         CValidationState &state;
         bool* pfMissingInputs;
         int64_t nAcceptTime;
@@ -466,9 +484,32 @@ private:
     bool ScriptChecks(ATMPArgs& args, const CTransactionRef& ptx, Workspace& ws);
     bool Finalize(ATMPArgs& args, const CTransactionRef& ptx, Workspace& ws);
 
+    // Compare a package's feerate against minimum allowed
+    bool CheckFeeRate(size_t package_size, CAmount package_fee, CValidationState& state)
+    {
+        CAmount mempoolRejectFee = pool.GetMinFee(gArgs.GetArg("-maxmempool", DEFAULT_MAX_MEMPOOL_SIZE) * 1000000).GetFee(package_size);
+        if (mempoolRejectFee > 0 && package_fee < mempoolRejectFee) {
+            return state.Invalid(ValidationInvalidReason::TX_MEMPOOL_POLICY, false, REJECT_INSUFFICIENTFEE, "mempool min fee not met", strprintf("%d < %d", package_fee, mempoolRejectFee));
+        }
+
+        if (package_fee < ::minRelayTxFee.GetFee(package_size)) {
+            return state.Invalid(ValidationInvalidReason::TX_MEMPOOL_POLICY, false, REJECT_INSUFFICIENTFEE, "min relay fee not met", strprintf("%d < %d", package_fee, ::minRelayTxFee.GetFee(package_size)));
+        }
+        return true;
+    }
+
 private:
+    CTxMemPool& pool;
     CCoinsViewCache view;
+    CCoinsViewMemPool viewMemPool;
     CCoinsView dummy;
+
+    // Package acceptance uses a heuristic to test against these limits,
+    // separately from what is done in PreChecks().
+    size_t nLimitAncestors{0};
+    size_t nLimitAncestorSize{0};
+    size_t nLimitDescendants{0};
+    size_t nLimitDescendantSize{0};
 };
 
 bool MemPoolAccept::PreChecks(ATMPArgs& args, const CTransactionRef& ptx, Workspace& ws)
@@ -477,7 +518,6 @@ bool MemPoolAccept::PreChecks(ATMPArgs& args, const CTransactionRef& ptx, Worksp
     const uint256& hash = ws.hash;
 
     // Copy/alias what we need out of args
-    CTxMemPool& pool = args.pool;
     CValidationState &state = args.state;
     bool* pfMissingInputs = args.pfMissingInputs;
     int64_t nAcceptTime = args.nAcceptTime;
@@ -566,7 +606,6 @@ bool MemPoolAccept::PreChecks(ATMPArgs& args, const CTransactionRef& ptx, Worksp
     }
 
     LockPoints lp;
-    CCoinsViewMemPool viewMemPool(pcoinsTip.get(), pool);
     view.SetBackend(viewMemPool);
 
     // do all inputs exist?
@@ -604,9 +643,7 @@ bool MemPoolAccept::PreChecks(ATMPArgs& args, const CTransactionRef& ptx, Worksp
     // Only accept BIP68 sequence locked transactions that can be mined in the next
     // block; we don't want our mempool filled up with transactions that can't
     // be mined yet.
-    // Must keep pool.cs for this unless we change CheckSequenceLocks to take a
-    // CoinsViewCache instead of create its own
-    if (!CheckSequenceLocks(pool, tx, STANDARD_LOCKTIME_VERIFY_FLAGS, &lp))
+    if (!CheckSequenceLocks(view, tx, STANDARD_LOCKTIME_VERIFY_FLAGS, &lp))
         return state.Invalid(ValidationInvalidReason::TX_PREMATURE_SPEND, false, REJECT_NONSTANDARD, "non-BIP68-final");
 
     CAmount nFees = 0;
@@ -647,15 +684,9 @@ bool MemPoolAccept::PreChecks(ATMPArgs& args, const CTransactionRef& ptx, Worksp
         return state.Invalid(ValidationInvalidReason::TX_NOT_STANDARD, false, REJECT_NONSTANDARD, "bad-txns-too-many-sigops",
                 strprintf("%d", nSigOpsCost));
 
-    CAmount mempoolRejectFee = pool.GetMinFee(gArgs.GetArg("-maxmempool", DEFAULT_MAX_MEMPOOL_SIZE) * 1000000).GetFee(nSize);
-    if (!bypass_limits && mempoolRejectFee > 0 && nModifiedFees < mempoolRejectFee) {
-        return state.Invalid(ValidationInvalidReason::TX_MEMPOOL_POLICY, false, REJECT_INSUFFICIENTFEE, "mempool min fee not met", strprintf("%d < %d", nModifiedFees, mempoolRejectFee));
-    }
-
-    // No transactions are allowed below minRelayTxFee except from disconnected blocks
-    if (!bypass_limits && nModifiedFees < ::minRelayTxFee.GetFee(nSize)) {
-        return state.Invalid(ValidationInvalidReason::TX_MEMPOOL_POLICY, false, REJECT_INSUFFICIENTFEE, "min relay fee not met", strprintf("%d < %d", nModifiedFees, ::minRelayTxFee.GetFee(nSize)));
-    }
+    // No transactions are allowed below minRelayTxFee/mempool min fee except
+    // from disconnected blocks
+    if (!bypass_limits && !CheckFeeRate(nSize, nModifiedFees, state)) return false;
 
     if (nAbsurdFee && nFees > nAbsurdFee)
         return state.Invalid(ValidationInvalidReason::TX_NOT_STANDARD, false,
@@ -663,10 +694,6 @@ bool MemPoolAccept::PreChecks(ATMPArgs& args, const CTransactionRef& ptx, Worksp
                 strprintf("%d > %d", nFees, nAbsurdFee));
 
     // Calculate in-mempool ancestors, up to a limit.
-    size_t nLimitAncestors = gArgs.GetArg("-limitancestorcount", DEFAULT_ANCESTOR_LIMIT);
-    size_t nLimitAncestorSize = gArgs.GetArg("-limitancestorsize", DEFAULT_ANCESTOR_SIZE_LIMIT)*1000;
-    size_t nLimitDescendants = gArgs.GetArg("-limitdescendantcount", DEFAULT_DESCENDANT_LIMIT);
-    size_t nLimitDescendantSize = gArgs.GetArg("-limitdescendantsize", DEFAULT_DESCENDANT_SIZE_LIMIT)*1000;
     std::string errString;
     if (!pool.CalculateMemPoolAncestors(*entry, setAncestors, nLimitAncestors, nLimitAncestorSize, nLimitDescendants, nLimitDescendantSize, errString)) {
         return state.Invalid(ValidationInvalidReason::TX_MEMPOOL_POLICY, false, REJECT_NONSTANDARD, "too-long-mempool-chain", errString);
@@ -808,7 +835,6 @@ bool MemPoolAccept::ScriptChecks(ATMPArgs& args, const CTransactionRef& ptx, Wor
 
     CValidationState &state = args.state;
     const CChainParams& chainparams = args.chainparams;
-    CTxMemPool& pool = args.pool;
 
     constexpr unsigned int scriptVerifyFlags = STANDARD_SCRIPT_VERIFY_FLAGS;
 
@@ -860,7 +886,6 @@ bool MemPoolAccept::Finalize(ATMPArgs& args, const CTransactionRef& ptx, Workspa
     const uint256 hash = ws.hash;
     CValidationState &state = args.state;
     const bool bypass_limits = args.bypass_limits;
-    CTxMemPool& pool = args.pool;
 
     CTxMemPool::setEntries& allConflicting = ws.allConflicting;
     CTxMemPool::setEntries& setAncestors = ws.setAncestors;
@@ -912,7 +937,7 @@ bool MemPoolAccept::AcceptSingleTransaction(const CChainParams& chainparams, CTx
     AssertLockHeld(cs_main);
     LOCK(pool.cs); // mempool "read lock" (held through GetMainSignals().TransactionAddedToMempool())
 
-    ATMPArgs args { chainparams, pool, state, pfMissingInputs, nAcceptTime, plTxnReplaced, bypass_limits, nAbsurdFee, coins_to_uncache, test_accept };
+    ATMPArgs args { chainparams, state, pfMissingInputs, nAcceptTime, plTxnReplaced, bypass_limits, nAbsurdFee, coins_to_uncache, test_accept };
     Workspace workspace(ptx);
 
     if (!PreChecks(args, ptx, workspace)) return false;
@@ -929,6 +954,239 @@ bool MemPoolAccept::AcceptSingleTransaction(const CChainParams& chainparams, CTx
     return true;
 }
 
+#if 0
+class FakeMempool:
+{
+public:
+    FakeMempool(CTxMemPool &mempool) : pool(mempool)  {}
+    AddMempoolEntry(CTxMemPool::txiter mempool_iter);
+    AddCandidateEntry(const CTxMemPoolEntry& entry);
+    bool CalculateMemPoolAncestorsUsingStandardLimits(const CTxMemPoolEntry& entry);
+
+private:
+    struct WrappedMemPoolEntry {
+        // Use this constructor for in-mempool transactions
+        WrappedMemPoolEntry(CTxMemPool::txiter it) : tx(it->GetTx()) {
+            existing_iter = it;
+            tx_size = it->GetTxSize();
+            fees = it->GetModifiedFee();
+            // Initialize with package state from mempool. The ancestor
+            // state cannot change, but we may add more descendants from the
+            // package we're evaluating for inclusion.
+            size_with_descendants = it->GetSizeWithDescendants();
+            count_with_descendants = it->GetCountWithDescendants();
+            fees_with_descendants = it->GetModFeesWithDescendants();
+            count_with_ancestors = it->GetCountWithAncestors();
+            size_with_ancestors = it->GetSizeWithAncestors();
+            fees_with_ancestors = it->GetModFeesWithAncestors();
+        }
+
+        // Use this constructor for package transactions we're considering to
+        // add to the mempool
+        WrappedMemPoolEntry(const CTransactionRef& _tx, std::unique_ptr<CTxMemPoolEntry>& entry) : tx(_tx) {
+            existing_iter = pool.mapTx.end();
+            tx_size = entry->GetTxSize();
+            fees = entry->GetModifiedFee();
+            size_with_descendants = tx_size;
+            count_with_descendants = 1;
+            fees_with_descendants = fees;
+            // Ancestor information is incomplete -- we'll fill in afterward by
+            // searching.
+            size_with_ancestors = tx_size;
+            fees_with_ancestors = fees;
+            count_with_ancestors = 1;
+        }
+
+        CTxMemPool::txiter existing_iter; // might be invalid, if not actually in the mempool
+        const CTransactionRef& tx; // the underlying transaction
+
+        size_t tx_size{0};
+        CAmount fees{0};
+        size_t size_with_ancestors{0};
+        size_t size_with_descendants{0};
+        uint64_t count_with_descendants{0};
+        uint64_t count_with_ancestors{0};
+        CAmount fees_with_descendants{0}; // includes prioritization
+        CAmount fees_with_ancestors{0};
+    };
+
+    using wrapped_iter = std::map<uint256, WrappedMemPoolEntry>::iterator;
+    std::map<uint256, WrappedMemPoolEntry> package_pool;
+
+    // For each package_pool entry, store the set of ancestors
+    std::map<uint256, std::set<wrapped_iter>> package_pool_ancestors;
+
+    // Update the ancestor state associated with a package transaction, given a
+    // set of in-mempool ancestors as a starting point.
+    void UpdateAncestorState(WrappedMemPoolEntry *entry, CTxMemPool::setEntries setAncestors)
+    {
+        // Idea:
+        // We are given the set of ancestors in the mempool that this
+        // transaction depends on; we can directly add those to our ancestor set.
+        // For each direct parent input, we look up in package_pool and see if we have an entry--
+        // if so, we can just directly add that entry's ancestors, which we are
+        // caching in this data structure as well.
+        // This would recursively walking of all the parents, which we do in
+        // the mempool code, because we don't cache all ancestors.
+        // TODO: implement this code fully, if we adopt this approach.
+
+        // Look for in-package_pool ancestors and update ancestor state.
+        std::set<wrapped_iter> all_ancestors;
+
+        // Start with everything in the mempool
+        for (CTxMemPool::txiter it : setAncestors) {
+            all_ancestors.insert(package_pool.find(it->GetTx().GetHash()));
+        }
+        // Now add everything in the package pool that we depend on as well.
+        std::set<wrapped_iter> direct_parents;
+        // Grab the parent hashes
+        std::set<uint256> parent_hashes;
+        for (auto input : entry->tx->vin) parent_hashes.insert(input.prevout.hash);
+        // For each direct parent in our package_pool, add all the ancestors
+        for (auto phash : parent_hashes) {
+            auto it = package_pool_links.find(phash);
+            if (it != package_pool_links.end()) {
+                all_ancestors.insert(it->ancestors.begin(), it->ancestors.end());
+                all_ancestors.insert(package_pool.find(phash));
+            }
+        }
+        // Now we can walk all the ancestors and
+    }
+
+    CTxMemPool& pool;
+};
+
+FakeMempool::AddMempoolEntry(CTxMemPool::txiter mempool_iter)
+{
+
+}
+#endif
+
+bool MemPoolAccept::AcceptMultipleTransactions(const CChainParams& chainparams, CTxMemPool& pool,
+        CValidationState& state, std::list<CTransactionRef> tx_list,
+        bool* pfMissingInputs, int64_t nAcceptTime,
+        std::list<CTransactionRef>* replaced_transactions,
+        const CAmount& nAbsurdFee, std::vector<COutPoint>& coins_to_uncache,
+        bool test_accept)
+{
+    AssertLockHeld(cs_main);
+    LOCK(pool.cs);
+
+    ATMPArgs args { chainparams, state, pfMissingInputs, nAcceptTime, replaced_transactions, /*bypass_limits*/ true, nAbsurdFee, coins_to_uncache, test_accept };
+    std::list<Workspace> tx_workspaces;
+
+    for (const CTransactionRef& ptx : tx_list) {
+        tx_workspaces.emplace_back(Workspace(ptx));
+        if (ptx == tx_list.back()) args.bypass_limits = false;
+        if (!PreChecks(args, ptx, tx_workspaces.back())) return false;
+        if (!tx_workspaces.back().setConflicts.empty()) {
+            return state.Invalid(ValidationInvalidReason::TX_MEMPOOL_POLICY, false, REJECT_NONSTANDARD, "rbf-disallowed-in-package", strprintf("mempool conflicts with tx %s", ptx->GetHash().ToString()));
+        }
+        // Add this transaction to our coinsview, so that subsequent
+        // transactions in this package will have their inputs available.
+        viewMemPool.AddPotentialTransaction(ptx);
+    }
+
+    // Check overall package feerate
+    size_t total_size=0;
+    CAmount total_fee=0;
+    uint64_t total_count = tx_list.size();
+    for (const Workspace& ws : tx_workspaces) {
+        total_size += ws.entry->GetTxSize();
+        total_fee += ws.nModifiedFees;
+    }
+    if (!CheckFeeRate(total_size, total_fee, state)) return false;
+
+    // The ancestor/descendant limit calculations in PreChecks() will be overly
+    // permissive, because not all ancestors will be known as we descend down
+    // the package. Thus the ancestor checks done by
+    // CalculateMemPoolAncestors() will be incomplete. If any ancestor or
+    // descendant limit is violated in one of those checks, however, we know
+    // the package will not be accepted when we include all ancestors, as the
+    // ancestor/descendant size/counts only go up as we add more ancestors to
+    // each transaction.
+    // We will end up needing to recalculate setAncestors for each transaction
+    // prior to calling Finalize, but we should do the correct package-size
+    // calculations before we call ScriptChecks(), to avoid CPU-DoS.
+
+    // For now, do something conservative -- assume that the union of ancestors
+    // of each transaction is an ancestor of every transaction, for package
+    // size purposes.
+    CTxMemPool::setEntries all_ancestors;
+    for (const Workspace& ws : tx_workspaces) {
+        all_ancestors.insert(ws.setAncestors.begin(), ws.setAncestors.end());
+    }
+
+    if (total_count + all_ancestors.size() > nLimitAncestors) {
+        return state.Invalid(ValidationInvalidReason::TX_MEMPOOL_POLICY, false, REJECT_NONSTANDARD, "too-long-package-mempool-chain", strprintf("exceeds ancestor count limit [package: %u limit: %u]", total_count + all_ancestors.size(), nLimitAncestors));
+    }
+
+    // Check the package limits for every ancestor, assuming the whole package
+    // descends from each.
+    size_t ancestor_size = total_size;
+    for (auto tx_iter : all_ancestors) {
+        if (tx_iter->GetSizeWithDescendants() + total_size > nLimitDescendantSize) {
+            return state.Invalid(ValidationInvalidReason::TX_MEMPOOL_POLICY, false, REJECT_NONSTANDARD, "too-long-package-mempool-chain", strprintf("exceeds descendant size limit for tx %s [limit: %u]", tx_iter->GetTx().GetHash().ToString(), nLimitDescendantSize));
+        }
+        if (tx_iter->GetCountWithDescendants() + total_count > nLimitDescendants) {
+            return state.Invalid(ValidationInvalidReason::TX_MEMPOOL_POLICY, false, REJECT_NONSTANDARD, "too-long-package-mempool-chain", strprintf("exceeds descendant size limit for tx %s [limit: %u]", tx_iter->GetTx().GetHash().ToString(), nLimitDescendants));
+        }
+        ancestor_size += tx_iter->GetTxSize();
+    }
+
+    // In case we have no in-mempool ancestors, we must check the transaction
+    // package itself.
+    if (total_size > nLimitDescendantSize) {
+        return state.Invalid(ValidationInvalidReason::TX_MEMPOOL_POLICY, false, REJECT_NONSTANDARD, "too-long-package-mempool-chain", strprintf("exceeds descendant size limit for tx %s [limit: %u]", tx_list.front()->GetHash().ToString(), nLimitDescendantSize));
+    }
+    if (ancestor_size > nLimitAncestorSize) {
+        return state.Invalid(ValidationInvalidReason::TX_MEMPOOL_POLICY, false, REJECT_NONSTANDARD, "too-long-package-mempool-chain", strprintf("exceeds ancestor size limit for tx %s [limit: %u]", tx_list.back()->GetHash().ToString(), nLimitAncestorSize));
+    }
+
+    // Make sure all transactions are ancestors of the last one.
+    // For now, just check that the last transaction has all prior transactions
+    // as direct inputs. We can relax this in the future for bigger packages.
+    std::set<uint256> last_tx_parents;
+    for (auto input : tx_list.back()->vin) {
+        last_tx_parents.insert(input.prevout.hash);
+    }
+    for (auto ptx : tx_list) {
+        if (ptx == tx_list.back()) break;
+        if (last_tx_parents.count(ptx->GetHash()) == 0) {
+            return state.Invalid(ValidationInvalidReason::TX_MEMPOOL_POLICY, false, REJECT_NONSTANDARD, "non-standard-package-chain", "only direct parents are allowed in package");
+        }
+    }
+
+    // Do the script checks after all policy checks are done
+    auto pit = tx_list.begin();
+    for (auto wit = tx_workspaces.begin(); wit != tx_workspaces.end(); ++wit, ++pit) {
+        assert(pit != tx_list.end());
+        if (!ScriptChecks(args, *pit, *wit)) return false;
+    }
+
+    // Add everything to the mempool, and make sure the last transaction makes
+    // it in.
+    args.bypass_limits = true;
+    pit = tx_list.begin();
+    for (auto wit = tx_workspaces.begin(); wit != tx_workspaces.end(); ++wit, ++pit) {
+        if (wit != tx_workspaces.begin()) {
+            // Recalculate ancestors for every transaction after the first
+            wit->setAncestors.clear();
+            std::string dummy_string;
+            // Don't worry about the return value here; it must pass based on
+            // the checks above. TODO: assert on passing?
+            pool.CalculateMemPoolAncestors(*(wit->entry), wit->setAncestors, nLimitAncestors, nLimitAncestorSize, nLimitDescendants, nLimitDescendantSize, dummy_string);
+        }
+        assert(pit != tx_list.end());
+        if (*pit == tx_list.back()) {
+            args.bypass_limits = false;
+        }
+        if (!Finalize(args, *pit, *wit)) return false;
+    }
+    return true;
+}
+
+
 /**
  * @param[out] coins_to_uncache   Return any outpoints which were not previously present in the
  *                                coins cache, but were added as a result of validating the tx
@@ -942,7 +1200,7 @@ static bool AcceptToMemoryPoolWorker(const CChainParams& chainparams, CTxMemPool
 {
     AssertLockHeld(cs_main);
 
-    return MemPoolAccept().AcceptSingleTransaction(chainparams, pool, state, ptx, pfMissingInputs, nAcceptTime, plTxnReplaced, bypass_limits, nAbsurdFee, coins_to_uncache, test_accept);
+    return MemPoolAccept(pool).AcceptSingleTransaction(chainparams, pool, state, ptx, pfMissingInputs, nAcceptTime, plTxnReplaced, bypass_limits, nAbsurdFee, coins_to_uncache, test_accept);
 }
 
 /** (try to) add transaction to memory pool with a specified acceptance time **/
