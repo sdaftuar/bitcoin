@@ -745,6 +745,20 @@ void RequestTx(CNodeState* state, const uint256& txid, int64_t nNow) EXCLUSIVE_L
     peer_download_state.m_tx_process_time.emplace(process_time, txid);
 }
 
+// Add to a peer's orphan_work_set after processing a given transaction.
+void UpdateOrphanWorkSet(const CTransaction& tx, CNode *peer) EXCLUSIVE_LOCKS_REQUIRED(g_cs_orphans)
+{
+    const uint256& hash = tx.GetHash();
+    for (unsigned int i=0; i < tx.vout.size(); i++) {
+        auto it_by_prev = mapOrphanTransactionsByPrev.find(COutPoint(hash, i));
+        if (it_by_prev != mapOrphanTransactionsByPrev.end()) {
+            for (const auto& elem : it_by_prev->second) {
+                peer->orphan_work_set.insert(elem->first);
+            }
+        }
+    }
+}
+
 } // namespace
 
 // This function is used for testing the stale tip eviction logic, see
@@ -2499,14 +2513,7 @@ bool static ProcessMessage(CNode* pfrom, const std::string& strCommand, CDataStr
             AcceptToMemoryPool(mempool, state, ptx, &fMissingInputs, &lRemovedTxn, false /* bypass_limits */, 0 /* nAbsurdFee */)) {
             mempool.check(pcoinsTip.get());
             RelayTransaction(tx, connman);
-            for (unsigned int i = 0; i < tx.vout.size(); i++) {
-                auto it_by_prev = mapOrphanTransactionsByPrev.find(COutPoint(inv.hash, i));
-                if (it_by_prev != mapOrphanTransactionsByPrev.end()) {
-                    for (const auto& elem : it_by_prev->second) {
-                        pfrom->orphan_work_set.insert(elem->first);
-                    }
-                }
-            }
+            UpdateOrphanWorkSet(tx, pfrom);
 
             pfrom->nLastTXTime = GetTime();
 
@@ -2551,33 +2558,80 @@ bool static ProcessMessage(CNode* pfrom, const std::string& strCommand, CDataStr
                 recentRejects->insert(tx.GetHash());
             }
         } else {
-            assert(IsTransactionReason(state.GetReason()));
-            if (!tx.HasWitness() && state.GetReason() != ValidationInvalidReason::TX_WITNESS_MUTATED) {
-                // Do not use rejection cache for witness transactions or
-                // witness-stripped transactions, as they can have been malleated.
-                // See https://github.com/bitcoin/bitcoin/issues/8279 for details.
-                assert(recentRejects);
-                recentRejects->insert(tx.GetHash());
-                if (RecursiveDynamicUsage(*ptx) < 100000) {
-                    AddToCompactExtraTransactions(ptx);
+            // If this tx didn't make it in due to feerate, and there is a tx
+            // in the orphan pool -- then maybe that tx is only missing this
+            // one parent.
+            // Try to process the pair as a package.
+            bool added_as_package = false;
+            if (state.GetRejectCode() == REJECT_INSUFFICIENTFEE) {
+                LOCK(g_cs_orphans);
+                std::list<std::map<uint256, COrphanTx>::iterator> orphans_missing_this_tx;
+                for (size_t i=0; i<tx.vout.size(); ++i) {
+                    auto it = mapOrphanTransactionsByPrev.find(COutPoint(tx.GetHash(), i));
+                    if (it != mapOrphanTransactionsByPrev.end()) {
+                        for (auto orphan_iter : it->second) orphans_missing_this_tx.push_back(orphan_iter);
+                    }
                 }
-            } else if (tx.HasWitness() && RecursiveDynamicUsage(*ptx) < 100000) {
-                AddToCompactExtraTransactions(ptx);
+                if (!orphans_missing_this_tx.empty()) {
+                    const COrphanTx &orphan_tx = orphans_missing_this_tx.front()->second;
+                    // Pick the first transaction, and process the pair. If it's
+                    // missing other inputs, this will of course fail.
+                    std::list<CTransactionRef> package;
+                    package.push_back(ptx);
+                    package.push_back(orphan_tx.tx);
+                    CValidationState package_state;
+                    if (AcceptPackageToMemoryPool(mempool, state, package, nullptr, 0 /* nAbsurdFee */, false /* test_accept */)) {
+                        LogPrintf("package accepted!!\n"); // XXX: improve logging
+                        added_as_package = true;
+                        mempool.check(pcoinsTip.get());
+                        EraseOrphanTx(orphan_tx.tx->GetHash());
+                        for (auto package_tx : package) RelayTransaction(*package_tx, connman);
+                        for (auto package_tx : package) UpdateOrphanWorkSet(*package_tx, pfrom);
+
+                        pfrom->nLastTXTime = GetTime();
+
+                        for (auto package_tx : package) {
+                            LogPrint(BCLog::MEMPOOL, "AcceptToMemoryPool: peer=%d: accepted %s (poolsz %u txn, %u kB)\n",
+                                    pfrom->GetId(),
+                                    package_tx->GetHash().ToString(),
+                                    mempool.size(), mempool.DynamicMemoryUsage() / 1000);
+                        }
+
+                        // Recursively process any orphan transactions that depended on these
+                        ProcessOrphanTx(connman, pfrom->orphan_work_set, lRemovedTxn);
+                    }
+                }
             }
 
-            if (pfrom->fWhitelisted && gArgs.GetBoolArg("-whitelistforcerelay", DEFAULT_WHITELISTFORCERELAY)) {
-                // Always relay transactions received from whitelisted peers, even
-                // if they were already in the mempool or rejected from it due
-                // to policy, allowing the node to function as a gateway for
-                // nodes hidden behind it.
-                //
-                // Never relay transactions that might result in being
-                // disconnected (or banned).
-                if (state.IsInvalid() && TxRelayMayResultInDisconnect(state)) {
-                    LogPrintf("Not relaying invalid transaction %s from whitelisted peer=%d (%s)\n", tx.GetHash().ToString(), pfrom->GetId(), FormatStateMessage(state));
-                } else {
-                    LogPrintf("Force relaying tx %s from whitelisted peer=%d\n", tx.GetHash().ToString(), pfrom->GetId());
-                    RelayTransaction(tx, connman);
+            if (!added_as_package) {
+                assert(IsTransactionReason(state.GetReason()));
+                if (!tx.HasWitness() && state.GetReason() != ValidationInvalidReason::TX_WITNESS_MUTATED) {
+                    // Do not use rejection cache for witness transactions or
+                    // witness-stripped transactions, as they can have been malleated.
+                    // See https://github.com/bitcoin/bitcoin/issues/8279 for details.
+                    assert(recentRejects);
+                    recentRejects->insert(tx.GetHash());
+                    if (RecursiveDynamicUsage(*ptx) < 100000) {
+                        AddToCompactExtraTransactions(ptx);
+                    }
+                } else if (tx.HasWitness() && RecursiveDynamicUsage(*ptx) < 100000) {
+                    AddToCompactExtraTransactions(ptx);
+                }
+
+                if (pfrom->fWhitelisted && gArgs.GetBoolArg("-whitelistforcerelay", DEFAULT_WHITELISTFORCERELAY)) {
+                    // Always relay transactions received from whitelisted peers, even
+                    // if they were already in the mempool or rejected from it due
+                    // to policy, allowing the node to function as a gateway for
+                    // nodes hidden behind it.
+                    //
+                    // Never relay transactions that might result in being
+                    // disconnected (or banned).
+                    if (state.IsInvalid() && TxRelayMayResultInDisconnect(state)) {
+                        LogPrintf("Not relaying invalid transaction %s from whitelisted peer=%d (%s)\n", tx.GetHash().ToString(), pfrom->GetId(), FormatStateMessage(state));
+                    } else {
+                        LogPrintf("Force relaying tx %s from whitelisted peer=%d\n", tx.GetHash().ToString(), pfrom->GetId());
+                        RelayTransaction(tx, connman);
+                    }
                 }
             }
         }

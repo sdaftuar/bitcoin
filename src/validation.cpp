@@ -445,7 +445,6 @@ public:
     bool AcceptMultipleTransactions(const CChainParams& chainparams, CTxMemPool& pool,
             CValidationState& state, std::list<CTransactionRef> tx_list,
             bool* pfMissingInputs, int64_t nAcceptTime,
-            std::list<CTransactionRef>* replaced_transactions,
             const CAmount& nAbsurdFee,
             std::vector<COutPoint>& coins_to_uncache, bool test_accept);
 private:
@@ -954,125 +953,16 @@ bool MemPoolAccept::AcceptSingleTransaction(const CChainParams& chainparams, CTx
     return true;
 }
 
-#if 0
-class FakeMempool:
-{
-public:
-    FakeMempool(CTxMemPool &mempool) : pool(mempool)  {}
-    AddMempoolEntry(CTxMemPool::txiter mempool_iter);
-    AddCandidateEntry(const CTxMemPoolEntry& entry);
-    bool CalculateMemPoolAncestorsUsingStandardLimits(const CTxMemPoolEntry& entry);
-
-private:
-    struct WrappedMemPoolEntry {
-        // Use this constructor for in-mempool transactions
-        WrappedMemPoolEntry(CTxMemPool::txiter it) : tx(it->GetTx()) {
-            existing_iter = it;
-            tx_size = it->GetTxSize();
-            fees = it->GetModifiedFee();
-            // Initialize with package state from mempool. The ancestor
-            // state cannot change, but we may add more descendants from the
-            // package we're evaluating for inclusion.
-            size_with_descendants = it->GetSizeWithDescendants();
-            count_with_descendants = it->GetCountWithDescendants();
-            fees_with_descendants = it->GetModFeesWithDescendants();
-            count_with_ancestors = it->GetCountWithAncestors();
-            size_with_ancestors = it->GetSizeWithAncestors();
-            fees_with_ancestors = it->GetModFeesWithAncestors();
-        }
-
-        // Use this constructor for package transactions we're considering to
-        // add to the mempool
-        WrappedMemPoolEntry(const CTransactionRef& _tx, std::unique_ptr<CTxMemPoolEntry>& entry) : tx(_tx) {
-            existing_iter = pool.mapTx.end();
-            tx_size = entry->GetTxSize();
-            fees = entry->GetModifiedFee();
-            size_with_descendants = tx_size;
-            count_with_descendants = 1;
-            fees_with_descendants = fees;
-            // Ancestor information is incomplete -- we'll fill in afterward by
-            // searching.
-            size_with_ancestors = tx_size;
-            fees_with_ancestors = fees;
-            count_with_ancestors = 1;
-        }
-
-        CTxMemPool::txiter existing_iter; // might be invalid, if not actually in the mempool
-        const CTransactionRef& tx; // the underlying transaction
-
-        size_t tx_size{0};
-        CAmount fees{0};
-        size_t size_with_ancestors{0};
-        size_t size_with_descendants{0};
-        uint64_t count_with_descendants{0};
-        uint64_t count_with_ancestors{0};
-        CAmount fees_with_descendants{0}; // includes prioritization
-        CAmount fees_with_ancestors{0};
-    };
-
-    using wrapped_iter = std::map<uint256, WrappedMemPoolEntry>::iterator;
-    std::map<uint256, WrappedMemPoolEntry> package_pool;
-
-    // For each package_pool entry, store the set of ancestors
-    std::map<uint256, std::set<wrapped_iter>> package_pool_ancestors;
-
-    // Update the ancestor state associated with a package transaction, given a
-    // set of in-mempool ancestors as a starting point.
-    void UpdateAncestorState(WrappedMemPoolEntry *entry, CTxMemPool::setEntries setAncestors)
-    {
-        // Idea:
-        // We are given the set of ancestors in the mempool that this
-        // transaction depends on; we can directly add those to our ancestor set.
-        // For each direct parent input, we look up in package_pool and see if we have an entry--
-        // if so, we can just directly add that entry's ancestors, which we are
-        // caching in this data structure as well.
-        // This would recursively walking of all the parents, which we do in
-        // the mempool code, because we don't cache all ancestors.
-        // TODO: implement this code fully, if we adopt this approach.
-
-        // Look for in-package_pool ancestors and update ancestor state.
-        std::set<wrapped_iter> all_ancestors;
-
-        // Start with everything in the mempool
-        for (CTxMemPool::txiter it : setAncestors) {
-            all_ancestors.insert(package_pool.find(it->GetTx().GetHash()));
-        }
-        // Now add everything in the package pool that we depend on as well.
-        std::set<wrapped_iter> direct_parents;
-        // Grab the parent hashes
-        std::set<uint256> parent_hashes;
-        for (auto input : entry->tx->vin) parent_hashes.insert(input.prevout.hash);
-        // For each direct parent in our package_pool, add all the ancestors
-        for (auto phash : parent_hashes) {
-            auto it = package_pool_links.find(phash);
-            if (it != package_pool_links.end()) {
-                all_ancestors.insert(it->ancestors.begin(), it->ancestors.end());
-                all_ancestors.insert(package_pool.find(phash));
-            }
-        }
-        // Now we can walk all the ancestors and
-    }
-
-    CTxMemPool& pool;
-};
-
-FakeMempool::AddMempoolEntry(CTxMemPool::txiter mempool_iter)
-{
-
-}
-#endif
-
 bool MemPoolAccept::AcceptMultipleTransactions(const CChainParams& chainparams, CTxMemPool& pool,
         CValidationState& state, std::list<CTransactionRef> tx_list,
         bool* pfMissingInputs, int64_t nAcceptTime,
-        std::list<CTransactionRef>* replaced_transactions,
         const CAmount& nAbsurdFee, std::vector<COutPoint>& coins_to_uncache,
         bool test_accept)
 {
     AssertLockHeld(cs_main);
     LOCK(pool.cs);
 
-    ATMPArgs args { chainparams, state, pfMissingInputs, nAcceptTime, replaced_transactions, /*bypass_limits*/ true, nAbsurdFee, coins_to_uncache, test_accept };
+    ATMPArgs args { chainparams, state, pfMissingInputs, nAcceptTime, /* replaced_transactions */nullptr, /*bypass_limits*/ true, nAbsurdFee, coins_to_uncache, test_accept };
     std::list<Workspace> tx_workspaces;
 
     for (const CTransactionRef& ptx : tx_list) {
@@ -1218,6 +1108,31 @@ static bool AcceptToMemoryPoolWithTime(const CChainParams& chainparams, CTxMemPo
 
         for (const COutPoint& hashTx : coins_to_uncache)
             pcoinsTip->Uncache(hashTx);
+    }
+    // After we've (potentially) uncached entries, ensure our coins cache is still within its size limits
+    CValidationState stateDummy;
+    ::ChainstateActive().FlushStateToDisk(chainparams, stateDummy, FlushStateMode::PERIODIC);
+    return res;
+}
+
+bool AcceptPackageToMemoryPool(CTxMemPool& pool, CValidationState& state,
+        std::list<CTransactionRef>& tx_list, bool *missing_inputs, const
+        CAmount nAbsurdFee, bool test_accept)
+{
+    const CChainParams& chainparams = Params();
+    AssertLockHeld(cs_main);
+
+    std::vector<COutPoint> coins_to_uncache;
+    bool res = MemPoolAccept(pool).AcceptMultipleTransactions(chainparams, pool, state, tx_list, missing_inputs, GetTime(), nAbsurdFee, coins_to_uncache, test_accept);
+
+    if (!res) {
+        // Remove coins that were not present in the coins cache beforehand;
+        // this is to prevent memory DoS in case we receive a large number of
+        // invalid transactions that attempt to overrun the in-memory coins cache
+        // (`CCoinsViewCache::cacheCoins`).
+        for (const COutPoint& hashTx : coins_to_uncache) {
+            pcoinsTip->Uncache(hashTx);
+        }
     }
     // After we've (potentially) uncached entries, ensure our coins cache is still within its size limits
     CValidationState stateDummy;
