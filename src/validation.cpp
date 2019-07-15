@@ -480,7 +480,7 @@ private:
     };
 
     bool PreChecks(ATMPArgs& args, const CTransactionRef& ptx, Workspace& ws);
-    bool ScriptChecks(ATMPArgs& args, const CTransactionRef& ptx, Workspace& ws);
+    bool ScriptChecks(ATMPArgs& args, const CTransactionRef& ptx, Workspace& ws, bool cache);
     bool Finalize(ATMPArgs& args, const CTransactionRef& ptx, Workspace& ws);
 
     // Compare a package's feerate against minimum allowed
@@ -827,7 +827,7 @@ bool MemPoolAccept::PreChecks(ATMPArgs& args, const CTransactionRef& ptx, Worksp
     return true;
 }
 
-bool MemPoolAccept::ScriptChecks(ATMPArgs& args, const CTransactionRef& ptx, Workspace& ws)
+bool MemPoolAccept::ScriptChecks(ATMPArgs& args, const CTransactionRef& ptx, Workspace& ws, bool cache)
 {
     const CTransaction& tx = *ptx;
     const uint256& hash = ws.hash;
@@ -855,6 +855,7 @@ bool MemPoolAccept::ScriptChecks(ATMPArgs& args, const CTransactionRef& ptx, Wor
         return false; // state filled in by CheckInputs
     }
 
+    if (cache) {
     // Check again against the current block tip's script verification
     // flags to cache our script execution flags. This is, of course,
     // useless if the next block has different script flags from the
@@ -875,6 +876,8 @@ bool MemPoolAccept::ScriptChecks(ATMPArgs& args, const CTransactionRef& ptx, Wor
         return error("%s: BUG! PLEASE REPORT THIS! CheckInputs failed against latest-block but not STANDARD flags %s, %s",
                 __func__, hash.ToString(), FormatStateMessage(state));
     }
+    }
+
 
     return true;
 }
@@ -941,7 +944,7 @@ bool MemPoolAccept::AcceptSingleTransaction(const CChainParams& chainparams, CTx
 
     if (!PreChecks(args, ptx, workspace)) return false;
 
-    if (!ScriptChecks(args, ptx, workspace)) return false;
+    if (!ScriptChecks(args, ptx, workspace, true)) return false;
 
     // Tx was accepted, but not added
     if (test_accept) return true;
@@ -1051,7 +1054,7 @@ bool MemPoolAccept::AcceptMultipleTransactions(const CChainParams& chainparams, 
     auto pit = tx_list.begin();
     for (auto wit = tx_workspaces.begin(); wit != tx_workspaces.end(); ++wit, ++pit) {
         assert(pit != tx_list.end());
-        if (!ScriptChecks(args, *pit, *wit)) return false;
+        if (!ScriptChecks(args, *pit, *wit, false)) return false;
     }
 
     // Add everything to the mempool, and make sure the last transaction makes
@@ -1072,6 +1075,10 @@ bool MemPoolAccept::AcceptMultipleTransactions(const CChainParams& chainparams, 
             args.bypass_limits = false;
         }
         if (!Finalize(args, *pit, *wit)) return false;
+        if (!ScriptChecks(args, *pit, *wit, true)) {
+            // This is very bad
+            return false;
+        }
     }
     return true;
 }
