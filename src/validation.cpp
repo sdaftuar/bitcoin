@@ -470,6 +470,7 @@ private:
         CTxMemPool::setEntries allConflicting;
         CTxMemPool::setEntries setAncestors;
         std::unique_ptr<CTxMemPoolEntry> entry;
+        std::unique_ptr<PrecomputedTransactionData> txdata;
 
         bool fReplacementTransaction{false};
         CAmount nModifiedFees{0};
@@ -479,9 +480,10 @@ private:
         const uint256 hash;
     };
 
-    bool PreChecks(ATMPArgs& args, const CTransactionRef& ptx, Workspace& ws);
-    bool ScriptChecks(ATMPArgs& args, const CTransactionRef& ptx, Workspace& ws, bool cache);
-    bool Finalize(ATMPArgs& args, const CTransactionRef& ptx, Workspace& ws);
+    bool PreChecks(ATMPArgs& args, const CTransactionRef& ptx, Workspace& ws) EXCLUSIVE_LOCKS_REQUIRED(cs_main, pool.cs);
+    bool PolicyScriptChecks(ATMPArgs& args, const CTransactionRef& ptx, Workspace& ws) EXCLUSIVE_LOCKS_REQUIRED(cs_main);
+    bool ConsensusScriptChecks(ATMPArgs& args, const CTransactionRef& ptx, Workspace& ws) EXCLUSIVE_LOCKS_REQUIRED(cs_main);
+    bool Finalize(ATMPArgs& args, const CTransactionRef& ptx, Workspace& ws) EXCLUSIVE_LOCKS_REQUIRED(cs_main, pool.cs);
 
     // Compare a package's feerate against minimum allowed
     bool CheckFeeRate(size_t package_size, CAmount package_fee, CValidationState& state)
@@ -827,26 +829,25 @@ bool MemPoolAccept::PreChecks(ATMPArgs& args, const CTransactionRef& ptx, Worksp
     return true;
 }
 
-bool MemPoolAccept::ScriptChecks(ATMPArgs& args, const CTransactionRef& ptx, Workspace& ws, bool cache)
+bool MemPoolAccept::PolicyScriptChecks(ATMPArgs& args, const CTransactionRef& ptx, Workspace& ws)
 {
     const CTransaction& tx = *ptx;
-    const uint256& hash = ws.hash;
 
     CValidationState &state = args.state;
-    const CChainParams& chainparams = args.chainparams;
+    std::unique_ptr<PrecomputedTransactionData>& txdata = ws.txdata;
 
     constexpr unsigned int scriptVerifyFlags = STANDARD_SCRIPT_VERIFY_FLAGS;
 
     // Check against previous transactions
     // This is done last to help prevent CPU exhaustion denial-of-service attacks.
-    PrecomputedTransactionData txdata(tx);
-    if (!CheckInputs(tx, state, view, true, scriptVerifyFlags, true, false, txdata)) {
+    txdata.reset(new PrecomputedTransactionData(tx));
+    if (!CheckInputs(tx, state, view, true, scriptVerifyFlags, true, false, *txdata)) {
         // SCRIPT_VERIFY_CLEANSTACK requires SCRIPT_VERIFY_WITNESS, so we
         // need to turn both off, and compare against just turning off CLEANSTACK
         // to see if the failure is specifically due to witness validation.
         CValidationState stateDummy; // Want reported failures to be from first CheckInputs
-        if (!tx.HasWitness() && CheckInputs(tx, stateDummy, view, true, scriptVerifyFlags & ~(SCRIPT_VERIFY_WITNESS | SCRIPT_VERIFY_CLEANSTACK), true, false, txdata) &&
-                !CheckInputs(tx, stateDummy, view, true, scriptVerifyFlags & ~SCRIPT_VERIFY_CLEANSTACK, true, false, txdata)) {
+        if (!tx.HasWitness() && CheckInputs(tx, stateDummy, view, true, scriptVerifyFlags & ~(SCRIPT_VERIFY_WITNESS | SCRIPT_VERIFY_CLEANSTACK), true, false, *txdata) &&
+                !CheckInputs(tx, stateDummy, view, true, scriptVerifyFlags & ~SCRIPT_VERIFY_CLEANSTACK, true, false, *txdata)) {
             // Only the witness is missing, so the transaction itself may be fine.
             state.Invalid(ValidationInvalidReason::TX_WITNESS_MUTATED, false,
                     state.GetRejectCode(), state.GetRejectReason(), state.GetDebugMessage());
@@ -855,7 +856,18 @@ bool MemPoolAccept::ScriptChecks(ATMPArgs& args, const CTransactionRef& ptx, Wor
         return false; // state filled in by CheckInputs
     }
 
-    if (cache) {
+    return true;
+}
+
+bool MemPoolAccept::ConsensusScriptChecks(ATMPArgs& args, const CTransactionRef& ptx, Workspace& ws)
+{
+    const CTransaction& tx = *ptx;
+    const uint256& hash = ws.hash;
+
+    CValidationState &state = args.state;
+    const CChainParams& chainparams = args.chainparams;
+    std::unique_ptr<PrecomputedTransactionData>& txdata = ws.txdata;
+
     // Check again against the current block tip's script verification
     // flags to cache our script execution flags. This is, of course,
     // useless if the next block has different script flags from the
@@ -872,13 +884,10 @@ bool MemPoolAccept::ScriptChecks(ATMPArgs& args, const CTransactionRef& ptx, Wor
     // invalid blocks (using TestBlockValidity), however allowing such
     // transactions into the mempool can be exploited as a DoS attack.
     unsigned int currentBlockScriptVerifyFlags = GetBlockScriptFlags(::ChainActive().Tip(), chainparams.GetConsensus());
-    if (!CheckInputsFromMempoolAndCache(tx, state, view, pool, currentBlockScriptVerifyFlags, true, txdata)) {
+    if (!CheckInputsFromMempoolAndCache(tx, state, view, pool, currentBlockScriptVerifyFlags, true, *txdata)) {
         return error("%s: BUG! PLEASE REPORT THIS! CheckInputs failed against latest-block but not STANDARD flags %s, %s",
                 __func__, hash.ToString(), FormatStateMessage(state));
     }
-    }
-
-
     return true;
 }
 
@@ -944,7 +953,8 @@ bool MemPoolAccept::AcceptSingleTransaction(const CChainParams& chainparams, CTx
 
     if (!PreChecks(args, ptx, workspace)) return false;
 
-    if (!ScriptChecks(args, ptx, workspace, true)) return false;
+    if (!PolicyScriptChecks(args, ptx, workspace)) return false;
+    if (!ConsensusScriptChecks(args, ptx, workspace)) return false;
 
     // Tx was accepted, but not added
     if (test_accept) return true;
@@ -1000,7 +1010,7 @@ bool MemPoolAccept::AcceptMultipleTransactions(const CChainParams& chainparams, 
     // each transaction.
     // We will end up needing to recalculate setAncestors for each transaction
     // prior to calling Finalize, but we should do the correct package-size
-    // calculations before we call ScriptChecks(), to avoid CPU-DoS.
+    // calculations before we call *ScriptChecks(), to avoid CPU-DoS.
 
     // For now, do something conservative -- assume that the union of ancestors
     // of each transaction is an ancestor of every transaction, for package
@@ -1054,7 +1064,7 @@ bool MemPoolAccept::AcceptMultipleTransactions(const CChainParams& chainparams, 
     auto pit = tx_list.begin();
     for (auto wit = tx_workspaces.begin(); wit != tx_workspaces.end(); ++wit, ++pit) {
         assert(pit != tx_list.end());
-        if (!ScriptChecks(args, *pit, *wit, false)) return false;
+        if (!PolicyScriptChecks(args, *pit, *wit)) return false;
     }
 
     // Add everything to the mempool, and make sure the last transaction makes
@@ -1075,7 +1085,7 @@ bool MemPoolAccept::AcceptMultipleTransactions(const CChainParams& chainparams, 
             args.bypass_limits = false;
         }
         if (!Finalize(args, *pit, *wit)) return false;
-        if (!ScriptChecks(args, *pit, *wit, true)) {
+        if (!ConsensusScriptChecks(args, *pit, *wit)) {
             // This is very bad
             return false;
         }
