@@ -2564,6 +2564,7 @@ bool static ProcessMessage(CNode* pfrom, const std::string& strCommand, CDataStr
             // Try to process the pair as a package.
             bool added_as_package = false;
             if (state.GetRejectCode() == REJECT_INSUFFICIENTFEE) {
+                LogPrintf("tx has insufficient fee\n");
                 LOCK(g_cs_orphans);
                 std::list<std::map<uint256, COrphanTx>::iterator> orphans_missing_this_tx;
                 for (size_t i=0; i<tx.vout.size(); ++i) {
@@ -2573,7 +2574,9 @@ bool static ProcessMessage(CNode* pfrom, const std::string& strCommand, CDataStr
                     }
                 }
                 if (!orphans_missing_this_tx.empty()) {
+                    LogPrintf("found an orphan to try\n");
                     const COrphanTx &orphan_tx = orphans_missing_this_tx.front()->second;
+                    LogPrintf("trying %s\n", orphan_tx.tx->GetHash().ToString());
                     // Pick the first transaction, and process the pair. If it's
                     // missing other inputs, this will of course fail.
                     std::list<CTransactionRef> package;

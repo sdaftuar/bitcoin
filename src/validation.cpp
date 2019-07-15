@@ -480,7 +480,7 @@ private:
     };
 
     bool PreChecks(ATMPArgs& args, const CTransactionRef& ptx, Workspace& ws);
-    bool ScriptChecks(ATMPArgs& args, const CTransactionRef& ptx, Workspace& ws);
+    bool ScriptChecks(ATMPArgs& args, const CTransactionRef& ptx, Workspace& ws, bool cache);
     bool Finalize(ATMPArgs& args, const CTransactionRef& ptx, Workspace& ws);
 
     // Compare a package's feerate against minimum allowed
@@ -827,7 +827,7 @@ bool MemPoolAccept::PreChecks(ATMPArgs& args, const CTransactionRef& ptx, Worksp
     return true;
 }
 
-bool MemPoolAccept::ScriptChecks(ATMPArgs& args, const CTransactionRef& ptx, Workspace& ws)
+bool MemPoolAccept::ScriptChecks(ATMPArgs& args, const CTransactionRef& ptx, Workspace& ws, bool cache)
 {
     const CTransaction& tx = *ptx;
     const uint256& hash = ws.hash;
@@ -855,6 +855,7 @@ bool MemPoolAccept::ScriptChecks(ATMPArgs& args, const CTransactionRef& ptx, Wor
         return false; // state filled in by CheckInputs
     }
 
+    if (cache) {
     // Check again against the current block tip's script verification
     // flags to cache our script execution flags. This is, of course,
     // useless if the next block has different script flags from the
@@ -875,6 +876,8 @@ bool MemPoolAccept::ScriptChecks(ATMPArgs& args, const CTransactionRef& ptx, Wor
         return error("%s: BUG! PLEASE REPORT THIS! CheckInputs failed against latest-block but not STANDARD flags %s, %s",
                 __func__, hash.ToString(), FormatStateMessage(state));
     }
+    }
+
 
     return true;
 }
@@ -941,7 +944,7 @@ bool MemPoolAccept::AcceptSingleTransaction(const CChainParams& chainparams, CTx
 
     if (!PreChecks(args, ptx, workspace)) return false;
 
-    if (!ScriptChecks(args, ptx, workspace)) return false;
+    if (!ScriptChecks(args, ptx, workspace, true)) return false;
 
     // Tx was accepted, but not added
     if (test_accept) return true;
@@ -965,6 +968,8 @@ bool MemPoolAccept::AcceptMultipleTransactions(const CChainParams& chainparams, 
     ATMPArgs args { chainparams, state, pfMissingInputs, nAcceptTime, /* replaced_transactions */nullptr, /*bypass_limits*/ true, nAbsurdFee, coins_to_uncache, test_accept };
     std::list<Workspace> tx_workspaces;
 
+    LogPrintf("got here1\n");
+
     for (const CTransactionRef& ptx : tx_list) {
         tx_workspaces.emplace_back(Workspace(ptx));
         if (ptx == tx_list.back()) args.bypass_limits = false;
@@ -977,6 +982,8 @@ bool MemPoolAccept::AcceptMultipleTransactions(const CChainParams& chainparams, 
         viewMemPool.AddPotentialTransaction(ptx);
     }
 
+    LogPrintf("got here2\n");
+
     // Check overall package feerate
     size_t total_size=0;
     CAmount total_fee=0;
@@ -986,6 +993,8 @@ bool MemPoolAccept::AcceptMultipleTransactions(const CChainParams& chainparams, 
         total_fee += ws.nModifiedFees;
     }
     if (!CheckFeeRate(total_size, total_fee, state)) return false;
+
+    LogPrintf("got here3\n");
 
     // The ancestor/descendant limit calculations in PreChecks() will be overly
     // permissive, because not all ancestors will be known as we descend down
@@ -1033,6 +1042,8 @@ bool MemPoolAccept::AcceptMultipleTransactions(const CChainParams& chainparams, 
         return state.Invalid(ValidationInvalidReason::TX_MEMPOOL_POLICY, false, REJECT_NONSTANDARD, "too-long-package-mempool-chain", strprintf("exceeds ancestor size limit for tx %s [limit: %u]", tx_list.back()->GetHash().ToString(), nLimitAncestorSize));
     }
 
+    LogPrintf("got here4\n");
+
     // Make sure all transactions are ancestors of the last one.
     // For now, just check that the last transaction has all prior transactions
     // as direct inputs. We can relax this in the future for bigger packages.
@@ -1046,13 +1057,19 @@ bool MemPoolAccept::AcceptMultipleTransactions(const CChainParams& chainparams, 
             return state.Invalid(ValidationInvalidReason::TX_MEMPOOL_POLICY, false, REJECT_NONSTANDARD, "non-standard-package-chain", "only direct parents are allowed in package");
         }
     }
+    LogPrintf("got here5\n");
 
     // Do the script checks after all policy checks are done
     auto pit = tx_list.begin();
     for (auto wit = tx_workspaces.begin(); wit != tx_workspaces.end(); ++wit, ++pit) {
+        LogPrintf("got here5a\n");
         assert(pit != tx_list.end());
-        if (!ScriptChecks(args, *pit, *wit)) return false;
+        LogPrintf("got here5b\n");
+        if (!ScriptChecks(args, *pit, *wit, false)) return false;
+        LogPrintf("got here5c\n");
     }
+
+    LogPrintf("got here6\n");
 
     // Add everything to the mempool, and make sure the last transaction makes
     // it in.
@@ -1072,7 +1089,12 @@ bool MemPoolAccept::AcceptMultipleTransactions(const CChainParams& chainparams, 
             args.bypass_limits = false;
         }
         if (!Finalize(args, *pit, *wit)) return false;
+        if (!ScriptChecks(args, *pit, *wit, true)) {
+            // This is very bad
+            return false;
+        }
     }
+    LogPrintf("got here7\n");
     return true;
 }
 
