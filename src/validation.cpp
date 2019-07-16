@@ -319,7 +319,7 @@ enum class FlushStateMode {
 static bool FlushStateToDisk(const CChainParams& chainParams, CValidationState &state, FlushStateMode mode, int nManualPruneHeight=0);
 static void FindFilesToPruneManual(std::set<int>& setFilesToPrune, int nManualPruneHeight);
 static void FindFilesToPrune(std::set<int>& setFilesToPrune, uint64_t nPruneAfterHeight);
-bool CheckInputs(const CTransaction& tx, CValidationState &state, const CCoinsViewCache &inputs, bool fScriptChecks, unsigned int flags, bool cacheSigStore, bool cacheFullScriptStore, PrecomputedTransactionData& txdata, std::vector<CScriptCheck> *pvChecks = nullptr);
+bool CheckInputs(const CTransaction& tx, CValidationState &state, const CCoinsViewCache &inputs, bool fScriptChecks, unsigned int flags, bool cacheSigStore, bool cacheFullScriptStore, PrecomputedTransactionData& txdata, uint256& hash_cache_entry, std::vector<CScriptCheck> *pvChecks = nullptr);
 static FILE* OpenUndoFile(const FlatFilePos &pos, bool fReadOnly = false);
 static FlatFileSeq BlockFileSeq();
 static FlatFileSeq UndoFileSeq();
@@ -559,7 +559,7 @@ static bool CheckInputsFromMempoolAndCache(const CTransaction& tx, CValidationSt
         }
     }
 
-    return RunCheckInputsMaybeParallel(tx, state, view, flags, cacheSigStore, true, txdata);
+    return RunCheckInputsMaybeParallel(tx, state, view, flags, cacheSigStore, true, txdata, false);
 }
 
 /**
@@ -1389,7 +1389,7 @@ void InitScriptExecutionCache() {
  *
  * Non-static (and re-declared) in src/test/txvalidationcache_tests.cpp
  */
-bool CheckInputs(const CTransaction& tx, CValidationState &state, const CCoinsViewCache &inputs, bool fScriptChecks, unsigned int flags, bool cacheSigStore, bool cacheFullScriptStore, PrecomputedTransactionData& txdata, std::vector<CScriptCheck> *pvChecks) EXCLUSIVE_LOCKS_REQUIRED(cs_main)
+bool CheckInputs(const CTransaction& tx, CValidationState &state, const CCoinsViewCache &inputs, bool fScriptChecks, unsigned int flags, bool cacheSigStore, bool cacheFullScriptStore, PrecomputedTransactionData& txdata, uint256& hash_cache_entry, std::vector<CScriptCheck> *pvChecks) EXCLUSIVE_LOCKS_REQUIRED(cs_main)
 {
     if (!tx.IsCoinBase())
     {
@@ -1411,13 +1411,12 @@ bool CheckInputs(const CTransaction& tx, CValidationState &state, const CCoinsVi
             // correct (ie that the transaction hash which is in tx's prevouts
             // properly commits to the scriptPubKey in the inputs view of that
             // transaction).
-            uint256 hashCacheEntry;
             // We only use the first 19 bytes of nonce to avoid a second SHA
             // round - giving us 19 + 32 + 4 = 55 bytes (+ 8 + 1 = 64)
             static_assert(55 - sizeof(flags) - 32 >= 128/8, "Want at least 128 bits of nonce for script execution cache");
-            CSHA256().Write(scriptExecutionCacheNonce.begin(), 55 - sizeof(flags) - 32).Write(tx.GetWitnessHash().begin(), 32).Write((unsigned char*)&flags, sizeof(flags)).Finalize(hashCacheEntry.begin());
+            CSHA256().Write(scriptExecutionCacheNonce.begin(), 55 - sizeof(flags) - 32).Write(tx.GetWitnessHash().begin(), 32).Write((unsigned char*)&flags, sizeof(flags)).Finalize(hash_cache_entry.begin());
             AssertLockHeld(cs_main); //TODO: Remove this requirement by making CuckooCache not require external locks
-            if (scriptExecutionCache.contains(hashCacheEntry, !cacheFullScriptStore)) {
+            if (scriptExecutionCache.contains(hash_cache_entry, !cacheFullScriptStore)) {
                 return true;
             }
 
@@ -1456,7 +1455,7 @@ bool CheckInputs(const CTransaction& tx, CValidationState &state, const CCoinsVi
             if (cacheFullScriptStore && !pvChecks) {
                 // We executed all of the provided scripts, and were told to
                 // cache the result. Do so now.
-                scriptExecutionCache.insert(hashCacheEntry);
+                scriptExecutionCache.insert(hash_cache_entry);
             }
         }
     }
@@ -1678,14 +1677,18 @@ void ThreadScriptCheck(int worker_num) {
 
 bool RunCheckInputsMaybeParallel(const CTransaction& tx, CValidationState &state, const CCoinsViewCache &inputs, unsigned int flags, bool cacheSigStore, bool cacheFullScriptStore, PrecomputedTransactionData& txdata, bool single_threaded_validation) EXCLUSIVE_LOCKS_REQUIRED(cs_main)
 {
+    uint256 hash_cache_entry;
     CCheckQueueControl<CScriptCheck> control((nScriptCheckThreads && !single_threaded_validation) ? &scriptcheckqueue : nullptr);
     std::vector<CScriptCheck> vChecks;
-    if (!CheckInputs(tx, state, inputs, true, flags, cacheSigStore, cacheFullScriptStore, txdata, (nScriptCheckThreads && !single_threaded_validation) ? &vChecks : nullptr)) {
+    if (!CheckInputs(tx, state, inputs, true, flags, cacheSigStore, cacheFullScriptStore, txdata, hash_cache_entry, (nScriptCheckThreads && !single_threaded_validation) ? &vChecks : nullptr)) {
         return false;
     }
     control.Add(vChecks);
     if (!control.Wait()) {
         return state.Invalid(ValidationInvalidReason::CONSENSUS, false, REJECT_INVALID, "script-verify-flag-failed");
+    }
+    if (nScriptCheckThreads && !single_threaded_validation && cacheFullScriptStore) {
+        scriptExecutionCache.insert(hash_cache_entry);
     }
     return true;
 }
@@ -2040,8 +2043,9 @@ bool CChainState::ConnectBlock(const CBlock& block, CValidationState& state, CBl
         if (!tx.IsCoinBase())
         {
             std::vector<CScriptCheck> vChecks;
+            uint256 dummy_cache_entry; // CheckInputs can return the scriptcache entry, but we don't need that here.
             bool fCacheResults = fJustCheck; /* Don't cache results if we're actually connecting blocks (still consult the cache, though) */
-            if (!CheckInputs(tx, state, view, fScriptChecks, flags, fCacheResults, fCacheResults, txdata[i], nScriptCheckThreads ? &vChecks : nullptr)) {
+            if (!CheckInputs(tx, state, view, fScriptChecks, flags, fCacheResults, fCacheResults, txdata[i], dummy_cache_entry, nScriptCheckThreads ? &vChecks : nullptr)) {
                 return error("ConnectBlock(): CheckInputs on %s failed with %s",
                     tx.GetHash().ToString(), FormatStateMessage(state));
             }
