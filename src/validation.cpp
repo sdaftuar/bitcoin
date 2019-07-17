@@ -437,19 +437,18 @@ public:
         std::list<CTransactionRef>* m_replaced_transactions;
         const bool m_bypass_limits;
         const CAmount& m_absurd_fee;
+        /*
+         * Return any outpoints which were not previously present in the coins
+         * cache, but were added as a result of validating the tx for mempool
+         * acceptance. This allows the caller to optionally remove the cache
+         * additions if the associated transaction ends up being rejected by
+         * the mempool.
+         */
         std::vector<COutPoint>& m_coins_to_uncache;
         const bool m_test_accept;
     };
 
-    /**
-     * Single transaction acceptance
-     *
-     * @param[out] coins_to_uncache   Return any outpoints which were not previously present in the
-     *                                coins cache, but were added as a result of validating the tx
-     *                                for mempool acceptance. This allows the caller to optionally
-     *                                remove the cache additions if the associated transaction ends
-     *                                up being rejected by the mempool.
-     */
+    // Single transaction acceptance
     bool AcceptSingleTransaction(const CTransactionRef& ptx, ATMPArgs& args);
 
 private:
