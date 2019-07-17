@@ -421,12 +421,11 @@ static bool CheckInputsFromMempoolAndCache(const CTransaction& tx, CValidationSt
 class MemPoolAccept
 {
 public:
-    MemPoolAccept(CTxMemPool& mempool) : pool(mempool), view(&dummy), viewMemPool(pcoinsTip.get(), pool) {
-        nLimitAncestors = gArgs.GetArg("-limitancestorcount", DEFAULT_ANCESTOR_LIMIT);
-        nLimitAncestorSize = gArgs.GetArg("-limitancestorsize", DEFAULT_ANCESTOR_SIZE_LIMIT)*1000;
-        nLimitDescendants = gArgs.GetArg("-limitdescendantcount", DEFAULT_DESCENDANT_LIMIT);
-        nLimitDescendantSize = gArgs.GetArg("-limitdescendantsize", DEFAULT_DESCENDANT_SIZE_LIMIT)*1000;
-    }
+    MemPoolAccept(CTxMemPool& mempool) : pool(mempool), view(&dummy), viewMemPool(pcoinsTip.get(), pool),
+        nLimitAncestors(gArgs.GetArg("-limitancestorcount", DEFAULT_ANCESTOR_LIMIT)),
+        nLimitAncestorSize(gArgs.GetArg("-limitancestorsize", DEFAULT_ANCESTOR_SIZE_LIMIT)*1000),
+        nLimitDescendants(gArgs.GetArg("-limitdescendantcount", DEFAULT_DESCENDANT_LIMIT)),
+        nLimitDescendantSize(gArgs.GetArg("-limitdescendantsize", DEFAULT_DESCENDANT_SIZE_LIMIT)*1000) {}
 
     /**
      * Single transaction acceptance
@@ -518,10 +517,10 @@ private:
     CCoinsView dummy;
 
     // The package limits in effect at the time of invocation.
-    size_t nLimitAncestors{0};
-    size_t nLimitAncestorSize{0};
-    size_t nLimitDescendants{0};
-    size_t nLimitDescendantSize{0};
+    const size_t nLimitAncestors;
+    const size_t nLimitAncestorSize;
+    const size_t nLimitDescendants;
+    const size_t nLimitDescendantSize;
 };
 
 bool MemPoolAccept::PreChecks(ATMPArgs& args, const CTransactionRef& ptx, Workspace& ws)
