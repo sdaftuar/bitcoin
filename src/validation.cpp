@@ -437,7 +437,7 @@ public:
      *                                remove the cache additions if the associated transaction ends
      *                                up being rejected by the mempool.
      */
-    bool AcceptSingleTransaction(const CChainParams& chainparams, CTxMemPool& pool,
+    bool AcceptSingleTransaction(const CChainParams& chainparams,
             CValidationState& state, const CTransactionRef& ptx,
             bool* pfMissingInputs, int64_t nAcceptTime,
             std::list<CTransactionRef>* plTxnReplaced, bool bypass_limits,
@@ -951,7 +951,7 @@ bool MemPoolAccept::Finalize(ATMPArgs& args, const CTransactionRef& ptx, Workspa
 }
 
 bool MemPoolAccept::AcceptSingleTransaction(const CChainParams& chainparams,
-        CTxMemPool& pool, CValidationState& state, const CTransactionRef& ptx,
+        CValidationState& state, const CTransactionRef& ptx,
         bool* pfMissingInputs, int64_t nAcceptTime,
         std::list<CTransactionRef>* plTxnReplaced, bool bypass_limits,
         const CAmount& nAbsurdFee, std::vector<COutPoint>& coins_to_uncache,
@@ -989,7 +989,7 @@ static bool AcceptToMemoryPoolWithTime(const CChainParams& chainparams, CTxMemPo
                         bool bypass_limits, const CAmount nAbsurdFee, bool test_accept) EXCLUSIVE_LOCKS_REQUIRED(cs_main)
 {
     std::vector<COutPoint> coins_to_uncache;
-    bool res = MemPoolAccept(pool).AcceptSingleTransaction(chainparams, pool, state, tx, pfMissingInputs, nAcceptTime, plTxnReplaced, bypass_limits, nAbsurdFee, coins_to_uncache, test_accept);
+    bool res = MemPoolAccept(pool).AcceptSingleTransaction(chainparams, state, tx, pfMissingInputs, nAcceptTime, plTxnReplaced, bypass_limits, nAbsurdFee, coins_to_uncache, test_accept);
     if (!res) {
         // Remove coins that were not present in the coins cache before calling ATMPW;
         // this is to prevent memory DoS in case we receive a large number of
