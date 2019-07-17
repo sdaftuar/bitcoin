@@ -467,10 +467,10 @@ private:
         CTxMemPool::setEntries setAncestors;
         std::unique_ptr<CTxMemPoolEntry> entry;
 
-        bool fReplacementTransaction{false};
-        CAmount nModifiedFees{0};
-        CAmount nConflictingFees{0};
-        size_t nConflictingSize{0};
+        bool fReplacementTransaction;
+        CAmount nModifiedFees;
+        CAmount nConflictingFees;
+        size_t nConflictingSize;
 
         const uint256& hash;
     };
