@@ -427,23 +427,6 @@ public:
         nLimitDescendants(gArgs.GetArg("-limitdescendantcount", DEFAULT_DESCENDANT_LIMIT)),
         nLimitDescendantSize(gArgs.GetArg("-limitdescendantsize", DEFAULT_DESCENDANT_SIZE_LIMIT)*1000) {}
 
-    /**
-     * Single transaction acceptance
-     *
-     * @param[out] coins_to_uncache   Return any outpoints which were not previously present in the
-     *                                coins cache, but were added as a result of validating the tx
-     *                                for mempool acceptance. This allows the caller to optionally
-     *                                remove the cache additions if the associated transaction ends
-     *                                up being rejected by the mempool.
-     */
-    bool AcceptSingleTransaction(const CChainParams& chainparams,
-            CValidationState& state, const CTransactionRef& ptx,
-            bool* pfMissingInputs, int64_t nAcceptTime,
-            std::list<CTransactionRef>* plTxnReplaced, bool bypass_limits,
-            const CAmount& nAbsurdFee,
-            std::vector<COutPoint>& coins_to_uncache, bool test_accept);
-
-private:
     // We put the arguments we're handed into a struct, so we can pass them
     // around easier.
     struct ATMPArgs {
@@ -458,6 +441,18 @@ private:
         const bool test_accept;
     };
 
+    /**
+     * Single transaction acceptance
+     *
+     * @param[out] coins_to_uncache   Return any outpoints which were not previously present in the
+     *                                coins cache, but were added as a result of validating the tx
+     *                                for mempool acceptance. This allows the caller to optionally
+     *                                remove the cache additions if the associated transaction ends
+     *                                up being rejected by the mempool.
+     */
+    bool AcceptSingleTransaction(const CTransactionRef& ptx, ATMPArgs& args);
+
+private:
     // All the intermediate state that gets passed between the various levels
     // of checking a given transaction.
     struct Workspace {
@@ -949,17 +944,11 @@ bool MemPoolAccept::Finalize(ATMPArgs& args, const CTransactionRef& ptx, Workspa
     return true;
 }
 
-bool MemPoolAccept::AcceptSingleTransaction(const CChainParams& chainparams,
-        CValidationState& state, const CTransactionRef& ptx,
-        bool* pfMissingInputs, int64_t nAcceptTime,
-        std::list<CTransactionRef>* plTxnReplaced, bool bypass_limits,
-        const CAmount& nAbsurdFee, std::vector<COutPoint>& coins_to_uncache,
-        bool test_accept)
+bool MemPoolAccept::AcceptSingleTransaction(const CTransactionRef& ptx, ATMPArgs& args)
 {
     AssertLockHeld(cs_main);
     LOCK(pool.cs); // mempool "read lock" (held through GetMainSignals().TransactionAddedToMempool())
 
-    ATMPArgs args { chainparams, state, pfMissingInputs, nAcceptTime, plTxnReplaced, bypass_limits, nAbsurdFee, coins_to_uncache, test_accept };
     Workspace workspace(ptx);
 
     if (!PreChecks(args, ptx, workspace)) return false;
@@ -973,7 +962,7 @@ bool MemPoolAccept::AcceptSingleTransaction(const CChainParams& chainparams,
     if (!ConsensusScriptChecks(args, ptx, workspace, txdata)) return false;
 
     // Tx was accepted, but not added
-    if (test_accept) return true;
+    if (args.test_accept) return true;
 
     if (!Finalize(args, ptx, workspace)) return false;
 
@@ -988,7 +977,8 @@ static bool AcceptToMemoryPoolWithTime(const CChainParams& chainparams, CTxMemPo
                         bool bypass_limits, const CAmount nAbsurdFee, bool test_accept) EXCLUSIVE_LOCKS_REQUIRED(cs_main)
 {
     std::vector<COutPoint> coins_to_uncache;
-    bool res = MemPoolAccept(pool).AcceptSingleTransaction(chainparams, state, tx, pfMissingInputs, nAcceptTime, plTxnReplaced, bypass_limits, nAbsurdFee, coins_to_uncache, test_accept);
+    MemPoolAccept::ATMPArgs args { chainparams, state, pfMissingInputs, nAcceptTime, plTxnReplaced, bypass_limits, nAbsurdFee, coins_to_uncache, test_accept };
+    bool res = MemPoolAccept(pool).AcceptSingleTransaction(tx, args);
     if (!res) {
         // Remove coins that were not present in the coins cache before calling ATMPW;
         // this is to prevent memory DoS in case we receive a large number of
