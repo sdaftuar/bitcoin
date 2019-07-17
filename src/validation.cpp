@@ -450,12 +450,12 @@ private:
         const CChainParams& chainparams;
         CValidationState &state;
         bool* pfMissingInputs;
-        int64_t nAcceptTime;
+        const int64_t nAcceptTime;
         std::list<CTransactionRef>* plTxnReplaced;
-        bool bypass_limits;
+        const bool bypass_limits;
         const CAmount& nAbsurdFee;
         std::vector<COutPoint>& coins_to_uncache;
-        bool test_accept;
+        const bool test_accept;
     };
 
     // All the intermediate state that gets passed between the various levels
