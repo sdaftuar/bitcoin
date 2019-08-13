@@ -743,7 +743,7 @@ void UpdateLastBlockAnnounceTime(NodeId node, int64_t time_in_seconds)
     if (state) state->m_last_block_announcement = time_in_seconds;
 }
 
-// Returns true for outbound transaction-relay peers, excluding manual
+// Returns true for outbound full-relay peers, excluding manual
 // connections, feelers, one-shots, and blocks-only connections
 static bool IsOutboundDisconnectionCandidate(const CNode *node)
 {
@@ -1499,6 +1499,11 @@ void static ProcessGetData(CNode* pfrom, const CChainParams& chainparams, CConnm
     std::deque<CInv>::iterator it = pfrom->vRecvGetData.begin();
     std::vector<CInv> vNotFound;
     const CNetMsgMaker msgMaker(pfrom->GetSendVersion());
+
+    // Note that if we receive a getdata for a MSG_TX or MSG_WITNESS_TX from a
+    // blocks-only outbound peer, we will stop processing further getdata
+    // messages from this peer (likely resulting in our peer eventually
+    // disconnecting us).
     if (pfrom->m_tx_relay != nullptr) {
         LOCK(cs_main);
 
