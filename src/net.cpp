@@ -1717,7 +1717,7 @@ void CConnman::ThreadOpenConnections(const std::vector<std::string> connect)
         CAddress addrConnect;
 
         // Only connect out to one peer per network group (/16 for IPv4).
-        int nOutbound = 0;
+        int nOutboundFullRelay = 0;
         int nOutboundBlocksOnly = 0;
         std::set<std::vector<unsigned char> > setConnected;
         {
@@ -1730,9 +1730,10 @@ void CConnman::ThreadOpenConnections(const std::vector<std::string> connect)
                     // also have the added issue that they're attacker controlled and could be used
                     // to prevent us from connecting to particular hosts if we used them here.
                     setConnected.insert(pnode->addr.GetGroup());
-                    nOutbound++;
                     if (pnode->m_tx_relay == nullptr) {
                         nOutboundBlocksOnly++;
+                    } else if (!pnode->fFeeler) {
+                        nOutboundFullRelay++;
                     }
                 }
             }
@@ -1752,7 +1753,7 @@ void CConnman::ThreadOpenConnections(const std::vector<std::string> connect)
         //
         bool fFeeler = false;
 
-        if (nOutbound >= m_max_outbound_full_relay + m_max_outbound_blocks_only && !GetTryNewOutboundPeer()) {
+        if (nOutboundFullRelay >= m_max_outbound_full_relay && nOutboundBlocksOnly >= m_max_outbound_blocks_only && !GetTryNewOutboundPeer()) {
             int64_t nTime = GetTimeMicros(); // The current time right now (in microseconds).
             if (nTime > nNextFeeler) {
                 nNextFeeler = PoissonNextSend(nTime, FEELER_INTERVAL);
@@ -1826,7 +1827,14 @@ void CConnman::ThreadOpenConnections(const std::vector<std::string> connect)
                 LogPrint(BCLog::NET, "Making feeler connection to %s\n", addrConnect.ToString());
             }
 
-            OpenNetworkConnection(addrConnect, (int)setConnected.size() >= std::min(nMaxConnections - 1, 2), &grant, nullptr, false, fFeeler, false, nOutboundBlocksOnly < m_max_outbound_blocks_only);
+            // Open this connection as blocks-only if we're already at our
+            // full-relay capacity, but not yet at our blocks-only peer limit.
+            // (It should not be possible for fFeeler to be set if we're not
+            // also at our blocks-only peer limit, but check against that as
+            // well for sanity.)
+            bool blocks_only = nOutboundBlocksOnly < m_max_outbound_blocks_only && !fFeeler && nOutboundFullRelay >= m_max_outbound_full_relay;
+
+            OpenNetworkConnection(addrConnect, (int)setConnected.size() >= std::min(nMaxConnections - 1, 2), &grant, nullptr, false, fFeeler, false, blocks_only);
         }
     }
 }
