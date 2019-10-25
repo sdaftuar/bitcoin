@@ -144,7 +144,7 @@ class CompactBlocksTest(BitcoinTestFramework):
     # - If sendcmpct is sent with boolean 0, then block announcements are not
     #   made with compact blocks.
     # - If sendcmpct is then sent with boolean 1, then new block announcements
-    #   are made with compact blocks.
+    #   are made with compact blocks, if our version=2.
     # If old_node is passed in, request compact blocks with version=preferred-1
     # and verify that it receives block announcements via compact block.
     def test_sendcmpct(self, test_node, old_node=None):
@@ -297,12 +297,19 @@ class CompactBlocksTest(BitcoinTestFramework):
         wait_until(test_node.received_block_announcement, timeout=30, lock=mininode_lock)
 
         # Now fetch and check the compact block
-        header_and_shortids = None
+        got_cb_announcement = False
         with mininode_lock:
-            assert "cmpctblock" in test_node.last_message
-            # Convert the on-the-wire representation to absolute indexes
-            header_and_shortids = HeaderAndShortIDs(test_node.last_message["cmpctblock"].header_and_shortids)
-        self.check_compactblock_construction_from_block(version, header_and_shortids, block_hash, block)
+            if "cmpctblock" in test_node.last_message:
+                got_cb_announcement = True
+
+        if test_node.cmpct_version == 2 or got_cb_announcement:
+            # We may not receive a HB compact block announcement if we're using an old version
+            header_and_shortids = None
+            with mininode_lock:
+                assert "cmpctblock" in test_node.last_message
+                # Convert the on-the-wire representation to absolute indexes
+                header_and_shortids = HeaderAndShortIDs(test_node.last_message["cmpctblock"].header_and_shortids)
+            self.check_compactblock_construction_from_block(version, header_and_shortids, block_hash, block)
 
         # Now fetch the compact block using a normal non-announce getdata
         with mininode_lock:
@@ -700,9 +707,10 @@ class CompactBlocksTest(BitcoinTestFramework):
             wait_until(lambda: l.received_block_announcement(), timeout=30, lock=mininode_lock)
         with mininode_lock:
             for l in listeners:
-                assert "cmpctblock" in l.last_message
-                l.last_message["cmpctblock"].header_and_shortids.header.calc_sha256()
-                assert_equal(l.last_message["cmpctblock"].header_and_shortids.header.sha256, block.sha256)
+                if l.cmpct_version == 2:
+                    assert "cmpctblock" in l.last_message
+                    l.last_message["cmpctblock"].header_and_shortids.header.calc_sha256()
+                    assert_equal(l.last_message["cmpctblock"].header_and_shortids.header.sha256, block.sha256)
 
     # Test that we don't get disconnected if we relay a compact block with valid header,
     # but invalid transactions.
@@ -806,7 +814,7 @@ class CompactBlocksTest(BitcoinTestFramework):
         assert softfork_active(self.nodes[0], "segwit")
 
         self.log.info("Testing SENDCMPCT p2p message... ")
-        self.test_sendcmpct(self.segwit_node, old_node=self.old_node)
+        self.test_sendcmpct(self.segwit_node)
         self.test_sendcmpct(self.additional_segwit_node)
 
         self.log.info("Testing compactblock construction...")
