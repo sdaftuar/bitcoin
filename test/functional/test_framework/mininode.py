@@ -192,7 +192,7 @@ class P2PConnection(asyncio.Protocol):
                     raise ValueError("got bad checksum " + repr(self.recvbuf))
                 self.recvbuf = self.recvbuf[4+12+4+4+msglen:]
                 if command not in MESSAGEMAP:
-                    raise ValueError("Received unknown command from %s:%d: '%s' %s" % (self.dstaddr, self.dstport, command, repr(msg)))
+                    continue
                 f = BytesIO(msg)
                 t = MESSAGEMAP[command]()
                 t.deserialize(f)
@@ -353,7 +353,9 @@ class P2PInterface(P2PConnection):
             self.send_message(want)
 
     def on_ping(self, message):
-        self.send_message(msg_pong(message.nonce))
+        pass
+        # Disable normal ping handling
+        #self.send_message(msg_pong(message.nonce))
 
     def on_verack(self, message):
         pass
@@ -463,6 +465,8 @@ class P2PInterface(P2PConnection):
 
     # Sync up with the node
     def sync_with_ping(self, timeout=60):
+        # XXX No sync with ping in this version!
+        return
         self.send_message(msg_ping(nonce=self.ping_counter))
 
         def test_function():

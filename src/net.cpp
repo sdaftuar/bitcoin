@@ -751,6 +751,7 @@ size_t CConnman::SocketSendData(CNode *pnode) const EXCLUSIVE_LOCKS_REQUIRED(pno
             pnode->nSendBytes += nBytes;
             pnode->nSendOffset += nBytes;
             nSentSize += nBytes;
+            LogPrint(BCLog::NET, "peer=%d sent %d bytes so far\n", pnode->GetId(), pnode->nSendBytes);
             if (pnode->nSendOffset == data.size()) {
                 pnode->nSendOffset = 0;
                 pnode->nSendSize -= data.size();
@@ -2756,6 +2757,7 @@ void CConnman::PushMessage(CNode* pnode, CSerializedNetMsg&& msg)
         if (nMessageSize)
             pnode->vSendMsg.push_back(std::move(msg.data));
 
+        LogPrint(BCLog::NET, "peer %d vsendmsg.size() = %u\n", pnode->GetId(), pnode->vSendMsg.size());
         // If write queue empty, attempt "optimistic write"
         if (optimisticSend == true)
             nBytesSent = SocketSendData(pnode);

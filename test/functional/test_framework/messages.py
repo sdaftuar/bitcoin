@@ -31,7 +31,7 @@ from test_framework.siphash import siphash256
 from test_framework.util import hex_str_to_bytes, assert_equal
 
 MIN_VERSION_SUPPORTED = 60001
-MY_VERSION = 70014  # past bip-31 for ping/pong
+MY_VERSION = 50000  # XXX: test with pre-pong clien
 MY_SUBVERSION = b"/python-mininode-tester:0.0.3/"
 MY_RELAY = 1 # from version 70001 onwards, fRelay should be appended to version messages (BIP37)
 
@@ -1185,18 +1185,20 @@ class msg_ping:
     command = b"ping"
 
     def __init__(self, nonce=0):
-        self.nonce = nonce
+        #self.nonce = nonce
+        pass
 
     def deserialize(self, f):
-        self.nonce = struct.unpack("<Q", f.read(8))[0]
+        pass
+        #self.nonce = struct.unpack("<Q", f.read(8))[0]
 
     def serialize(self):
         r = b""
-        r += struct.pack("<Q", self.nonce)
+        #r += struct.pack("<Q", self.nonce)
         return r
 
     def __repr__(self):
-        return "msg_ping(nonce=%08x)" % self.nonce
+        return "msg_ping"
 
 
 class msg_pong:
