@@ -15,6 +15,7 @@ from test_framework.mininode import (
     mininode_lock,
     msg_block,
     msg_getdata,
+    NetworkThread
 )
 from test_framework.test_framework import BitcoinTestFramework
 from test_framework.util import (
@@ -52,9 +53,10 @@ class BaseNode(P2PInterface):
     def on_inv(self, message):
         """Override the standard on_inv callback"""
         import time
-        print("sleeping for 5 minutes")
-        time.sleep(300)
-        print("done sleeping for 5 minutes")
+        print("sleeping for 50 minutes")
+        NetworkThread.network_event_loop.stop()
+        time.sleep(3000)
+        print("done sleeping for 50 minutes")
         pass
 
 
@@ -75,15 +77,17 @@ class ExampleTest(BitcoinTestFramework):
         # Create P2P connections will wait for a verack to make sure the connection is fully up
         self.nodes[0].add_p2p_connection(BaseNode(), wait_for_verack=False)
 
-        self.nodes[0].generate(nblocks=101)
+        self.nodes[0].generate(nblocks=151)
 
         addr = self.nodes[0].getnewaddress()
         while (True):
             # Send some transactions
-            for j in range(10):
-                self.nodes[0].sendtoaddress(addr, 1)
+            for j in range(50):
+                self.nodes[0].sendtoaddress(addr, 0.01)
 
             # Mine a block
+            import time
+            time.sleep(3)
             self.nodes[0].generate(1)
 
 
