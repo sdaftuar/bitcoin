@@ -46,7 +46,7 @@ static const bool DEFAULT_WHITELISTRELAY = true;
 static const bool DEFAULT_WHITELISTFORCERELAY = false;
 
 /** Time between pings automatically sent out for latency probing and keepalive (in seconds). */
-static const int PING_INTERVAL = 2 * 60;
+static const int PING_INTERVAL = 0;
 /** Time after which to disconnect, after waiting for a ping response (or inactivity). */
 static const int TIMEOUT_INTERVAL = 20 * 60;
 /** Run the feeler connection loop once every 2 minutes or 120 seconds. **/
