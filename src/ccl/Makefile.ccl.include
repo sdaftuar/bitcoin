@@ -7,13 +7,15 @@ CCL_BITCOIND_SRC = \
   ccl/datalogger.cpp \
   ccl/cclutil.cpp \
   ccl/cclglobals.cpp \
-  ccl/simulation.cpp
+  ccl/simulation.cpp \
+  ccl/mempool_writer.cpp
 
 CCL_BITCOIND_HDR = \
   ccl/datalogger.h \
   ccl/cclutil.h \
   ccl/cclglobals.h \
-  ccl/simulation.h
+  ccl/simulation.h \
+  ccl/mempool_writer.h
 
 libbitcoin_server_a_SOURCES += $(CCL_BITCOIND_SRC) $(CCL_BITCOIND_HDR)
 

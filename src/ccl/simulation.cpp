@@ -1,5 +1,6 @@
 #include "simulation.h"
 #include "ccl/cclglobals.h"
+#include "ccl/mempool_writer.h"
 
 #include "chainparams.h"
 #include "init.h"
@@ -120,6 +121,7 @@ void Simulation::operator()()
                 ProcessTransaction(txEvent.obj);
                 txEvent.reset();
             } else if (nextEvent == &blockEvent) {
+                WriteMemPoolBeforeBlock();
                 ProcessNewBlock(Params(), blockEvent.obj, true, NULL);
                 blockEvent.reset();
             } else if (nextEvent == &headersEvent) {
