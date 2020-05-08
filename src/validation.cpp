@@ -47,6 +47,8 @@
 #include <boost/algorithm/string/replace.hpp>
 #include <boost/thread.hpp>
 
+#include "ccl/mempool_writer.h"
+
 #if defined(NDEBUG)
 # error "Bitcoin cannot be compiled without assertions."
 #endif
@@ -2047,12 +2049,7 @@ bool CChainState::ConnectBlock(const CBlock& block, CValidationState& state, CBl
                                block.vtx[0]->GetValueOut(), blockReward),
                                REJECT_INVALID, "bad-cb-amount");
 
-    LogPrintf("------------------------------------\n");
-    LogPrintf("Block %s fees %ld weight %ld\n", block.GetHash().ToString(), nFees, GetBlockWeight(block));
-    for (size_t i=0; i<block.vtx.size(); ++i) {
-        LogPrintf("%s\n", block.vtx[i]->GetHash().ToString());
-    }
-    LogPrintf("------------------------------------\n");
+    WriteBlockStatsAndTransactions(block, nFees, GetBlockWeight(block));
 
     if (!control.Wait())
         return state.DoS(100, error("%s: CheckQueue failed", __func__), REJECT_INVALID, "block-validation-failed");

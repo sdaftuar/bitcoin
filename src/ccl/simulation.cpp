@@ -121,7 +121,7 @@ void Simulation::operator()()
                 ProcessTransaction(txEvent.obj);
                 txEvent.reset();
             } else if (nextEvent == &blockEvent) {
-                WriteMemPoolBeforeBlock();
+                WriteMemPoolBeforeBlock(*blockEvent.obj);
                 ProcessNewBlock(Params(), blockEvent.obj, true, NULL);
                 blockEvent.reset();
             } else if (nextEvent == &headersEvent) {
