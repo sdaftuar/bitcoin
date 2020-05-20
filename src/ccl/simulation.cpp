@@ -122,6 +122,7 @@ void Simulation::operator()()
                 txEvent.reset();
             } else if (nextEvent == &blockEvent) {
                 WriteMemPoolBeforeBlock(*blockEvent.obj);
+                WriteGBTBeforeBlock(*blockEvent.obj);
                 ProcessNewBlock(Params(), blockEvent.obj, true, NULL);
                 blockEvent.reset();
             } else if (nextEvent == &headersEvent) {

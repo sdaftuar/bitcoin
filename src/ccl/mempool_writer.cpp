@@ -3,6 +3,9 @@
 #include "validation.h"
 #include "primitives/block.h"
 #include "amount.h"
+#include "consensus/validation.h"
+#include "miner.h"
+#include "chainparams.h"
 
 void WriteMemPoolBeforeBlock(const CBlock &block)
 {
@@ -21,6 +24,23 @@ void WriteMemPoolBeforeBlock(const CBlock &block)
             fprintf(fp, " %s", ancestorIt->GetTx().GetHash().ToString().c_str());
         }
         fprintf(fp, "\n");
+    }
+    fclose(fp);
+}
+
+void WriteGBTBeforeBlock(const CBlock &block)
+{
+    std::string filename = block.GetHash().ToString() + ".gbt";
+    FILE *fp = fopen(filename.c_str(), "a");
+
+    std::unique_ptr<CBlockTemplate> pblocktemplate;
+    CScript scriptDummy = CScript() << OP_TRUE;
+    pblocktemplate = BlockAssembler(Params()).CreateNewBlock(scriptDummy);
+    CBlock* pblock = &pblocktemplate->block; // pointer for convenience
+    fprintf(fp, "CreateNewBlock(): fees %ld weight %ld\n", -pblocktemplate->vTxFees[0], GetBlockWeight(*pblock));
+    for (const auto& it : pblock->vtx) {
+        const CTransaction& tx = *it;
+        fprintf(fp, "%s\n", tx.GetHash().ToString().c_str());
     }
     fclose(fp);
 }
