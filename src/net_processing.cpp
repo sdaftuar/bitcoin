@@ -1069,6 +1069,7 @@ static bool MaybePunishNodeForTx(NodeId nodeid, const TxValidationState& state, 
         }
     // Conflicting (but not necessarily invalid) data or different policy:
     case TxValidationResult::TX_RECENT_CONSENSUS_CHANGE:
+    case TxValidationResult::TX_INPUTS_NOT_STANDARD:
     case TxValidationResult::TX_NOT_STANDARD:
     case TxValidationResult::TX_MISSING_INPUTS:
     case TxValidationResult::TX_PREMATURE_SPEND:
@@ -2596,10 +2597,19 @@ bool ProcessMessage(CNode* pfrom, const std::string& msg_type, CDataStream& vRec
                 recentRejects->insert(tx.GetHash());
             }
         } else {
-            if (!tx.HasWitness() && state.GetResult() != TxValidationResult::TX_WITNESS_MUTATED) {
+            if ((!tx.HasWitness() && state.GetResult() != TxValidationResult::TX_WITNESS_MUTATED) ||
+                    (state.GetResult() == TxValidationResult::TX_INPUTS_NOT_STANDARD)) {
                 // Do not use rejection cache for witness transactions or
                 // witness-stripped transactions, as they can have been malleated.
                 // See https://github.com/bitcoin/bitcoin/issues/8279 for details.
+                // But, if the transaction failed for TX_INPUTS_NOT_STANDARD,
+                // then we know that the witness was irrelevant to the policy
+                // failure, since this check depends only on the txid
+                // (the scriptPubKey being spent is covered by the txid).
+                // Add the txid to the reject filter to prevent repeated
+                // processing of this transaction in the event that child
+                // transactions are later received (resulting in
+                // parent-fetching by txid via the orphan-handling logic).
                 assert(recentRejects);
                 recentRejects->insert(tx.GetHash());
                 if (RecursiveDynamicUsage(*ptx) < 100000) {
