@@ -2506,7 +2506,7 @@ void ProcessMessage(
             LogPrintf("New outbound peer connected: version: %d, blocks=%d, peer=%d%s (%s)\n",
                       pfrom.nVersion.load(), pfrom.nStartingHeight,
                       pfrom.GetId(), (fLogIPs ? strprintf(", peeraddr=%s", pfrom.addr.ToString()) : ""),
-                      pfrom.m_tx_relay == nullptr ? "block-relay" : "full-relay");
+                      pfrom.GetConnectionTypeName());
         }
 
         if (pfrom.nVersion >= SENDHEADERS_VERSION) {
@@ -3955,6 +3955,21 @@ void PeerLogicValidation::ConsiderEviction(CNode& pto, int64_t time_in_seconds)
 
 void PeerLogicValidation::EvictExtraOutboundPeers(int64_t time_in_seconds)
 {
+    // If we have any chain_sync peers, evict them if they've been connected
+    // long enough.
+    connman->ForEachNode([&](CNode* pnode) {
+        AssertLockHeld(cs_main);
+        // Only look for chain-sync peers not already scheduled for
+        // disconnection
+        if (!pnode->IsChainSyncConn() || pnode->fDisconnect) return;
+        CNodeState *state = State(pnode->GetId());
+        if (state == nullptr) return; // shouldn't be possible, but just in case
+        if (time_in_seconds - pnode->nTimeConnected > MINIMUM_CONNECT_TIME && state->nBlocksInFlight == 0) {
+            pnode->fDisconnect = true;
+            LogPrint(BCLog::NET, "disconnecting chain-sync peer=%d\n", pnode->GetId());
+        }
+    });
+
     // Check whether we have too many outbound peers
     int extra_peers = connman->GetExtraOutboundCount();
     if (extra_peers > 0) {
@@ -4032,6 +4047,11 @@ void PeerLogicValidation::CheckForStaleTipAndEvictPeers(const Consensus::Params 
             connman->SetTryNewOutboundPeer(false);
         }
         m_stale_tip_check_time = time_in_seconds + STALE_CHECK_INTERVAL;
+    }
+
+    if (!m_started_chain_sync_peers && CanDirectFetch(consensusParams)) {
+        connman->StartChainSyncPeers();
+        m_started_chain_sync_peers = true;
     }
 }
 

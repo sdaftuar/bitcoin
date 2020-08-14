@@ -87,6 +87,8 @@ public:
 
 private:
     int64_t m_stale_tip_check_time; //!< Next time to check for stale tip
+
+    bool m_started_chain_sync_peers{false}; //!< Whether we've completed initial sync yet
 };
 
 struct CNodeStateStats {
