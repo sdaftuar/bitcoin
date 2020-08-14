@@ -105,6 +105,27 @@ std::map<CNetAddr, LocalServiceInfo> mapLocalHost GUARDED_BY(cs_mapLocalHost);
 static bool vfLimited[NET_MAX] GUARDED_BY(cs_mapLocalHost) = {};
 std::string strSubVersion;
 
+std::string ConnectionTypeToString(ConnectionType conn_type)
+{
+    switch(conn_type) {
+        case ConnectionType::INBOUND:
+            return "inbound";
+        case ConnectionType::OUTBOUND:
+            return "full-relay";
+        case ConnectionType::MANUAL:
+            return "manual";
+        case ConnectionType::FEELER:
+            return "feeler";
+        case ConnectionType::BLOCK_RELAY:
+            return "block-relay";
+        case ConnectionType::ADDR_FETCH:
+            return "addr-fetch";
+        case ConnectionType::CHAIN_SYNC:
+            return "chain-sync";
+    }
+    assert(false);
+}
+
 void CConnman::AddAddrFetch(const std::string& strDest)
 {
     LOCK(m_addr_fetches_mutex);
@@ -1794,6 +1815,7 @@ void CConnman::ThreadOpenConnections(const std::vector<std::string> connect)
 
     // Minimum time before next feeler connection (in microseconds).
     int64_t nNextFeeler = PoissonNextSend(nStart*1000*1000, FEELER_INTERVAL);
+    int64_t nNextChainSync = PoissonNextSend(nStart*1000*1000, CHAIN_SYNC_INTERVAL);
     while (!interruptNet)
     {
         ProcessAddrFetch();
@@ -1828,6 +1850,7 @@ void CConnman::ThreadOpenConnections(const std::vector<std::string> connect)
         // Only connect out to one peer per network group (/16 for IPv4).
         int nOutboundFullRelay = 0;
         int nOutboundBlockRelay = 0;
+        int nOutboundChainSync = 0;
         std::set<std::vector<unsigned char> > setConnected;
 
         {
@@ -1835,6 +1858,7 @@ void CConnman::ThreadOpenConnections(const std::vector<std::string> connect)
             for (const CNode* pnode : vNodes) {
                 if (pnode->IsFullOutboundConn()) nOutboundFullRelay++;
                 if (pnode->IsBlockOnlyConn()) nOutboundBlockRelay++;
+                if (pnode->IsChainSyncConn()) nOutboundChainSync++;
 
                 // Netgroups for inbound and manual peers are not excluded because our goal here
                 // is to not use multiple of our limited outbound slots on a single netgroup
@@ -1849,6 +1873,7 @@ void CConnman::ThreadOpenConnections(const std::vector<std::string> connect)
                     case ConnectionType::BLOCK_RELAY:
                     case ConnectionType::ADDR_FETCH:
                     case ConnectionType::FEELER:
+                    case ConnectionType::CHAIN_SYNC:
                         setConnected.insert(pnode->addr.GetGroup(addrman.m_asmap));
                 }
             }
@@ -1868,11 +1893,36 @@ void CConnman::ThreadOpenConnections(const std::vector<std::string> connect)
         //
         bool fFeeler = false;
 
+        // Chain-sync connections
+        //
+        // Periodically connect to a peer (using regular OUTBOUND selection
+        // methodology from addrman) and stay connected long enough to sync
+        // headers, but not much else.
+        //
+        // Then disconnect the peer.
+        //
+        // The idea is to make eclipse attacks very difficult to pull off,
+        // because every few minutes we're finding a new peer to learn headers
+        // from.
+        //
+        // This is similar to the logic for trying extra outbound peers, except:
+        // - we do this all the time on a poisson timer, rather than just when our tip is stale
+        // - we always disconnect the chain-sync peer when sync is finished,
+        //   rather than disconnect another existing outbound connection in the
+        //   event that we learned of a new block (because we expect to
+        //   sometimes learn of new blocks since we're doing this frequently)
+        // - these are block-relay-only connections to minimize bandwidth for
+        //   the duration that we remain connected
+        bool fChainSync = false;
+
         if (nOutboundFullRelay >= m_max_outbound_full_relay && nOutboundBlockRelay >= m_max_outbound_block_relay && !GetTryNewOutboundPeer()) {
             int64_t nTime = GetTimeMicros(); // The current time right now (in microseconds).
             if (nTime > nNextFeeler) {
                 nNextFeeler = PoissonNextSend(nTime, FEELER_INTERVAL);
                 fFeeler = true;
+            } else if (nTime > nNextChainSync && nOutboundChainSync == 0) {
+                nNextChainSync = PoissonNextSend(nTime, CHAIN_SYNC_INTERVAL);
+                fChainSync = true;
             } else {
                 continue;
             }
@@ -1950,6 +2000,9 @@ void CConnman::ThreadOpenConnections(const std::vector<std::string> connect)
             // OUTBOUND connection.
             if (fFeeler) {
                 conn_type = ConnectionType::FEELER;
+            } else if (fChainSync) {
+                LogPrint(BCLog::NET, "Making chain-sync connection to %s\n", addrConnect.ToString());
+                conn_type = ConnectionType::CHAIN_SYNC;
             } else if (nOutboundFullRelay < m_max_outbound_full_relay) {
                 conn_type = ConnectionType::OUTBOUND;
             } else if (nOutboundBlockRelay < m_max_outbound_block_relay) {
@@ -2781,8 +2834,12 @@ CNode::CNode(NodeId idIn, ServiceFlags nLocalServicesIn, int nMyStartingHeightIn
     addrName = addrNameIn == "" ? addr.ToStringIPPort() : addrNameIn;
     hashContinue = uint256();
     if (conn_type_in != ConnectionType::BLOCK_RELAY) {
-        m_tx_relay = MakeUnique<TxRelay>();
+        // Only BLOCK_RELAY connections bypass addr relay...
         m_addr_known = MakeUnique<CRollingBloomFilter>(5000, 0.001);
+        if (conn_type_in != ConnectionType::CHAIN_SYNC) {
+            // but both BLOCK_RELAY and CHAIN_SYNC connections bypass tx relay
+            m_tx_relay = MakeUnique<TxRelay>();
+        }
     }
 
     for (const std::string &msg : getAllNetMessageTypes())

@@ -51,6 +51,8 @@ static const bool DEFAULT_WHITELISTFORCERELAY = false;
 static const int TIMEOUT_INTERVAL = 20 * 60;
 /** Run the feeler connection loop once every 2 minutes or 120 seconds. **/
 static const int FEELER_INTERVAL = 120;
+/** Run the chain-sync connection loop once every 5 minutes. **/
+static const int CHAIN_SYNC_INTERVAL = 300;
 /** The maximum number of addresses from our addrman to return in response to a getaddr message. */
 static constexpr size_t MAX_ADDR_TO_SEND = 1000;
 /** Maximum length of incoming protocol messages (no message over 4 MB is currently acceptable). */
@@ -122,9 +124,12 @@ enum class ConnectionType {
     OUTBOUND, /**< full relay connections (blocks, addrs, txns) made automatically. Addresses selected from AddrMan. */
     MANUAL, /**< connections to addresses added via addnode or the connect command line argument */
     FEELER, /**< short lived connections used to test address validity */
+    CHAIN_SYNC, /**< short lived blocks-only connections used to sync chaintip with more peers */
     BLOCK_RELAY, /**< only relay blocks to these automatic outbound connections. Addresses selected from AddrMan. */
     ADDR_FETCH, /**< short lived connections used to solicit addrs when starting the node without a populated AddrMan */
 };
+
+std::string ConnectionTypeToString(ConnectionType conn_type);
 
 class NetEventsInterface;
 class CConnman
@@ -275,6 +280,11 @@ public:
     // a peer that is better than all our current peers.
     void SetTryNewOutboundPeer(bool flag);
     bool GetTryNewOutboundPeer();
+
+    void StartChainSyncPeers() {
+        LogPrint(BCLog::NET, "net: starting chain sync peer connections\n");
+        m_start_chain_sync_peers = true;
+    }
 
     // Return the number of outbound peers we have in excess of our target (eg,
     // if we previously called SetTryNewOutboundPeer(true), and have since set
@@ -514,6 +524,12 @@ private:
      *  in excess of m_max_outbound_full_relay
      *  This takes the place of a feeler connection */
     std::atomic_bool m_try_another_outbound_peer;
+
+    /** flag for initiating chain_sync peer connections.
+     *  this should only be enabled after initial chain sync has occurred,
+     *  as these connections are intended to be short-lived and low-bandwidth.
+     */
+    std::atomic_bool m_start_chain_sync_peers{false};
 
     std::atomic<int64_t> m_next_send_inv_to_incoming{0};
 
@@ -829,6 +845,7 @@ public:
             case ConnectionType::MANUAL:
             case ConnectionType::ADDR_FETCH:
             case ConnectionType::FEELER:
+            case ConnectionType::CHAIN_SYNC:
                 return false;
         }
 
@@ -859,6 +876,10 @@ public:
         return m_conn_type == ConnectionType::INBOUND;
     }
 
+    bool IsChainSyncConn() const {
+        return m_conn_type == ConnectionType::CHAIN_SYNC;
+    }
+
     bool ExpectServicesFromConn() const {
         switch(m_conn_type) {
             case ConnectionType::INBOUND:
@@ -868,11 +889,14 @@ public:
             case ConnectionType::OUTBOUND:
             case ConnectionType::BLOCK_RELAY:
             case ConnectionType::ADDR_FETCH:
+            case ConnectionType::CHAIN_SYNC:
                 return true;
         }
 
         assert(false);
     }
+
+    std::string GetConnectionTypeName() const { return ConnectionTypeToString(m_conn_type); }
 
 protected:
     mapMsgCmdSize mapSendBytesPerMsgCmd;
