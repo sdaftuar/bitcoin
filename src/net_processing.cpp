@@ -4016,11 +4016,11 @@ void PeerManager::EvictExtraOutboundPeers(int64_t time_in_seconds)
         });
     }
 
-    // Check whether we have too many outbound peers
+    // Check whether we have too many OUTBOUND_FULL_RELAY peers
     int extra_peers = m_connman.GetExtraFullOutboundCount();
     if (extra_peers > 0) {
-        // If we have more outbound peers than we target, disconnect one.
-        // Pick the outbound peer that least recently announced
+        // If we have more OUTBOUND_FULL_RELAY peers than we target, disconnect one.
+        // Pick the OUTBOUND_FULL_RELAY peer that least recently announced
         // us a new block, with ties broken by choosing the more recent
         // connection (higher node id)
         NodeId worst_peer = -1;
@@ -4029,7 +4029,8 @@ void PeerManager::EvictExtraOutboundPeers(int64_t time_in_seconds)
         m_connman.ForEachNode([&](CNode* pnode) {
             LockAssertion lock(::cs_main);
 
-            // Ignore non-outbound peers, or nodes marked for disconnect already
+            // Only consider OUTBOUND_FULL_RELAY peers that are not already
+            // marked for disconnection
             if (!pnode->IsFullOutboundConn() || pnode->fDisconnect) return;
             CNodeState *state = State(pnode->GetId());
             if (state == nullptr) return; // shouldn't be possible, but just in case
