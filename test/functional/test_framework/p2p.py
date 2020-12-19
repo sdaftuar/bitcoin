@@ -36,6 +36,7 @@ from test_framework.messages import (
     msg_addrv2,
     msg_block,
     MSG_BLOCK,
+    msg_disabletx,
     msg_blocktxn,
     msg_cfcheckpt,
     msg_cfheaders,
@@ -83,6 +84,7 @@ MESSAGEMAP = {
     b"addr": msg_addr,
     b"addrv2": msg_addrv2,
     b"block": msg_block,
+    b"disabletx": msg_disabletx,
     b"blocktxn": msg_blocktxn,
     b"cfcheckpt": msg_cfcheckpt,
     b"cfheaders": msg_cfheaders,
@@ -301,7 +303,7 @@ class P2PInterface(P2PConnection):
 
     Individual testcases should subclass this and override the on_* methods
     if they want to alter message handling behaviour."""
-    def __init__(self, support_addrv2=False, wtxidrelay=True):
+    def __init__(self, support_addrv2=False, wtxidrelay=True, disabletx=False):
         super().__init__()
 
         # Track number of messages of each type received.
@@ -324,6 +326,9 @@ class P2PInterface(P2PConnection):
         # If the peer supports wtxid-relay
         self.wtxidrelay = wtxidrelay
 
+        # If the peer supports block-relay
+        self.disabletx = disabletx
+
     def peer_connect_send_version(self, services):
         # Send a version msg
         vt = msg_version()
@@ -332,6 +337,8 @@ class P2PInterface(P2PConnection):
         vt.addrTo.port = self.dstport
         vt.addrFrom.ip = "0.0.0.0"
         vt.addrFrom.port = 0
+        if (self.disabletx):
+            vt.nRelay = 0
         self.on_connection_send_msg = vt  # Will be sent in connection_made callback
 
     def peer_connect(self, *args, services=NODE_NETWORK | NODE_WITNESS, send_version=True, **kwargs):
@@ -377,6 +384,7 @@ class P2PInterface(P2PConnection):
     def on_addr(self, message): pass
     def on_addrv2(self, message): pass
     def on_block(self, message): pass
+    def on_disabletx(self, message): pass
     def on_blocktxn(self, message): pass
     def on_cfcheckpt(self, message): pass
     def on_cfheaders(self, message): pass
@@ -422,6 +430,8 @@ class P2PInterface(P2PConnection):
             self.send_message(msg_wtxidrelay())
         if self.support_addrv2:
             self.send_message(msg_sendaddrv2())
+        if self.disabletx and message.nVersion >= 70017:
+            self.send_message(msg_disabletx())
         self.send_message(msg_verack())
         self.nServices = message.nServices
 
