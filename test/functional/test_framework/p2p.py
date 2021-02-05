@@ -36,12 +36,12 @@ from test_framework.messages import (
     msg_addrv2,
     msg_block,
     MSG_BLOCK,
-    msg_disabletx,
     msg_blocktxn,
     msg_cfcheckpt,
     msg_cfheaders,
     msg_cfilter,
     msg_cmpctblock,
+    msg_disabletx,
     msg_feefilter,
     msg_filteradd,
     msg_filterclear,
@@ -84,12 +84,12 @@ MESSAGEMAP = {
     b"addr": msg_addr,
     b"addrv2": msg_addrv2,
     b"block": msg_block,
-    b"disabletx": msg_disabletx,
     b"blocktxn": msg_blocktxn,
     b"cfcheckpt": msg_cfcheckpt,
     b"cfheaders": msg_cfheaders,
     b"cfilter": msg_cfilter,
     b"cmpctblock": msg_cmpctblock,
+    b"disabletx": msg_disabletx,
     b"feefilter": msg_feefilter,
     b"filteradd": msg_filteradd,
     b"filterclear": msg_filterclear,
@@ -321,6 +321,7 @@ class P2PInterface(P2PConnection):
         # The network services received from the peer
         self.nServices = 0
 
+        # If the peer supports addrv2
         self.support_addrv2 = support_addrv2
 
         # If the peer supports wtxid-relay
@@ -337,7 +338,7 @@ class P2PInterface(P2PConnection):
         vt.addrTo.port = self.dstport
         vt.addrFrom.ip = "0.0.0.0"
         vt.addrFrom.port = 0
-        if (self.disabletx):
+        if self.disabletx:
             vt.nRelay = 0
         self.on_connection_send_msg = vt  # Will be sent in connection_made callback
 
