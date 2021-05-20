@@ -4984,6 +4984,8 @@ bool LoadMempool(CTxMemPool& pool)
                     if (pool.exists(tx->GetHash())) {
                         ++already_there;
                     } else {
+                        LogPrint(BCLog::MEMPOOLREJ, "%s was not accepted: %s\n", tx->GetHash().ToString(),
+                                FormatStateMessage(state));
                         ++failed;
                     }
                 }
@@ -5067,7 +5069,7 @@ double GuessVerificationProgress(const ChainTxData& data, const CBlockIndex *pin
     if (pindex == nullptr)
         return 0.0;
 
-    int64_t nNow = time(nullptr);
+    int64_t nNow = GetTime();
 
     double fTxTotal;
 

@@ -32,6 +32,8 @@
 #include <memory>
 #include <typeinfo>
 
+#include "ccl/cclglobals.cpp"
+
 #if defined(NDEBUG)
 # error "Bitcoin cannot be compiled without assertions."
 #endif
@@ -956,6 +958,9 @@ unsigned int LimitOrphanTxSize(unsigned int nMaxOrphans)
     {
         // Evict a random orphan:
         size_t randompos = rng.randrange(g_orphan_list.size());
+        if (cclGlobals->simulation.get() != NULL) {
+            randompos = cclGlobals->GetDetRandomNumber(g_orphan_list.size());
+        }
         EraseOrphanTx(g_orphan_list[randompos]->first);
         ++nEvicted;
     }
@@ -2508,6 +2513,8 @@ bool static ProcessMessage(CNode* pfrom, const std::string& strCommand, CDataStr
         vRecv >> ptx;
         const CTransaction& tx = *ptx;
 
+        if (cclGlobals->dlog.get() != NULL) cclGlobals->dlog->OnNewTransaction(tx);
+
         CInv inv(MSG_TX, tx.GetHash());
         pfrom->AddInventoryKnown(inv);
 
@@ -2659,6 +2666,8 @@ bool static ProcessMessage(CNode* pfrom, const std::string& strCommand, CDataStr
 
         CBlockHeaderAndShortTxIDs cmpctblock;
         vRecv >> cmpctblock;
+
+        if (cclGlobals->dlog.get() != NULL) cclGlobals->dlog->OnNewCompactBlock(cmpctblock);
 
         bool received_new_header = false;
 
@@ -2835,6 +2844,7 @@ bool static ProcessMessage(CNode* pfrom, const std::string& strCommand, CDataStr
         }
 
         if (fBlockReconstructed) {
+            if (cclGlobals->dlog.get() != NULL) cclGlobals->dlog->OnNewBlock(*pblock);
             // If we got here, we were able to optimistically reconstruct a
             // block that is in flight from some other peer.
             {
@@ -2881,6 +2891,8 @@ bool static ProcessMessage(CNode* pfrom, const std::string& strCommand, CDataStr
         BlockTransactions resp;
         vRecv >> resp;
 
+        if (cclGlobals->dlog.get() != NULL) cclGlobals->dlog->OnNewBlockTransactions(resp);
+
         std::shared_ptr<CBlock> pblock = std::make_shared<CBlock>();
         bool fBlockRead = false;
         {
@@ -2924,6 +2936,7 @@ bool static ProcessMessage(CNode* pfrom, const std::string& strCommand, CDataStr
                 // updated, reject messages go out, etc.
                 MarkBlockAsReceived(resp.blockhash); // it is now an empty pointer
                 fBlockRead = true;
+                if (cclGlobals->dlog.get() != NULL) cclGlobals->dlog->OnNewBlock(*pblock);
                 // mapBlockSource is only used for sending reject messages and DoS scores,
                 // so the race between here and cs_main in ProcessNewBlock is fine.
                 // BIP 152 permits peers to relay compact blocks after validating
@@ -2974,6 +2987,8 @@ bool static ProcessMessage(CNode* pfrom, const std::string& strCommand, CDataStr
             ReadCompactSize(vRecv); // ignore tx count; assume it is 0.
         }
 
+        if (cclGlobals->dlog.get() != NULL) cclGlobals->dlog->OnNewHeaders(headers);
+
         return ProcessHeadersMessage(pfrom, connman, headers, chainparams, /*via_compact_block=*/false);
     }
 
@@ -2987,6 +3002,8 @@ bool static ProcessMessage(CNode* pfrom, const std::string& strCommand, CDataStr
 
         std::shared_ptr<CBlock> pblock = std::make_shared<CBlock>();
         vRecv >> *pblock;
+
+        if (cclGlobals->dlog.get() != NULL) cclGlobals->dlog->OnNewBlock(*pblock);
 
         LogPrint(BCLog::NET, "received block %s peer=%d\n", pblock->GetHash().ToString(), pfrom->GetId());
 
@@ -4112,6 +4129,121 @@ bool PeerLogicValidation::SendMessages(CNode* pto)
         }
     }
     return true;
+}
+
+// For simulations -- replicate the transaction processing done
+// in the message processing off the network.
+// XXX: revisit against current transaction processing logic
+void ProcessTransaction(const CTransactionRef& ptx)
+{
+    const CTransaction& tx = *ptx;
+
+    CInv inv(MSG_TX, tx.GetHash());
+
+    LOCK2(cs_main, g_cs_orphans);
+
+    bool fMissingInputs = false;
+    CValidationState state;
+
+    std::set<uint256> orphan_work_set;
+
+    std::list<CTransactionRef> lRemovedTxn;
+
+    if (!AlreadyHave(inv) &&
+            AcceptToMemoryPool(mempool, state, ptx, &fMissingInputs, &lRemovedTxn, false /* bypass_limits */, 0 /* nAbsurdFee */)) {
+        mempool.check(&::ChainstateActive().CoinsTip());
+        for (unsigned int i = 0; i < tx.vout.size(); i++) {
+            auto it_by_prev = mapOrphanTransactionsByPrev.find(COutPoint(inv.hash, i));
+            if (it_by_prev != mapOrphanTransactionsByPrev.end()) {
+                for (const auto& elem : it_by_prev->second) {
+                    orphan_work_set.insert(elem->first);
+                }
+            }
+        }
+
+        LogPrint(BCLog::MEMPOOL, "AcceptToMemoryPool: accepted %s (poolsz %u txn, %u kB)\n",
+                tx.GetHash().ToString(),
+                mempool.size(), mempool.DynamicMemoryUsage() / 1000);
+
+        // Recursively process any orphan transactions that depended on this one
+        while (!orphan_work_set.empty()) {
+            ProcessOrphanTx(g_connman.get(), orphan_work_set, lRemovedTxn);
+        }
+    }
+    else if (fMissingInputs)
+    {
+        bool fRejectedParents = false; // It may be the case that the orphans parents have all been rejected
+        for (const CTxIn& txin : tx.vin) {
+            if (recentRejects->contains(txin.prevout.hash)) {
+                fRejectedParents = true;
+                break;
+            }
+        }
+        if (!fRejectedParents) {
+            const auto current_time = GetTime<std::chrono::microseconds>();
+
+            AddOrphanTx(ptx, 1234321); // hopefully a random unique value for the simulator to use
+                                       // (note: there shouldn't be any CNode's in use in sim)
+
+            // DoS prevention: do not allow mapOrphanTransactions to grow unbounded (see CVE-2012-3789)
+            unsigned int nMaxOrphanTx = (unsigned int)std::max((int64_t)0, gArgs.GetArg("-maxorphantx", DEFAULT_MAX_ORPHAN_TRANSACTIONS));
+            unsigned int nEvicted = LimitOrphanTxSize(nMaxOrphanTx);
+            if (nEvicted > 0) {
+                LogPrint(BCLog::MEMPOOL, "mapOrphan overflow, removed %u tx\n", nEvicted);
+            }
+        } else {
+            LogPrint(BCLog::MEMPOOL, "not keeping orphan with rejected parents %s\n",tx.GetHash().ToString());
+            // We will continue to reject this tx since it has rejected
+            // parents so avoid re-requesting it from other peers.
+            recentRejects->insert(tx.GetHash());
+        }
+    } else {
+        assert(IsTransactionReason(state.GetReason()));
+        if ((!tx.HasWitness() && state.GetReason() != ValidationInvalidReason::TX_WITNESS_MUTATED) ||
+                state.GetReason() == ValidationInvalidReason::TX_INPUTS_NOT_STANDARD) {
+            // Do not use rejection cache for witness transactions or
+            // witness-stripped transactions, as they can have been malleated.
+            // See https://github.com/bitcoin/bitcoin/issues/8279 for details.
+            // However, if the transaction failed for TX_INPUTS_NOT_STANDARD,
+            // then we know that the witness was irrelevant to the policy
+            // failure, since this check depends only on the txid
+            // (the scriptPubKey being spent is covered by the txid).
+            assert(recentRejects);
+            recentRejects->insert(tx.GetHash());
+            if (RecursiveDynamicUsage(*ptx) < 100000) {
+                AddToCompactExtraTransactions(ptx);
+            }
+        } else if (tx.HasWitness() && RecursiveDynamicUsage(*ptx) < 100000) {
+            AddToCompactExtraTransactions(ptx);
+        }
+
+    }
+
+    for (const CTransactionRef& removedTx : lRemovedTxn)
+        AddToCompactExtraTransactions(removedTx);
+
+    // If a tx has been detected by recentRejects, we will have reached
+    // this point and the tx will have been ignored. Because we haven't run
+    // the tx through AcceptToMemoryPool, we won't have computed a DoS
+    // score for it or determined exactly why we consider it invalid.
+    //
+    // This means we won't penalize any peer subsequently relaying a DoSy
+    // tx (even if we penalized the first peer who gave it to us) because
+    // we have to account for recentRejects showing false positives. In
+    // other words, we shouldn't penalize a peer if we aren't *sure* they
+    // submitted a DoSy tx.
+    //
+    // Note that recentRejects doesn't just record DoSy or invalid
+    // transactions, but any tx not accepted by the mempool, which may be
+    // due to node policy (vs. consensus). So we can't blanket penalize a
+    // peer simply for relaying a tx that our recentRejects has caught,
+    // regardless of false positives.
+
+    if (state.IsInvalid())
+    {
+        LogPrint(BCLog::MEMPOOLREJ, "%s was not accepted: %s\n", tx.GetHash().ToString(),
+                FormatStateMessage(state));
+    }
 }
 
 class CNetProcessingCleanup

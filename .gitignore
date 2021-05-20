@@ -10,6 +10,8 @@ src/bitcoin-wallet
 src/test/test_bitcoin
 src/test/test_bitcoin_fuzzy
 src/qt/test/test_bitcoin-qt
+src/printdb
+src/dataprinter
 
 # autoreconf
 Makefile.in

@@ -93,4 +93,7 @@ bool GetNodeStateStats(NodeId nodeid, CNodeStateStats &stats);
 /** Relay transaction to every node */
 void RelayTransaction(const uint256&, const CConnman& connman);
 
+/** Process an incoming transaction */
+void ProcessTransaction(const CTransactionRef& ptx);
+
 #endif // BITCOIN_NET_PROCESSING_H

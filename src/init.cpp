@@ -77,6 +77,8 @@
 #include <zmq/zmqrpc.h>
 #endif
 
+#include <ccl/cclglobals.h> // CCLGlobal * cclGlobal
+
 static bool fFeeEstimatesInitialized = false;
 static const bool DEFAULT_PROXYRANDOMIZE = true;
 static const bool DEFAULT_REST_ENABLE = false;
@@ -228,6 +230,8 @@ void Shutdown(InitInterfaces& interfaces)
             LogPrintf("%s: Failed to write fee estimates to %s\n", __func__, est_path.string());
         fFeeEstimatesInitialized = false;
     }
+
+    cclGlobals->Shutdown();
 
     // FlushStateToDisk generates a ChainStateFlushed callback, which we should avoid missing
     //
@@ -553,6 +557,8 @@ void SetupServerArgs()
 
     // Add the hidden options
     gArgs.AddHiddenArgs(hidden_args);
+
+    if (cclGlobals) cclGlobals->SetupArgs();
 }
 
 std::string LicenseInfo()
@@ -1654,6 +1660,10 @@ bool AppInitMain(InitInterfaces& interfaces)
         ::feeEstimator.Read(est_filein);
     fFeeEstimatesInitialized = true;
 
+    if (!cclGlobals->Init()) {
+        return false;
+    }
+
     // ********************************************************* Step 8: start indexers
     if (gArgs.GetBoolArg("-txindex", DEFAULT_TXINDEX)) {
         g_txindex = MakeUnique<TxIndex>(nTxIndexCache, false, fReindex);
@@ -1751,6 +1761,9 @@ bool AppInitMain(InitInterfaces& interfaces)
     }
     LogPrintf("nBestHeight = %d\n", chain_active_height);
 
+    if (!cclGlobals->Run(threadGroup)) {
+    // chaincode/develop: don't fix indentation! minimize delta from upstream master.
+
     if (gArgs.GetBoolArg("-listenonion", DEFAULT_LISTEN_ONION))
         StartTorControl();
 
@@ -1814,6 +1827,8 @@ bool AppInitMain(InitInterfaces& interfaces)
     if (!g_connman->Start(scheduler, connOptions)) {
         return false;
     }
+
+    } // end of chaincode/develop (!cclGlobals->Run(threadGroup))
 
     // ********************************************************* Step 13: finished
 
