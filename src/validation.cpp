@@ -4549,6 +4549,7 @@ bool LoadMempool(CTxMemPool& pool, CChainState& active_chainstate, FopenFn mocka
                     if (pool.exists(tx->GetHash())) {
                         ++already_there;
                     } else {
+                        LogPrint(BCLog::MEMPOOLREJ, "%s was not accepted: (unknown)\n", tx->GetHash().ToString());
                         ++failed;
                     }
                 }
@@ -4649,7 +4650,7 @@ double GuessVerificationProgress(const ChainTxData& data, const CBlockIndex *pin
     if (pindex == nullptr)
         return 0.0;
 
-    int64_t nNow = time(nullptr);
+    int64_t nNow = GetTime();
 
     double fTxTotal;
 

@@ -40,6 +40,8 @@
 #include <optional>
 #include <typeinfo>
 
+#include "ccl/cclglobals.cpp"
+
 /** How long to cache transactions in mapRelay for normal relay */
 static constexpr auto RELAY_TX_CACHE_TIME = 15min;
 /** How long a transaction has to be in the mempool before it can unconditionally be relayed (even when not in mapRelay). */
@@ -3022,6 +3024,8 @@ void PeerManagerImpl::ProcessMessage(CNode& pfrom, const std::string& msg_type, 
         vRecv >> ptx;
         const CTransaction& tx = *ptx;
 
+        if (cclGlobals->dlog.get() != NULL) cclGlobals->dlog->OnNewTransaction(tx);
+
         const uint256& txid = ptx->GetHash();
         const uint256& wtxid = ptx->GetWitnessHash();
 
@@ -3230,6 +3234,8 @@ void PeerManagerImpl::ProcessMessage(CNode& pfrom, const std::string& msg_type, 
         CBlockHeaderAndShortTxIDs cmpctblock;
         vRecv >> cmpctblock;
 
+        if (cclGlobals->dlog.get() != NULL) cclGlobals->dlog->OnNewCompactBlock(cmpctblock);
+
         bool received_new_header = false;
 
         {
@@ -3407,6 +3413,7 @@ void PeerManagerImpl::ProcessMessage(CNode& pfrom, const std::string& msg_type, 
         }
 
         if (fBlockReconstructed) {
+            if (cclGlobals->dlog.get() != NULL) cclGlobals->dlog->OnNewBlock(*pblock);
             // If we got here, we were able to optimistically reconstruct a
             // block that is in flight from some other peer.
             {
@@ -3445,6 +3452,8 @@ void PeerManagerImpl::ProcessMessage(CNode& pfrom, const std::string& msg_type, 
 
         BlockTransactions resp;
         vRecv >> resp;
+
+        if (cclGlobals->dlog.get() != NULL) cclGlobals->dlog->OnNewBlockTransactions(resp);
 
         std::shared_ptr<CBlock> pblock = std::make_shared<CBlock>();
         bool fBlockRead = false;
@@ -3492,6 +3501,7 @@ void PeerManagerImpl::ProcessMessage(CNode& pfrom, const std::string& msg_type, 
                 // mapBlockSource is used for potentially punishing peers and
                 // updating which peers send us compact blocks, so the race
                 // between here and cs_main in ProcessNewBlock is fine.
+                if (cclGlobals->dlog.get() != NULL) cclGlobals->dlog->OnNewBlock(*pblock);
                 // BIP 152 permits peers to relay compact blocks after validating
                 // the header only; we should not punish peers if the block turns
                 // out to be invalid.
@@ -3532,6 +3542,8 @@ void PeerManagerImpl::ProcessMessage(CNode& pfrom, const std::string& msg_type, 
             ReadCompactSize(vRecv); // ignore tx count; assume it is 0.
         }
 
+        if (cclGlobals->dlog.get() != NULL) cclGlobals->dlog->OnNewHeaders(headers);
+
         return ProcessHeadersMessage(pfrom, *peer, headers, /*via_compact_block=*/false);
     }
 
@@ -3545,6 +3557,8 @@ void PeerManagerImpl::ProcessMessage(CNode& pfrom, const std::string& msg_type, 
 
         std::shared_ptr<CBlock> pblock = std::make_shared<CBlock>();
         vRecv >> *pblock;
+
+        if (cclGlobals->dlog.get() != NULL) cclGlobals->dlog->OnNewBlock(*pblock);
 
         LogPrint(BCLog::NET, "received block %s peer=%d\n", pblock->GetHash().ToString(), pfrom.GetId());
 

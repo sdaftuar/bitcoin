@@ -89,6 +89,8 @@
 #include <zmq/zmqrpc.h>
 #endif
 
+#include <ccl/cclglobals.h> // CCLGlobal * cclGlobal
+
 static const bool DEFAULT_PROXYRANDOMIZE = true;
 static const bool DEFAULT_REST_ENABLE = false;
 
@@ -186,6 +188,7 @@ void Shutdown(NodeContext& node)
     /// module was initialized.
     util::ThreadRename("shutoff");
     if (node.mempool) node.mempool->AddTransactionsUpdated(1);
+    if (cclGlobals && cclGlobals->IsSim() && cclGlobals->m_thread.joinable()) cclGlobals->m_thread.join();
 
     StopHTTPRPC();
     StopREST();
@@ -222,6 +225,8 @@ void Shutdown(NodeContext& node)
 
     // Drop transactions we were still watching, and record fee estimations.
     if (node.fee_estimator) node.fee_estimator->Flush();
+
+    cclGlobals->Shutdown();
 
     // FlushStateToDisk generates a ChainStateFlushed callback, which we should avoid missing
     if (node.chainman) {
@@ -567,6 +572,8 @@ void SetupServerArgs(NodeContext& node)
 
     // Add the hidden options
     argsman.AddHiddenArgs(hidden_args);
+
+    if (cclGlobals) cclGlobals->SetupArgs(argsman);
 }
 
 std::string LicenseInfo()
@@ -1547,6 +1554,10 @@ bool AppInitMain(NodeContext& node, interfaces::BlockAndHeaderTipInfo* tip_info)
         return false;
     }
 
+    if (!cclGlobals->Init(node.chainman, node.mempool.get())) {
+        return false;
+    }
+
     // ********************************************************* Step 8: start indexers
     if (args.GetBoolArg("-txindex", DEFAULT_TXINDEX)) {
         g_txindex = std::make_unique<TxIndex>(nTxIndexCache, false, fReindex);
@@ -1678,6 +1689,9 @@ bool AppInitMain(NodeContext& node, interfaces::BlockAndHeaderTipInfo* tip_info)
     LogPrintf("nBestHeight = %d\n", chain_active_height);
     if (node.peerman) node.peerman->SetBestHeight(chain_active_height);
 
+    if (!cclGlobals->Run()) {
+    // chaincode/develop: don't fix indentation! minimize delta from upstream master.
+
     Discover();
 
     // Map ports with UPnP or NAT-PMP.
@@ -1775,6 +1789,8 @@ bool AppInitMain(NodeContext& node, interfaces::BlockAndHeaderTipInfo* tip_info)
     if (!node.connman->Start(*node.scheduler, connOptions)) {
         return false;
     }
+
+    } // end of chaincode/develop (!cclGlobals->Run())
 
     // ********************************************************* Step 13: finished
 

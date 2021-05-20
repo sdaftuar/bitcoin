@@ -71,5 +71,4 @@ public:
     virtual void ProcessMessage(CNode& pfrom, const std::string& msg_type, CDataStream& vRecv,
                                 const std::chrono::microseconds time_received, const std::atomic<bool>& interruptMsgProc) = 0;
 };
-
 #endif // BITCOIN_NET_PROCESSING_H
