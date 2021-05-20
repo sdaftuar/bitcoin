@@ -28,7 +28,7 @@ The debug.log file should contain the following lines:
 - the simulation has finished
 
 Note that this test will break if the debug.log file format ever changes."""
-from decimal import Decimal
+from decimal import Decimal, ROUND_DOWN
 import os.path
 import re
 import subprocess
@@ -37,11 +37,65 @@ import time
 from test_framework.test_framework import BitcoinTestFramework
 from test_framework.util import (
     assert_equal,
-    connect_nodes,
-    random_transaction,
-    sync_blocks,
-    sync_mempools,
 )
+
+def gather_inputs(from_node, amount_needed, confirmations_required=1):
+    import random
+    """
+    Return a random set of unspent txouts that are enough to pay amount_needed
+    """
+    assert confirmations_required >= 0
+    utxo = from_node.listunspent(confirmations_required)
+    random.shuffle(utxo)
+    inputs = []
+    total_in = Decimal("0.00000000")
+    while total_in < amount_needed and len(utxo) > 0:
+        t = utxo.pop()
+        total_in += t["amount"]
+        inputs.append({"txid": t["txid"], "vout": t["vout"], "address": t["address"]})
+    if total_in < amount_needed:
+        raise RuntimeError("Insufficient funds: need %d, have %d" % (amount_needed, total_in))
+    return (total_in, inputs)
+
+
+def make_change(from_node, amount_in, amount_out, fee):
+    """
+    Create change output(s), return them
+    """
+    outputs = {}
+    amount = amount_out + fee
+    change = amount_in - amount
+    if change > amount * 2:
+        # Create an extra change output to break up big inputs
+        change_address = from_node.getnewaddress()
+        # Split change in two, being careful of rounding:
+        outputs[change_address] = Decimal(change / 2).quantize(Decimal('0.00000001'), rounding=ROUND_DOWN)
+        change = amount_in - amount - outputs[change_address]
+    if change > 0:
+        outputs[from_node.getnewaddress()] = change
+    return outputs
+
+
+def random_transaction(nodes, amount, min_fee, fee_increment, fee_variants):
+    import random
+    """
+    Create a random transaction.
+    Returns (txid, hex-encoded-transaction-data, fee)
+    """
+    from_node = random.choice(nodes)
+    to_node = random.choice(nodes)
+    fee = min_fee + fee_increment * random.randint(0, fee_variants)
+
+    (total_in, inputs) = gather_inputs(from_node, amount + fee)
+    outputs = make_change(from_node, total_in, amount, fee)
+    outputs[to_node.getnewaddress()] = float(amount)
+
+    rawtx = from_node.createrawtransaction(inputs, outputs)
+    signresult = from_node.signrawtransactionwithwallet(rawtx)
+    txid = from_node.sendrawtransaction(signresult["hex"], 0)
+
+    return (txid, signresult["hex"], fee)
+
 
 class DataLoggingTest(BitcoinTestFramework):
     def setup_network(self):
@@ -49,9 +103,9 @@ class DataLoggingTest(BitcoinTestFramework):
         self.extra_args = [[], [], ["-dlogdir=" + self.options.tmpdir]]
         self.setup_nodes()
 
-        connect_nodes(self.nodes[0], 1)
-        connect_nodes(self.nodes[1], 0)
-        connect_nodes(self.nodes[1], 2)
+        self.connect_nodes(0, 1)
+        self.connect_nodes(1, 0)
+        self.connect_nodes(1, 2)
         self.sync_all()
 
     def set_test_params(self):
@@ -66,29 +120,29 @@ class DataLoggingTest(BitcoinTestFramework):
         # Mine some blocks
         for i in range(25):
             mined_blocks.add(self.nodes[0].generate(1)[0])
-        sync_blocks(self.nodes, wait=1, timeout=60)
+        self.sync_blocks(wait=1, timeout=60)
         for i in range(25):
             mined_blocks.add(self.nodes[1].generate(1)[0])
-        sync_blocks(self.nodes, wait=1, timeout=60)
+        self.sync_blocks(wait=1, timeout=60)
         for i in range(100):
             mined_blocks.add(self.nodes[0].generate(1)[0])
-        sync_blocks(self.nodes, wait=1, timeout=60)
+        self.sync_blocks(wait=1, timeout=60)
 
         # Send 12 random transactions. These will be included in the next block
         min_fee = Decimal("0.001")
         txnodes = [self.nodes[0], self.nodes[1]]
         [random_transaction(txnodes, Decimal("1.1"), min_fee, min_fee, 20) for i in range(12)]
 
-        sync_mempools(self.nodes)
+        self.sync_mempools()
 
         # Mine a block with node1 to confirm the transactions
         best_block_hash = self.nodes[1].generate(1)[0]
         mined_blocks.add(best_block_hash)
-        sync_blocks(self.nodes, wait=1, timeout=60)
+        self.sync_blocks(wait=1, timeout=60)
 
         # Send 12 random transactions. These aren't confirmed in a block and remain in the mempool
         [random_transaction(txnodes, Decimal("1.1"), min_fee, min_fee, 20) for i in range(12)]
-        sync_mempools(self.nodes)
+        self.sync_mempools()
         num_blocks = self.nodes[2].getblockcount()
         self.stop_nodes()
         self.nodes = []
@@ -100,17 +154,17 @@ class DataLoggingTest(BitcoinTestFramework):
         today = time.strftime("%Y%m%d")
 
         self.log.info("Check all transactions were logged")
-        alltx = subprocess.check_output(["dataprinter", self.options.tmpdir + "/tx." + today], universal_newlines=True)
+        alltx = subprocess.check_output(["src/ccl/dataprinter", self.options.tmpdir + "/tx." + today], universal_newlines=True)
         assert_equal(len(re.findall('CTransaction', alltx)), 24)
 
         self.log.info("Check all blocks were logged")
-        allblocks = subprocess.check_output(["dataprinter", self.options.tmpdir + "/block." + today], universal_newlines=True)
+        allblocks = subprocess.check_output(["src/ccl/dataprinter", self.options.tmpdir + "/block." + today], universal_newlines=True)
         assert_equal(len(list(dict.fromkeys(re.findall('CBlock.hash=([0-9a-fA-F]*)', allblocks)))), num_blocks)
 
         self.log.info("Check all headers and compact blocks were logged")
-        headers_events = subprocess.check_output(["dataprinter", self.options.tmpdir + "/headers." + today], universal_newlines=True)
+        headers_events = subprocess.check_output(["src/ccl/dataprinter", self.options.tmpdir + "/headers." + today], universal_newlines=True)
         headers_hashes = re.findall("hash=([0-9a-fA-F]*)", headers_events)
-        cmpctblock_events = subprocess.check_output(["dataprinter", self.options.tmpdir + "/cmpctblock." + today], universal_newlines=True)
+        cmpctblock_events = subprocess.check_output(["src/ccl/dataprinter", self.options.tmpdir + "/cmpctblock." + today], universal_newlines=True)
         cmpctblock_hashes = re.findall("hash=([0-9a-fA-F]*)", cmpctblock_events)
         assert_equal(set(headers_hashes + cmpctblock_hashes), mined_blocks)
 

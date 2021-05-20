@@ -1,4 +1,4 @@
-#include "cclglobals.h"
+#include <ccl/cclglobals.h>
 #include "consensus/validation.h"
 #include "init.h"
 #include "node/ui_interface.h" // Defines the _() function!

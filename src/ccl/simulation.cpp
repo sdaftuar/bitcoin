@@ -1,5 +1,5 @@
-#include "simulation.h"
-#include "ccl/cclglobals.h"
+#include <ccl/simulation.h>
+#include <ccl/cclglobals.h>
 
 #include "chainparams.h"
 #include "init.h"

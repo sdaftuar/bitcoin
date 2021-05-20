@@ -1,7 +1,7 @@
 #include "streams.h"
 #include "primitives/block.h"
 #include "primitives/transaction.h"
-#include "simulation.h"
+#include <ccl/simulation.h>
 #include "clientversion.h"
 #include "util/system.h"
 

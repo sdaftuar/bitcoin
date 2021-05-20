@@ -2,7 +2,7 @@
 #include "util/time.h"
 #include "primitives/block.h"
 #include "primitives/transaction.h"
-#include "simulation.h"
+#include <ccl/simulation.h>
 #include "clientversion.h"
 
 #include "boost/filesystem.hpp"

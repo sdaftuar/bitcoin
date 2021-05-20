@@ -1,8 +1,8 @@
 #ifndef CCL_GLOBALS_H
 #define CCL_GLOBALS_H
 
-#include "ccl/datalogger.h"
-#include "ccl/simulation.h"
+#include <ccl/datalogger.h>
+#include <ccl/simulation.h>
 
 #include "streams.h"
 #include "txmempool.h"
