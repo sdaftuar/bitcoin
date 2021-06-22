@@ -2239,8 +2239,30 @@ void CConnman::ThreadMessageHandler()
         // consecutive connections in the vNodes list.
         Shuffle(vNodesCopy.begin(), vNodesCopy.end(), rng);
 
+        int64_t interesting_node = -1;
+        for (CNode* pnode : vNodesCopy) {
+            int messages_to_process = m_msgproc->HasInterestingBlock(pnode);
+            if (messages_to_process > 0) {
+                LogPrintf("Peer=%d has compact block building on tip, queue=%d messages\n", pnode->GetId(), messages_to_process);
+                interesting_node = pnode->GetId();
+                break;
+                int msg_counter=0;
+                // Drain the receive queue of this peer, and break.
+                while (msg_counter < messages_to_process && !flagInterruptMsgProc) {
+                    (void) m_msgproc->ProcessMessages(pnode, flagInterruptMsgProc);
+                    ++msg_counter;
+                }
+                LogPrintf("processed %d messages from peer=%d\n", msg_counter, pnode->GetId());
+                if (flagInterruptMsgProc) return;
+                break;
+            }
+        }
+
         for (CNode* pnode : vNodesCopy)
         {
+            if (pnode->GetId() == interesting_node) {
+                LogPrintf("processing peer=%d with the compact block in queue\n", interesting_node);
+            }
             if (pnode->fDisconnect)
                 continue;
 

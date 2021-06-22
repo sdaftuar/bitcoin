@@ -727,6 +727,8 @@ public:
     */
     virtual bool ProcessMessages(CNode* pnode, std::atomic<bool>& interrupt) = 0;
 
+    virtual int HasInterestingBlock(CNode *pnode) = 0;
+
     /**
     * Send queued protocol messages to a given node.
     *

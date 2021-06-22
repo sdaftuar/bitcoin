@@ -56,6 +56,9 @@ public:
     /** Set the best height */
     virtual void SetBestHeight(int height) = 0;
 
+    /** Check to see if this peer's receive buffer may have a block we want */
+    virtual int HasInterestingBlock(CNode *pnode) = 0;
+
     /**
      * Increment peer's misbehavior score. If the new value >= DISCOURAGEMENT_THRESHOLD, mark the node
      * to be discouraged, meaning the peer might be disconnected and added to the discouragement filter.

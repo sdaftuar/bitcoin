@@ -297,6 +297,8 @@ public:
     void ProcessMessage(CNode& pfrom, const std::string& msg_type, CDataStream& vRecv,
                         const std::chrono::microseconds time_received, const std::atomic<bool>& interruptMsgProc) override;
 
+    int HasInterestingBlock(CNode *pnode) override;
+
 private:
     void _RelayTransaction(const uint256& txid, const uint256& wtxid)
         EXCLUSIVE_LOCKS_REQUIRED(cs_main);
@@ -3995,6 +3997,50 @@ bool PeerManagerImpl::MaybeDiscourageAndDisconnect(CNode& pnode, Peer& peer)
     if (m_banman) m_banman->Discourage(pnode.addr);
     m_connman.DisconnectNode(pnode.addr);
     return true;
+}
+
+int PeerManagerImpl::HasInterestingBlock(CNode *pnode)
+{
+    if (!pnode->m_bip152_highbandwidth_to) return 0;
+    if (pnode->fDisconnect) return 0;
+
+    CDataStream vRecv{SER_NETWORK, INIT_PROTO_VERSION};
+    bool found_block = false;
+    int messages_to_process=0;
+    {
+        LOCK(pnode->cs_vProcessMsg);
+        if (pnode->vProcessMsg.empty()) return 0;
+        for (const auto& msg : pnode->vProcessMsg) {
+            ++messages_to_process;
+            if (msg.m_command == NetMsgType::CMPCTBLOCK) {
+                vRecv = msg.m_recv;
+                found_block = true;
+                break;
+            }
+        }
+    }
+    if (found_block) {
+        try {
+            CBlockHeaderAndShortTxIDs cmpctblock;
+            vRecv >> cmpctblock;
+            {
+                LOCK(cs_main);
+                if (m_chainman.ActiveTip()->GetBlockHash() != cmpctblock.header.hashPrevBlock) {
+                    // Only interested in blocks that build on our tip
+                    return 0;
+                }
+            }
+            BlockValidationState state;
+            if (m_chainman.ProcessNewBlockHeaders({cmpctblock.header}, state, m_chainparams, nullptr)) {
+                return messages_to_process;
+            }
+        } catch (const std::exception& e) {
+            ;
+        } catch (...) {
+            ;
+        }
+    }
+    return 0;
 }
 
 bool PeerManagerImpl::ProcessMessages(CNode* pfrom, std::atomic<bool>& interruptMsgProc)
