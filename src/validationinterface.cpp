@@ -250,7 +250,7 @@ void CMainSignals::BlockChecked(const CBlock& block, const BlockValidationState&
     m_internals->Iterate([&](CValidationInterface& callbacks) { callbacks.BlockChecked(block, state); });
 }
 
-void CMainSignals::NewPoWValidBlock(const CBlockIndex *pindex, const std::shared_ptr<const CBlock> &block) {
+void CMainSignals::NewPoWValidBlock(const CBlockIndex *pindex, const std::shared_ptr<const CBlock> &block, bool extends_current_tip) {
     LOG_EVENT("%s: block hash=%s", __func__, block->GetHash().ToString());
-    m_internals->Iterate([&](CValidationInterface& callbacks) { callbacks.NewPoWValidBlock(pindex, block); });
+    m_internals->Iterate([&](CValidationInterface& callbacks) { callbacks.NewPoWValidBlock(pindex, block, extends_current_tip); });
 }

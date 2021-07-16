@@ -3453,9 +3453,7 @@ bool CChainState::AcceptBlock(const std::shared_ptr<const CBlock>& pblock, Block
     }
 
     // Header is valid/has work, merkle tree and segwit merkle tree are good...RELAY NOW
-    // (but if it does not build on our best tip, let the SendMessages loop relay it)
-    if (!IsInitialBlockDownload() && m_chain.Tip() == pindex->pprev)
-        GetMainSignals().NewPoWValidBlock(pindex, pblock);
+    GetMainSignals().NewPoWValidBlock(pindex, pblock, m_chain.Tip() == pindex->pprev);
 
     // Write block to history file
     if (fNewBlock) *fNewBlock = true;
