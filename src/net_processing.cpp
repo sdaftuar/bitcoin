@@ -105,6 +105,10 @@ static const unsigned int MAX_HEADERS_RESULTS = 2000;
 static const int MAX_CMPCTBLOCK_DEPTH = 5;
 /** Maximum depth of blocks we're willing to respond to GETBLOCKTXN requests for. */
 static const int MAX_BLOCKTXN_DEPTH = 10;
+/** Maximum number of outstanding CMPCTBLOCK requests for the same block. */
+static const unsigned int MAX_CMPCTBLOCKS_INFLIGHT_PER_BLOCK = 2;
+/** Maximum number of missing transactions for a non-first getblocktxn request */
+static const unsigned int MAX_GETBLOCKTXN_TXN_AFTER_FIRST_IN_FLIGHT = 10;
 /** Size of the "block download window": how far ahead of our current height do we fetch?
  *  Larger windows tolerate larger download speed differences between peer, but increase the potential
  *  degree of disordering of blocks on disk (which make reindexing and pruning harder). We'll probably
@@ -489,6 +493,13 @@ private:
     /** Helper function for RemoveBlockRequest()/RemoveBlockRequestForPeer() */
     void ClearDownloadState(BlockDownloadMap::iterator itInFlight) EXCLUSIVE_LOCKS_REQUIRED(cs_main);
 
+    /** Return true if we are able to fetch the given header as a compact block
+      * from a given peer subject to our download limits:
+      * - ensure that the peer supports the right compact block version
+      * - allow parallel compact-block fetching but don't use last spot for an inbound peer
+      */
+    bool CanRequestCompactBlock(const CBlockIndex& block, NodeId nodeid) EXCLUSIVE_LOCKS_REQUIRED(cs_main);
+
     /* Mark a block as in flight
      * Returns false, still setting pit, if the block was already in flight from the same peer
      * pit will only be valid as long as the same cs_main lock is being held
@@ -830,6 +841,29 @@ void PeerManagerImpl::RemoveBlockRequest(const uint256& hash)
     }
 
     return;
+}
+
+bool PeerManagerImpl::CanRequestCompactBlock(const CBlockIndex& block, NodeId nodeid)
+{
+    AssertLockHeld(cs_main);
+
+    CNodeState *nodestate = State(nodeid);
+    Assume(nodestate != nullptr);
+    if (nodestate == nullptr) return false;
+
+    if (!nodestate->fSupportsDesiredCmpctVersion) return false;
+
+    // Now check that we have enough headroom to make the download attempt (eg
+    // if the block is already in flight elsewhere)
+    size_t num_in_flight = mmapBlocksInFlight.count(block.GetBlockHash());
+    if (num_in_flight < MAX_CMPCTBLOCKS_INFLIGHT_PER_BLOCK - 1) {
+        return true;
+    } 
+    if (num_in_flight < MAX_CMPCTBLOCKS_INFLIGHT_PER_BLOCK && !nodestate->m_is_inbound) {
+        // An outbound peer can use our last download attempt
+        return true;
+    }
+    return false;
 }
 
 bool PeerManagerImpl::BlockRequested(NodeId nodeid, const CBlockIndex& block, std::list<QueuedBlock>::iterator** pit)
@@ -2118,9 +2152,23 @@ void PeerManagerImpl::ProcessHeadersMessage(CNode& pfrom, const Peer& peer,
             m_connman.PushMessage(&pfrom, msgMaker.Make(NetMsgType::GETHEADERS, m_chainman.ActiveChain().GetLocator(pindexLast), uint256()));
         }
 
-        // If this set of headers is valid and ends in a block with at least as
+        // If we have a single block announcement that builds on our tip,
+        // consider immediately fetching as a single getdata(cmpctblock).
+        // We reserve our last parallel download attempt for an outbound peer,
+        // to prevent an adversary connecting to us multiple times from
+        // stalling block download.
+        if (CanDirectFetch() && m_chainman.ActiveChain().Tip() == pindexLast->pprev &&
+                CanRequestCompactBlock(*pindexLast, pfrom.GetId())) {
+            BlockRequested(pfrom.GetId(), *pindexLast);
+            std::vector<CInv> vGetData = { CInv(MSG_CMPCT_BLOCK, pindexLast->GetBlockHash()) };
+            LogPrint(BCLog::NET, "Requesting block %s from  peer=%d\n",
+                    pindexLast->GetBlockHash().ToString(), pfrom.GetId());
+            m_connman.PushMessage(&pfrom, msgMaker.Make(NetMsgType::GETDATA, vGetData));
+        }
+
+        // Otherwise, if this set of headers is valid and ends in a block with at least as
         // much work as our tip, download as much as possible.
-        if (CanDirectFetch() && pindexLast->IsValid(BLOCK_VALID_TREE) && m_chainman.ActiveChain().Tip()->nChainWork <= pindexLast->nChainWork) {
+        else if (CanDirectFetch() && pindexLast->IsValid(BLOCK_VALID_TREE) && m_chainman.ActiveChain().Tip()->nChainWork <= pindexLast->nChainWork) {
             std::vector<const CBlockIndex*> vToFetch;
             const CBlockIndex *pindexWalk = pindexLast;
             // Calculate all the blocks we'd need to switch to pindexLast, up to a limit.
@@ -3420,7 +3468,7 @@ void PeerManagerImpl::ProcessMessage(CNode& pfrom, const std::string& msg_type, 
         }
 
         std::pair<BlockDownloadMap::iterator, BlockDownloadMap::iterator> rangeInFlight = mmapBlocksInFlight.equal_range(pindex->GetBlockHash());
-        bool fAlreadyInFlight = rangeInFlight.first != rangeInFlight.second;
+        size_t already_in_flight = std::distance(rangeInFlight.first, rangeInFlight.second);
         bool fInFlightFromSamePeer = false;
         while (rangeInFlight.first != rangeInFlight.second) {
             if (rangeInFlight.first->second.first == pfrom.GetId()) {
@@ -3429,6 +3477,7 @@ void PeerManagerImpl::ProcessMessage(CNode& pfrom, const std::string& msg_type, 
             }
             rangeInFlight.first++;
         }
+        bool first_in_flight = !already_in_flight || fInFlightFromSamePeer;
 
         if (pindex->nStatus & BLOCK_HAVE_DATA) // Nothing to do here
             return;
@@ -3459,7 +3508,7 @@ void PeerManagerImpl::ProcessMessage(CNode& pfrom, const std::string& msg_type, 
         // We want to be a bit conservative just to be extra careful about DoS
         // possibilities in compact block processing...
         if (pindex->nHeight <= m_chainman.ActiveChain().Height() + 2) {
-            if ((!fAlreadyInFlight && nodestate->nBlocksInFlight < MAX_BLOCKS_IN_TRANSIT_PER_PEER) ||
+            if ((CanRequestCompactBlock(*pindex, pfrom.GetId()) && nodestate->nBlocksInFlight < MAX_BLOCKS_IN_TRANSIT_PER_PEER) ||
                  fInFlightFromSamePeer) {
                 std::list<QueuedBlock>::iterator* queuedBlockIt = nullptr;
                 if (!BlockRequested(pfrom.GetId(), *pindex, &queuedBlockIt)) {
@@ -3479,10 +3528,14 @@ void PeerManagerImpl::ProcessMessage(CNode& pfrom, const std::string& msg_type, 
                     Misbehaving(pfrom.GetId(), 100, "invalid compact block");
                     return;
                 } else if (status == READ_STATUS_FAILED) {
-                    // Duplicate txindexes, the block is now in-flight, so just request it
-                    std::vector<CInv> vInv(1);
-                    vInv[0] = CInv(MSG_BLOCK | GetFetchFlags(pfrom), cmpctblock.header.GetHash());
-                    m_connman.PushMessage(&pfrom, msgMaker.Make(NetMsgType::GETDATA, vInv));
+                    if (first_in_flight) {
+                        // Duplicate txindexes, the block is now in-flight, so just request it
+                        std::vector<CInv> vInv(1);
+                        vInv[0] = CInv(MSG_BLOCK | GetFetchFlags(pfrom), cmpctblock.header.GetHash());
+                        m_connman.PushMessage(&pfrom, msgMaker.Make(NetMsgType::GETDATA, vInv));
+                    } else {
+                        RemoveBlockRequestForPeer(pindex->GetBlockHash(), pfrom.GetId());
+                    }
                     return;
                 }
 
@@ -3498,8 +3551,12 @@ void PeerManagerImpl::ProcessMessage(CNode& pfrom, const std::string& msg_type, 
                     blockTxnMsg << txn;
                     fProcessBLOCKTXN = true;
                 } else {
-                    req.blockhash = pindex->GetBlockHash();
-                    m_connman.PushMessage(&pfrom, msgMaker.Make(NetMsgType::GETBLOCKTXN, req));
+                    if (req.indexes.size() <= MAX_GETBLOCKTXN_TXN_AFTER_FIRST_IN_FLIGHT || first_in_flight) {
+                        req.blockhash = pindex->GetBlockHash();
+                        m_connman.PushMessage(&pfrom, msgMaker.Make(NetMsgType::GETBLOCKTXN, req));
+                    } else {
+                        RemoveBlockRequestForPeer(pindex->GetBlockHash(), pfrom.GetId());
+                    }
                 }
             } else {
                 // This block is either already in flight from a different
@@ -3585,6 +3642,7 @@ void PeerManagerImpl::ProcessMessage(CNode& pfrom, const std::string& msg_type, 
             LOCK(cs_main);
 
             bool expected_BLOCKTXN = false;
+            bool first_in_flight = true;
             std::pair<BlockDownloadMap::iterator, BlockDownloadMap::iterator> rangeInFlight = mmapBlocksInFlight.equal_range(resp.blockhash);
             while (rangeInFlight.first != rangeInFlight.second) {
                 if (rangeInFlight.first->second.first == pfrom.GetId()) {
@@ -3593,6 +3651,7 @@ void PeerManagerImpl::ProcessMessage(CNode& pfrom, const std::string& msg_type, 
                     }
                     break;
                 }
+                first_in_flight = false;
                 rangeInFlight.first++;
             }
             if (!expected_BLOCKTXN) {
@@ -3607,10 +3666,16 @@ void PeerManagerImpl::ProcessMessage(CNode& pfrom, const std::string& msg_type, 
                 Misbehaving(pfrom.GetId(), 100, "invalid compact block/non-matching block transactions");
                 return;
             } else if (status == READ_STATUS_FAILED) {
-                // Might have collided, fall back to getdata now :(
-                std::vector<CInv> invs;
-                invs.push_back(CInv(MSG_BLOCK | GetFetchFlags(pfrom), resp.blockhash));
-                m_connman.PushMessage(&pfrom, msgMaker.Make(NetMsgType::GETDATA, invs));
+                if (first_in_flight) {
+                    // Might have collided, fall back to getdata now :(
+                    std::vector<CInv> invs;
+                    invs.push_back(CInv(MSG_BLOCK | GetFetchFlags(pfrom), resp.blockhash));
+                    m_connman.PushMessage(&pfrom, msgMaker.Make(NetMsgType::GETDATA, invs));
+                } else {
+                    RemoveBlockRequestForPeer(resp.blockhash, pfrom.GetId());
+                    LogPrint(BCLog::NET, "Compact block=%s from peer=%d failed to reconstruct; waiting on first download to complete\n", resp.blockhash.ToString(), pfrom.GetId());
+                    return;
+                }
             } else {
                 // Block is either okay, or possibly we received
                 // READ_STATUS_CHECKBLOCK_FAILED.
