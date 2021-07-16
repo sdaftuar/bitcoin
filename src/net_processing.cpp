@@ -1494,6 +1494,10 @@ static bool fWitnessesPresentInMostRecentCompactBlock GUARDED_BY(cs_most_recent_
  */
 void PeerManagerImpl::NewPoWValidBlock(const CBlockIndex *pindex, const std::shared_ptr<const CBlock>& pblock, bool extends_current_tip)
 {
+    // The block was received in non-malleated form (and is/will be stored on
+    // disk).  We can consider all in-flight requests completed.
+    WITH_LOCK(cs_main, RemoveBlockRequest(pindex->GetBlockHash()));
+
     if (!extends_current_tip || m_chainman.ActiveChainstate().IsInitialBlockDownload()) {
         return;
     }
@@ -3560,14 +3564,6 @@ void PeerManagerImpl::ProcessMessage(CNode& pfrom, const std::string& msg_type, 
             // compact blocks with less work than our tip, it is safe to treat
             // reconstructed compact blocks as having been requested.
             ProcessBlock(pfrom, pblock, /*force_processing=*/true);
-            LOCK(cs_main); // hold cs_main for CBlockIndex::IsValid()
-            if (pindex->IsValid(BLOCK_VALID_TRANSACTIONS)) {
-                // Clear download state for this block, which is in
-                // process from some other peer.  We do this after calling
-                // ProcessNewBlock so that a malleated cmpctblock announcement
-                // can't be used to interfere with block relay.
-                RemoveBlockRequest(pblock->GetHash());
-            }
         }
         return;
     }
@@ -3701,7 +3697,8 @@ void PeerManagerImpl::ProcessMessage(CNode& pfrom, const std::string& msg_type, 
             // Always process the block if we requested it, since we may
             // need it even when it's not a candidate for a new best tip.
             forceProcessing = IsBlockRequested(hash);
-            RemoveBlockRequest(hash);
+            // Block is no longer in flight from this peer.
+            RemoveBlockRequestForPeer(hash, pfrom.GetId());
             // mapBlockSource is only used for punishing peers and setting
             // which peers send us compact blocks, so the race between here and
             // cs_main in ProcessNewBlock is fine.
