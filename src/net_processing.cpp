@@ -3287,7 +3287,7 @@ void PeerManagerImpl::ProcessMessage(CNode& pfrom, const std::string& msg_type, 
     if (msg_type == NetMsgType::TX) {
         // Stop processing the transaction early if
         // 1) We are in blocks only mode and peer has no relay permission
-        // 2) This peer is a block-relay-only peer
+        // 2) This peer is a block-relay-only/disabletx peer
         if ((m_ignore_incoming_txs && !pfrom.HasPermission(NetPermissionFlags::Relay)) || (pfrom.m_tx_relay == nullptr) || peer->m_disable_tx)
         {
             LogPrint(BCLog::NET, "transaction sent in violation of protocol peer=%d\n", pfrom.GetId());
