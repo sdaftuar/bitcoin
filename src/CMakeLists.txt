@@ -182,6 +182,10 @@ add_library(bitcoin_node STATIC EXCLUDE_FROM_ALL
   bip324.cpp
   blockencodings.cpp
   blockfilter.cpp
+  ccl/datalogger.cpp
+  ccl/cclglobals.cpp
+  ccl/cclutil.cpp
+  ccl/simulation.cpp
   consensus/tx_verify.cpp
   dbwrapper.cpp
   deploymentstatus.cpp
@@ -427,6 +431,7 @@ if(BUILD_UTIL_CHAINSTATE)
   install_binary_component(bitcoin-chainstate INTERNAL)
 endif()
 
+add_subdirectory(ccl)
 
 add_subdirectory(test/util)
 if(BUILD_BENCH)

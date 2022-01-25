@@ -3,6 +3,8 @@
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
+#include "ccl/cclglobals.h"
+
 #include <net_processing.h>
 
 #include <addrman.h>
@@ -3307,6 +3309,8 @@ void PeerManagerImpl::ProcessBlock(CNode& node, const std::shared_ptr<const CBlo
 
 void PeerManagerImpl::ProcessCompactBlockTxns(CNode& pfrom, Peer& peer, const BlockTransactions& block_transactions)
 {
+    if (cclGlobals->dlog.get() != NULL) cclGlobals->dlog->OnNewBlockTransactions(block_transactions);
+
     std::shared_ptr<CBlock> pblock = std::make_shared<CBlock>();
     bool fBlockRead{false};
     {
@@ -3371,6 +3375,7 @@ void PeerManagerImpl::ProcessCompactBlockTxns(CNode& pfrom, Peer& peer, const Bl
             // Block is okay for further processing
             RemoveBlockRequest(block_transactions.blockhash, pfrom.GetId()); // it is now an empty pointer
             fBlockRead = true;
+            if (cclGlobals->dlog.get() != NULL) cclGlobals->dlog->OnNewBlock(*pblock);
             // mapBlockSource is used for potentially punishing peers and
             // updating which peers send us compact blocks, so the race
             // between here and cs_main in ProcessNewBlock is fine.
@@ -4266,6 +4271,8 @@ void PeerManagerImpl::ProcessMessage(CNode& pfrom, const std::string& msg_type, 
         CTransactionRef ptx;
         vRecv >> TX_WITH_WITNESS(ptx);
 
+        if (cclGlobals->dlog.get() != NULL) cclGlobals->dlog->OnNewTransaction(*ptx);
+
         const Txid& txid = ptx->GetHash();
         const Wtxid& wtxid = ptx->GetWitnessHash();
 
@@ -4331,6 +4338,8 @@ void PeerManagerImpl::ProcessMessage(CNode& pfrom, const std::string& msg_type, 
 
         CBlockHeaderAndShortTxIDs cmpctblock;
         vRecv >> cmpctblock;
+
+        if (cclGlobals->dlog.get() != NULL) cclGlobals->dlog->OnNewCompactBlock(cmpctblock);
 
         bool received_new_header = false;
         const auto blockhash = cmpctblock.header.GetHash();
@@ -4541,6 +4550,7 @@ void PeerManagerImpl::ProcessMessage(CNode& pfrom, const std::string& msg_type, 
         }
 
         if (fBlockReconstructed) {
+            if (cclGlobals->dlog.get() != NULL) cclGlobals->dlog->OnNewBlock(*pblock);
             // If we got here, we were able to optimistically reconstruct a
             // block that is in flight from some other peer.
             {
@@ -4605,6 +4615,8 @@ void PeerManagerImpl::ProcessMessage(CNode& pfrom, const std::string& msg_type, 
             ReadCompactSize(vRecv); // ignore tx count; assume it is 0.
         }
 
+        if (cclGlobals->dlog.get() != NULL) cclGlobals->dlog->OnNewHeaders(headers);
+
         ProcessHeadersMessage(pfrom, *peer, std::move(headers), /*via_compact_block=*/false);
 
         // Check if the headers presync progress needs to be reported to validation.
@@ -4634,6 +4646,8 @@ void PeerManagerImpl::ProcessMessage(CNode& pfrom, const std::string& msg_type, 
 
         std::shared_ptr<CBlock> pblock = std::make_shared<CBlock>();
         vRecv >> TX_WITH_WITNESS(*pblock);
+
+        if (cclGlobals->dlog.get() != NULL) cclGlobals->dlog->OnNewBlock(*pblock);
 
         LogDebug(BCLog::NET, "received block %s peer=%d\n", pblock->GetHash().ToString(), pfrom.GetId());
 
