@@ -5138,7 +5138,7 @@ double GuessVerificationProgress(const ChainTxData& data, const CBlockIndex *pin
     if (pindex == nullptr)
         return 0.0;
 
-    int64_t nNow = time(nullptr);
+    int64_t nNow = GetTime();
 
     double fTxTotal;
 
