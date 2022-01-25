@@ -106,6 +106,10 @@ add_library(bitcoin_common STATIC EXCLUDE_FROM_ALL
   addresstype.cpp
   base58.cpp
   bech32.cpp
+  ccl/datalogger.cpp
+  ccl/cclglobals.cpp
+  ccl/cclutil.cpp
+  ccl/simulation.cpp
   chainparams.cpp
   chainparamsbase.cpp
   coins.cpp
@@ -410,6 +414,7 @@ if(BUILD_UTIL_CHAINSTATE)
   )
 endif()
 
+add_subdirectory(ccl)
 
 add_subdirectory(test/util)
 if(BUILD_BENCH)

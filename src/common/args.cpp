@@ -635,6 +635,9 @@ std::string ArgsManager::GetHelpMessage() const
             case OptionsCategory::REGISTER_COMMANDS:
                 usage += HelpMessageGroup("Register Commands:");
                 break;
+            case OptionsCategory::CCL:
+                usage += HelpMessageGroup("CCL Options");
+                break;
             default:
                 break;
         }
