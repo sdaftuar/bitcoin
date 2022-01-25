@@ -115,6 +115,8 @@
 #include <zmq/zmqrpc.h>
 #endif
 
+#include <ccl/cclglobals.h> // CCLGlobal * cclGlobal
+
 using kernel::DumpMempool;
 using kernel::LoadMempool;
 using kernel::ValidationCacheSizes;
@@ -284,6 +286,8 @@ void Shutdown(NodeContext& node)
 
     StopTorControl();
 
+    if (cclGlobals) cclGlobals->StopThreads();
+
     // After everything has been shut down, but before things get flushed, stop the
     // scheduler and load block thread.
     if (node.scheduler) node.scheduler->stop();
@@ -307,6 +311,8 @@ void Shutdown(NodeContext& node)
         node.fee_estimator->Flush();
         UnregisterValidationInterface(node.fee_estimator.get());
     }
+
+    cclGlobals->Shutdown();
 
     // FlushStateToDisk generates a ChainStateFlushed callback, which we should avoid missing
     if (node.chainman) {
@@ -654,6 +660,8 @@ void SetupServerArgs(ArgsManager& argsman)
     hidden_args.emplace_back("-daemon");
     hidden_args.emplace_back("-daemonwait");
 #endif
+
+    CCLGlobals::SetupArgs();
 
     // Add the hidden options
     argsman.AddHiddenArgs(hidden_args);
@@ -1580,11 +1588,18 @@ bool AppInitMain(NodeContext& node, interfaces::BlockAndHeaderTipInfo* tip_info)
 
     ChainstateManager& chainman = *Assert(node.chainman);
 
-    assert(!node.peerman);
-    node.peerman = PeerManager::make(*node.connman, *node.addrman,
-                                     node.banman.get(), chainman,
-                                     *node.mempool, peerman_opts);
-    RegisterValidationInterface(node.peerman.get());
+    cclGlobals = new CCLGlobals(node);
+
+    if (!cclGlobals->Init()) {
+        return false;
+    }
+    if (!cclGlobals->IsSim()) {
+        assert(!node.peerman);
+        node.peerman = PeerManager::make(*node.connman, *node.addrman,
+                node.banman.get(), chainman,
+                *node.mempool, peerman_opts);
+        RegisterValidationInterface(node.peerman.get());
+    }
 
     // ********************************************************* Step 8: start indexers
 
@@ -1837,6 +1852,8 @@ bool AppInitMain(NodeContext& node, interfaces::BlockAndHeaderTipInfo* tip_info)
         StartTorControl(onion_service_target);
     }
 
+    if (!cclGlobals->Run()) {
+    // chaincode/develop: don't fix indentation! minimize delta from upstream master.
     if (connOptions.bind_on_any) {
         // Only add all IP addresses of the machine if we would be listening on
         // any address - 0.0.0.0 (IPv4) and :: (IPv6).
@@ -1888,6 +1905,7 @@ bool AppInitMain(NodeContext& node, interfaces::BlockAndHeaderTipInfo* tip_info)
 
     if (!node.connman->Start(*node.scheduler, connOptions)) {
         return false;
+    }
     }
 
     // ********************************************************* Step 13: finished
