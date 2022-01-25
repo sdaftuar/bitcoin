@@ -5484,7 +5484,8 @@ double ChainstateManager::GuessVerificationProgress(const CBlockIndex* pindex) c
         return 0.0;
     }
 
-    const int64_t nNow{TicksSinceEpoch<std::chrono::seconds>(NodeClock::now())};
+    //const int64_t nNow{TicksSinceEpoch<std::chrono::seconds>(NodeClock::now())};
+    const int64_t nNow = GetTime();
     const auto block_time{
         (Assume(m_best_header) && std::abs(nNow - pindex->GetBlockTime()) <= Ticks<std::chrono::seconds>(2h) &&
          Assume(m_best_header->nHeight >= pindex->nHeight)) ?

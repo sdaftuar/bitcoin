@@ -113,6 +113,8 @@ bool LoadMempool(CTxMemPool& pool, const fs::path& load_path, Chainstate& active
                     if (pool.exists(tx->GetHash())) {
                         ++already_there;
                     } else {
+                        const TxValidationState& state = accepted.m_state;
+                        LogDebug(BCLog::MEMPOOLREJ, "%s was not accepted: %s\n", tx->GetHash().ToString(), state.ToString());
                         ++failed;
                     }
                 }
