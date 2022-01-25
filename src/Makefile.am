@@ -122,6 +122,10 @@ endif
 # bitcoin core #
 BITCOIN_CORE_H = \
   addresstype.h \
+  ccl/datalogger.h \
+  ccl/cclutil.h \
+  ccl/cclglobals.h \
+  ccl/simulation.h \
   addrdb.h \
   addrman.h \
   addrman_impl.h \
@@ -382,6 +386,10 @@ libbitcoin_util_a-clientversion.$(OBJEXT): obj/build.h
 libbitcoin_node_a_CPPFLAGS = $(AM_CPPFLAGS) $(BITCOIN_INCLUDES) $(LEVELDB_CPPFLAGS) $(BOOST_CPPFLAGS) $(MINIUPNPC_CPPFLAGS) $(NATPMP_CPPFLAGS) $(EVENT_CFLAGS) $(EVENT_PTHREADS_CFLAGS)
 libbitcoin_node_a_CXXFLAGS = $(AM_CXXFLAGS) $(PIE_FLAGS)
 libbitcoin_node_a_SOURCES = \
+  ccl/datalogger.cpp \
+  ccl/cclutil.cpp \
+  ccl/cclglobals.cpp \
+  ccl/simulation.cpp \
   addrdb.cpp \
   addrman.cpp \
   banman.cpp \
@@ -1159,3 +1167,5 @@ include Makefile.qttest.include
 endif
 
 include Makefile.univalue.include
+
+include ccl/Makefile.ccl.include
