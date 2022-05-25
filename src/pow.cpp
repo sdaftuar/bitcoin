@@ -71,6 +71,54 @@ unsigned int CalculateNextWorkRequired(const CBlockIndex* pindexLast, int64_t nF
     return bnNew.GetCompact();
 }
 
+// Check that on difficulty adjustments, the new difficulty does not increase
+// or decrease beyond the permitted limits.
+bool PermittedDifficultyTransition(const Consensus::Params& params, int64_t height, uint32_t old_nbits, uint32_t new_nbits)
+{
+    assert(!params.fPowAllowMinDifficultyBlocks);
+
+    if (height % params.DifficultyAdjustmentInterval() == 0) {
+        int64_t smallest_timespan = params.nPowTargetTimespan/4;
+        int64_t largest_timespan = params.nPowTargetTimespan*4;
+
+        const arith_uint256 bnPowLimit = UintToArith256(params.powLimit);
+        arith_uint256 observed_new_target;
+        observed_new_target.SetCompact(new_nbits);
+
+        // Calculate the largest difficulty value possible:
+        arith_uint256 bnNew;
+        bnNew.SetCompact(old_nbits);
+        bnNew *= largest_timespan;
+        bnNew /= params.nPowTargetTimespan;
+
+        if (bnNew > bnPowLimit)
+            bnNew = bnPowLimit;
+
+        // Round and then compare this new calculated value to what is
+        // observed.
+        arith_uint256 maximum_new_target;
+        maximum_new_target.SetCompact(bnNew.GetCompact());
+        if (maximum_new_target < observed_new_target) return false;
+
+        // Calculate the smallest difficulty value possible:
+        bnNew.SetCompact(old_nbits);
+        bnNew *= smallest_timespan;
+        bnNew /= params.nPowTargetTimespan;
+
+        if (bnNew > bnPowLimit)
+            bnNew = bnPowLimit;
+
+        // Round and then compare this new calculated value to what is
+        // observed.
+        arith_uint256 minimum_new_target;
+        minimum_new_target.SetCompact(bnNew.GetCompact());
+        if (minimum_new_target > observed_new_target) return false;
+    } else if (old_nbits != new_nbits) {
+        return false;
+    }
+    return true;
+}
+
 bool CheckProofOfWork(uint256 hash, unsigned int nBits, const Consensus::Params& params)
 {
     bool fNegative;
