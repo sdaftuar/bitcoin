@@ -362,10 +362,11 @@ struct Peer {
     NodeClock::time_point m_last_getheaders_timestamp{};
 
     /** Protects m_headers_sync **/
+    // TODO: do we need this?
     Mutex m_headers_sync_mutex;
     /** Headers-sync state for this peer (eg for initial sync, or syncing large
      * reorgs) **/
-    std::unique_ptr<HeadersSyncState> m_headers_sync PT_GUARDED_BY(m_headers_sync_mutex) GUARDED_BY(m_headers_sync_mutex) {nullptr};
+    std::unique_ptr<HeadersSyncState> m_headers_sync PT_GUARDED_BY(m_headers_sync_mutex) GUARDED_BY(m_headers_sync_mutex) {};
 
     /** Whether we've sent our peer a sendheaders message. **/
     std::atomic<bool> m_sent_sendheaders{false};
