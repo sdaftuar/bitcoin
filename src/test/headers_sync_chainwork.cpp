@@ -70,7 +70,7 @@ BOOST_AUTO_TEST_CASE(headers_sync_state)
     std::vector<CBlockHeader> first_chain;
     std::vector<CBlockHeader> second_chain;
 
-    HeadersSyncState hss(0, Params().GetConsensus());
+    HeadersSyncState *hss = new HeadersSyncState(0, Params().GetConsensus());
 
     const int target_blocks = 15000;
     arith_uint256 chain_work = target_blocks*2;
@@ -94,36 +94,40 @@ BOOST_AUTO_TEST_CASE(headers_sync_state)
     // initially and then the rest.
     headers_batch.insert(headers_batch.end(), std::next(first_chain.begin(), 1), first_chain.end());
 
-    (void)hss.StartInitialDownload(chain_start, {first_chain.front()}, chain_work, m_node.chainman->ActiveChain().GetLocator(chain_start));
-    (void)hss.ProcessNextHeaders(headers_batch, true, headers_to_process, success);
+    (void)hss->StartInitialDownload(chain_start, {first_chain.front()}, chain_work, m_node.chainman->ActiveChain().GetLocator(chain_start));
+    (void)hss->ProcessNextHeaders(headers_batch, true, headers_to_process, success);
 
     // This chain should look valid, and we should have met the proof-of-work
     // requirement.
     BOOST_CHECK(success);
-    BOOST_CHECK(hss.GetState() == HeadersSyncState::State::REDOWNLOAD);
+    BOOST_CHECK(hss->GetState() == HeadersSyncState::State::REDOWNLOAD);
 
     // Try to sneakily feed back the second chain.
-    (void)hss.ProcessNextHeaders(second_chain, true, headers_to_process, success);
+    (void)hss->ProcessNextHeaders(second_chain, true, headers_to_process, success);
     BOOST_CHECK(!success); // foiled!
-    BOOST_CHECK(hss.GetState() == HeadersSyncState::State::NONE);
+    BOOST_CHECK(hss->GetState() == HeadersSyncState::State::FINAL);
+
+    delete hss; hss = new HeadersSyncState(0, Params().GetConsensus());
 
     // Now try again, this time feeding the first chain twice.
-    (void)hss.StartInitialDownload(chain_start, first_chain, chain_work,
+    (void)hss->StartInitialDownload(chain_start, first_chain, chain_work,
             m_node.chainman->ActiveChain().GetLocator(chain_start));
-    BOOST_CHECK(hss.GetState() == HeadersSyncState::State::REDOWNLOAD);
+    BOOST_CHECK(hss->GetState() == HeadersSyncState::State::REDOWNLOAD);
 
-    (void)hss.ProcessNextHeaders(first_chain, true, headers_to_process, success);
+    (void)hss->ProcessNextHeaders(first_chain, true, headers_to_process, success);
     BOOST_CHECK(success);
     // All headers should be ready for acceptance:
     BOOST_CHECK(headers_to_process.size() == first_chain.size());
     // Nothing left for the sync logic to do:
-    BOOST_CHECK(hss.GetState() == HeadersSyncState::State::NONE);
+    BOOST_CHECK(hss->GetState() == HeadersSyncState::State::FINAL);
+
+    delete hss; hss = new HeadersSyncState(0, Params().GetConsensus());
 
     // Finally, verify that just trying to process the second chain would not
     // succeed (too little work)
-    (void)hss.StartInitialDownload(chain_start, {second_chain.front()},
+    (void)hss->StartInitialDownload(chain_start, {second_chain.front()},
             chain_work, m_node.chainman->ActiveChain().GetLocator(chain_start));
-    BOOST_CHECK(hss.GetState() == HeadersSyncState::State::INITIAL_DOWNLOAD);
+    BOOST_CHECK(hss->GetState() == HeadersSyncState::State::INITIAL_DOWNLOAD);
 
     headers_batch.clear();
     headers_batch.insert(headers_batch.end(), std::next(second_chain.begin(), 1), second_chain.end());
@@ -131,8 +135,8 @@ BOOST_AUTO_TEST_CASE(headers_sync_state)
     // Tell the sync logic that the headers message was not full, implying no
     // more headers can be requested. For a low-work-chain, this should causes
     // the sync to end with no headers for acceptance.
-    (void)hss.ProcessNextHeaders(headers_batch, false, headers_to_process, success);
-    BOOST_CHECK(hss.GetState() == HeadersSyncState::State::NONE);
+    (void)hss->ProcessNextHeaders(headers_batch, false, headers_to_process, success);
+    BOOST_CHECK(hss->GetState() == HeadersSyncState::State::FINAL);
     BOOST_CHECK(headers_to_process.empty());
     // Nevertheless, no validation errors should have been detected with the
     // chain:

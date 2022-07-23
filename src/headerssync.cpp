@@ -12,9 +12,10 @@ HeadersSyncState::HeadersSyncState(NodeId id, const Consensus::Params& consensus
     m_id(id), m_consensus_params(consensus_params)
 { }
 
-// Free any memory in use
-void HeadersSyncState::Clear()
+// Free any memory in use, and mark this object as no longer usable.
+void HeadersSyncState::Finalize()
 {
+    assert(m_download_state != State::FINAL);
     m_header_commitments.clear();
     m_last_header_received.SetNull();
     m_blockhash_with_sufficient_work.SetNull();
@@ -24,7 +25,7 @@ void HeadersSyncState::Clear()
     m_process_all_remaining_headers = false;
     m_current_height = 0;
 
-    m_download_state = State::NONE;
+    m_download_state = State::FINAL;
 }
 
 // Initialize the parameters for this headers download, validate this first
@@ -33,9 +34,10 @@ std::optional<CBlockLocator> HeadersSyncState::StartInitialDownload(const CBlock
         const std::vector<CBlockHeader>& initial_headers, arith_uint256
         minimum_required_work, CBlockLocator chain_start_locator)
 {
-    Clear();
+    // A new instance of this object should be instantiated for every headers
+    // sync, so that we don't reuse our salted hasher between syncs.
+    assert(m_download_state == State::INITIAL_DOWNLOAD);
 
-    m_download_state = State::INITIAL_DOWNLOAD;
     m_chain_start = chain_start;
     m_minimum_required_work = minimum_required_work;
     m_current_chain_work = chain_start->nChainWork;
@@ -57,7 +59,7 @@ std::optional<CBlockLocator> HeadersSyncState::StartInitialDownload(const CBlock
     m_max_commitments = 6*(GetTime() + 7*24*3600 - chain_start->GetMedianTimePast());
 
     if (!ValidateAndStoreHeadersCommitments(initial_headers)) {
-        Clear();
+        Finalize();
         return std::nullopt;
     }
     return MakeNextHeadersRequest();
@@ -70,11 +72,12 @@ std::optional<CBlockLocator> HeadersSyncState::ProcessNextHeaders(const std::vec
         headers, bool full_headers_message, std::vector<CBlockHeader>&
         headers_to_process, bool& processing_success)
 {
+    assert(m_download_state != State::FINAL);
     processing_success = false;
 
     Assume(!headers.empty());
-    Assume(m_download_state != State::NONE);
-    if (headers.empty() || m_download_state == State::NONE) return std::nullopt;
+    Assume(m_download_state != State::FINAL);
+    if (headers.empty() || m_download_state == State::FINAL) return std::nullopt;
 
     if (m_download_state == State::INITIAL_DOWNLOAD) {
         // During INITIAL_DOWNLOAD, we minimally validate block headers and
@@ -89,12 +92,12 @@ std::optional<CBlockLocator> HeadersSyncState::ProcessNextHeaders(const std::vec
             // loop. Just give up for now; if our peer ever gives us an block
             // INV later we will fetch headers then, and likely retrigger this
             // logic.
-            Clear();
+            Finalize();
             return std::nullopt;
         }
         if (!ValidateAndStoreHeadersCommitments(headers)) {
             // The headers didn't pass validation; give up on the sync.
-            Clear();
+            Finalize();
             return std::nullopt;
         }
         processing_success = true;
@@ -107,7 +110,7 @@ std::optional<CBlockLocator> HeadersSyncState::ProcessNextHeaders(const std::vec
             // If we're in INITIAL_DOWNLOAD and we get a non-full headers
             // message, then the peer's chain has ended and definitely doesn't
             // have enough work, so we can stop our sync.
-            Clear();
+            Finalize();
             return std::nullopt;
         }
     } else if (m_download_state == State::REDOWNLOAD) {
@@ -120,34 +123,31 @@ std::optional<CBlockLocator> HeadersSyncState::ProcessNextHeaders(const std::vec
                 // Something went wrong -- the peer gave us an unexpected chain.
                 // We could consider looking at the reason for failure and
                 // punishing the peer, but for now just give up on sync.
-                Clear();
+                Finalize();
                 return std::nullopt;
             }
         }
+
+        processing_success = true;
         // Return any headers that are ready for acceptance.
         headers_to_process = RemoveHeadersReadyForAcceptance();
 
         // If we hit our target blockhash, then all remaining headers will be
         // returned and we can clear any leftover internal state.
         if (m_redownloaded_headers.empty() && m_process_all_remaining_headers) {
-            m_download_state = State::NONE;
-            Clear();
+            Finalize();
+            return std::nullopt;
         }
 
-        // If the headers message is full, we need to request more. If it's not
-        // full, then hopefully that means the peer has given us the last
-        // header we were looking for, and we will be draining the buffer of
-        // redownloaded headers.
+        // If the headers message is full, we need to request more.
         if (full_headers_message) {
-            processing_success=true;
             return MakeNextHeadersRequest();
-        } else if (!m_redownloaded_headers.empty()) {
+        } else {
             // For some reason our peer gave us a high-work chain, but is now
             // declining to serve us that full chain again. Give up.
             // Note that there's no more processing to be done with these
-            // headers, so we return success.
-            processing_success=true;
-            Clear();
+            // headers, so we can still return success.
+            Finalize();
             return std::nullopt;
         }
     }
@@ -156,6 +156,7 @@ std::optional<CBlockLocator> HeadersSyncState::ProcessNextHeaders(const std::vec
 
 bool HeadersSyncState::ValidateAndStoreHeadersCommitments(const std::vector<CBlockHeader>& headers)
 {
+    assert(m_download_state != State::FINAL);
     // The caller should not give us an empty set of headers.
     Assume(headers.size() > 0);
     if (headers.size() == 0) return true;
@@ -173,7 +174,7 @@ bool HeadersSyncState::ValidateAndStoreHeadersCommitments(const std::vector<CBlo
     // If it does connect, (minimally) validate and store a commitment to each one.
     for (const auto& hdr : headers) {
         if (!ValidateAndProcessSingleHeader(m_last_header_received, hdr, m_current_height+1)) {
-            Clear();
+            Finalize();
             return false;
         }
     }
@@ -191,6 +192,7 @@ bool HeadersSyncState::ValidateAndStoreHeadersCommitments(const std::vector<CBlo
 
 bool HeadersSyncState::ValidateAndProcessSingleHeader(const CBlockHeader& previous, const CBlockHeader& current, int64_t current_height)
 {
+    assert(m_download_state != State::FINAL);
     // Verify that the difficulty isn't growing too fast; an adversary with
     // limited hashing capability has a greater chance of producing a high
     // work chain if they compress the work into as few blocks as possible,
@@ -212,7 +214,7 @@ bool HeadersSyncState::ValidateAndProcessSingleHeader(const CBlockHeader& previo
             // The peer's chain is too long; give up.
             // TODO: disconnect this peer.
             LogPrint(BCLog::NET, "headers chain is too long; giving up sync peer=%d\n", m_id);
-            Clear();
+            Finalize();
             return false;
         }
     }
@@ -226,6 +228,7 @@ bool HeadersSyncState::ValidateAndProcessSingleHeader(const CBlockHeader& previo
 
 bool HeadersSyncState::ValidateAndStoreRedownloadedHeader(const CBlockHeader& header)
 {
+    assert(m_download_state != State::FINAL);
     // Ensure that we're working on a header that connects to the chain we're
     // downloading.
     if (m_redownloaded_headers.empty()) {
@@ -270,6 +273,7 @@ bool HeadersSyncState::ValidateAndStoreRedownloadedHeader(const CBlockHeader& he
 
 std::vector<CBlockHeader> HeadersSyncState::RemoveHeadersReadyForAcceptance()
 {
+    assert(m_download_state != State::FINAL);
     std::vector<CBlockHeader> ret;
 
     while (m_redownloaded_headers.size() > REDOWNLOAD_HEADERS_THRESHOLD ||
@@ -283,7 +287,7 @@ std::vector<CBlockHeader> HeadersSyncState::RemoveHeadersReadyForAcceptance()
 
 std::optional<CBlockLocator> HeadersSyncState::MakeNextHeadersRequest()
 {
-    if (m_download_state == State::NONE) return std::nullopt;
+    assert(m_download_state != State::FINAL);
 
     std::vector<uint256> locator;
 

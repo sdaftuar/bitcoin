@@ -2361,7 +2361,7 @@ bool PeerManagerImpl::IsContinuationOfLowWorkHeadersSync(Peer& peer, CNode& pfro
             }
         }
 
-        if (peer.m_headers_sync->GetState() == HeadersSyncState::State::NONE) {
+        if (peer.m_headers_sync->GetState() == HeadersSyncState::State::FINAL) {
             peer.m_headers_sync.reset(nullptr);
         }
 
@@ -2408,7 +2408,7 @@ bool PeerManagerImpl::TryLowWorkHeadersSync(Peer& peer, CNode& pfrom, const CBlo
                         locator->vHave.front().ToString(), pfrom.GetId());
                 }
             }
-            if (peer.m_headers_sync->GetState() == HeadersSyncState::State::NONE) {
+            if (peer.m_headers_sync->GetState() == HeadersSyncState::State::FINAL) {
                 peer.m_headers_sync.reset(nullptr);
             }
         } else {

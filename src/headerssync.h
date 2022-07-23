@@ -78,7 +78,7 @@ public:
          * accept them */
         REDOWNLOAD,
         /** We're done syncing with this peer and can discard any remaining state */
-        NONE
+        FINAL
     };
 
     /** Return the current state of our download */
@@ -110,9 +110,9 @@ public:
 
 private:
     /** Clear out all download state that might be in progress (freeing any used
-     * memory)
+     * memory), and mark this object as no longer usable.
      */
-    void Clear();
+    void Finalize();
 
     /**
      *  Only called in INITIAL_DOWNLOAD.
