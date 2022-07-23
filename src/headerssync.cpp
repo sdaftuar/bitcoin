@@ -2,6 +2,7 @@
 #include <logging.h>
 #include <util/check.h>
 #include <pow.h>
+#include <timedata.h>
 
 // Store a commitment to a header every HEADER_COMMITMENT_FREQUENCY blocks
 const size_t HEADER_COMMITMENT_FREQUENCY = 500;
@@ -50,13 +51,8 @@ std::optional<CBlockLocator> HeadersSyncState::StartInitialDownload(const CBlock
     // serves as a memory bound on how many commitments we might store from
     // this peer, and we can safely give up syncing if the peer exceeds this
     // bound, because it's not possible for a consensus-valid chain to be
-    // longer than this. The 1-week buffer is designed to accommodate extreme
-    // sync delays and chain growth during the sync; that is, even if somehow
-    // it took a week to download headers from this peer, we would still be
-    // able to sync the chain in theory (in practice, we may be unlikely to
-    // stay connected for so long, but such considerations are outside the
-    // scope of this logic).
-    m_max_commitments = 6*(GetTime() + 7*24*3600 - chain_start->GetMedianTimePast());
+    // longer than this.
+    m_max_commitments = 6*(GetAdjustedTime() - chain_start->GetMedianTimePast() + MAX_FUTURE_BLOCK_TIME) / HEADER_COMMITMENT_FREQUENCY;
 
     if (!ValidateAndStoreHeadersCommitments(initial_headers)) {
         Finalize();
