@@ -119,6 +119,7 @@ private:
      *  Validate the work on the headers we received from the network, and
      *  store commitments for later. Update overall state with successfully
      *  processed headers.
+     *  On failure, this invokes Finalize() and returns false.
      */
     bool ValidateAndStoreHeadersCommitments(const std::vector<CBlockHeader>& headers);
 

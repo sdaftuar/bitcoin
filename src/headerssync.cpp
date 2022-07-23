@@ -55,7 +55,6 @@ std::optional<CBlockLocator> HeadersSyncState::StartInitialDownload(const CBlock
     m_max_commitments = 6*(GetAdjustedTime() - chain_start->GetMedianTimePast() + MAX_FUTURE_BLOCK_TIME) / HEADER_COMMITMENT_FREQUENCY;
 
     if (!ValidateAndStoreHeadersCommitments(initial_headers)) {
-        Finalize();
         return std::nullopt;
     }
     return MakeNextHeadersRequest();
@@ -93,7 +92,6 @@ std::optional<CBlockLocator> HeadersSyncState::ProcessNextHeaders(const std::vec
         }
         if (!ValidateAndStoreHeadersCommitments(headers)) {
             // The headers didn't pass validation; give up on the sync.
-            Finalize();
             return std::nullopt;
         }
         processing_success = true;
@@ -164,6 +162,7 @@ bool HeadersSyncState::ValidateAndStoreHeadersCommitments(const std::vector<CBlo
 
     if (headers[0].hashPrevBlock != m_last_header_received.GetHash()) {
         // Doesn't connect to what we expect
+        Finalize();
         return false;
     }
 
@@ -210,7 +209,6 @@ bool HeadersSyncState::ValidateAndProcessSingleHeader(const CBlockHeader& previo
             // The peer's chain is too long; give up.
             // TODO: disconnect this peer.
             LogPrint(BCLog::NET, "headers chain is too long; giving up sync peer=%d\n", m_id);
-            Finalize();
             return false;
         }
     }
