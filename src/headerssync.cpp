@@ -32,8 +32,8 @@ void HeadersSyncState::Finalize()
 // Initialize the parameters for this headers download, validate this first
 // batch, and request more headers.
 std::optional<CBlockLocator> HeadersSyncState::StartInitialDownload(const CBlockIndex* chain_start,
-        const std::vector<CBlockHeader>& initial_headers, arith_uint256
-        minimum_required_work, CBlockLocator chain_start_locator)
+        const std::vector<CBlockHeader>& initial_headers, const arith_uint256&
+        minimum_required_work, CBlockLocator&& chain_start_locator)
 {
     // A new instance of this object should be instantiated for every headers
     // sync, so that we don't reuse our salted hasher between syncs.
@@ -43,7 +43,7 @@ std::optional<CBlockLocator> HeadersSyncState::StartInitialDownload(const CBlock
     m_minimum_required_work = minimum_required_work;
     m_current_chain_work = chain_start->nChainWork;
     m_current_height = chain_start->nHeight;
-    m_chain_start_locator = chain_start_locator;
+    m_chain_start_locator = std::move(chain_start_locator);
 
     // Overestimate the number of blocks that could possibly exist on this
     // chain using 6 blocks/second (fastest blockrate given the MTP rule) times

@@ -90,8 +90,8 @@ public:
      * minimum_required_work: amount of chain work required to accept the chain
      */
     std::optional<CBlockLocator> StartInitialDownload(const CBlockIndex* chain_start, const
-            std::vector<CBlockHeader>& initial_headers, arith_uint256
-            minimum_required_work, CBlockLocator chain_start_locator);
+            std::vector<CBlockHeader>& initial_headers, const arith_uint256&
+            minimum_required_work, CBlockLocator&& chain_start_locator);
 
     /** Process a batch of headers, once a sync via this mechanism has started
      *
