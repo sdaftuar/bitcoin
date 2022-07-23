@@ -2351,9 +2351,13 @@ bool PeerManagerImpl::IsContinuationOfLowWorkHeadersSync(Peer& peer, CNode& pfro
             // If we get back a locator, it should not be empty
             Assume(!locator->vHave.empty());
             if (!locator->vHave.empty()) {
-                // It should be impossible for the getheaders request to fail
+                // It should be impossible for the getheaders request to fail,
+                // because we should have cleared the last getheaders timestamp
+                // when processing the headers that triggered this call. But
+                // it may be possible to bypass this via compactblock
+                // processing, so check the result before logging just to be
+                // safe.
                 bool sent_getheaders = MaybeSendGetHeaders(pfrom, *locator, peer);
-                Assume(sent_getheaders);
                 if (sent_getheaders) {
                     LogPrint(BCLog::NET, "more getheaders (from %s) to peer=%d\n",
                             locator->vHave.front().ToString(), pfrom.GetId());
