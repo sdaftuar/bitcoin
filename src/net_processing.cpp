@@ -2345,7 +2345,7 @@ bool PeerManagerImpl::IsContinuationOfLowWorkHeadersSync(Peer& peer, CNode& pfro
 {
     if (peer.m_headers_sync) {
         bool successfully_processed_headers{true};
-        if (std::optional<CBlockLocator> locator =
+        if (auto locator =
                 peer.m_headers_sync->ProcessNextHeaders(headers, headers.size() ==
                     MAX_HEADERS_RESULTS, previously_downloaded_headers, successfully_processed_headers)) {
             // If we get back a locator, it should not be empty
