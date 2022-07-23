@@ -2397,9 +2397,18 @@ bool PeerManagerImpl::TryLowWorkHeadersSync(Peer& peer, CNode& pfrom, const CBlo
         // otherwise they don't have more headers after this so no point in
         // trying to sync their too-little-work chain.
         if (headers.size() == MAX_HEADERS_RESULTS) {
-            // Optimization: we could advance to the last header in this set
-            // that is known to us, rather than starting at the first block
-            // (which we may already have).
+            // Note: we could advance to the last header in this set that is
+            // known to us, rather than starting at the first header (which we
+            // may already have). But we actually might have all the headers in
+            // this set already, because headers sync can be imprecise when a
+            // peer has to serve us a long chain (due to imprecision in the way
+            // locators are calculated). So philosophically, if we wanted to
+            // optimize this correctly, we could consider requesting more
+            // headers until we find the peer's first new header on this chain,
+            // and start the sync from there. In practice this is unlikely to
+            // matter much outside of initial sync, which we generally only do
+            // once, so for now we'll just start the sync with the first header
+            // in the set and not worry about this issue.
             peer.m_headers_sync.reset(new HeadersSyncState(peer.m_id, m_chainparams.GetConsensus()));
             if (std::optional<CBlockLocator> locator =
                     peer.m_headers_sync->StartInitialDownload(chain_start_header,

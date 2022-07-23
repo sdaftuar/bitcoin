@@ -198,7 +198,7 @@ private:
      * We need this to reconstruct the full header when it's time for
      * processing.
      */
-    uint256 m_redownload_buffer_first_prev_hash;;
+    uint256 m_redownload_buffer_first_prev_hash;
 
     /** Set this to true once we encounter the target blockheader during phase
      * 2 (REDOWNLOAD). At this point, we can process and store all remaining
