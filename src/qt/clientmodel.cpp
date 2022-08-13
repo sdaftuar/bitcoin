@@ -215,13 +215,17 @@ QString ClientModel::blocksDir() const
     return GUIUtil::PathToQString(gArgs.GetBlocksDirPath());
 }
 
-void ClientModel::TipChanged(SynchronizationState sync_state, interfaces::BlockTip tip, double verification_progress, bool header)
+void ClientModel::TipChanged(SynchronizationState sync_state, interfaces::BlockTip tip, double verification_progress, int header)
 {
-    if (header) {
+    // header:
+    // - 0: block sync
+    // - 1: header presync
+    // - 2: header sync
+    if (header == 2) {
         // cache best headers time and height to reduce future cs_main locks
         cachedBestHeaderHeight = tip.block_height;
         cachedBestHeaderTime = tip.block_time;
-    } else {
+    } else if (header == 0) {
         m_cached_num_blocks = tip.block_height;
         WITH_LOCK(m_cached_tip_mutex, m_cached_tip_blocks = tip.block_hash;);
     }
@@ -264,11 +268,11 @@ void ClientModel::subscribeToCoreSignals()
         });
     m_handler_notify_block_tip = m_node.handleNotifyBlockTip(
         [this](SynchronizationState sync_state, interfaces::BlockTip tip, double verification_progress) {
-            TipChanged(sync_state, tip, verification_progress, /*header=*/false);
+            TipChanged(sync_state, tip, verification_progress, /*header=*/0);
         });
     m_handler_notify_header_tip = m_node.handleNotifyHeaderTip(
         [this](SynchronizationState sync_state, interfaces::BlockTip tip, bool presync) {
-            if (!presync) TipChanged(sync_state, tip, /*verification_progress=*/0.0, /*header=*/true);
+            TipChanged(sync_state, tip, /*verification_progress=*/0.0, /*header=*/2 - presync);
         });
 }
 

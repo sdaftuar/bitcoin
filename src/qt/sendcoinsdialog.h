@@ -111,7 +111,7 @@ private Q_SLOTS:
     void coinControlClipboardLowOutput();
     void coinControlClipboardChange();
     void updateFeeSectionControls();
-    void updateNumberOfBlocks(int count, const QDateTime& blockDate, double nVerificationProgress, bool headers, SynchronizationState sync_state);
+    void updateNumberOfBlocks(int count, const QDateTime& blockDate, double nVerificationProgress, int headers, SynchronizationState sync_state);
     void updateSmartFeeLabel();
 
 Q_SIGNALS:

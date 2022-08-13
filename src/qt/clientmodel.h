@@ -105,13 +105,13 @@ private:
     //! A thread to interact with m_node asynchronously
     QThread* const m_thread;
 
-    void TipChanged(SynchronizationState sync_state, interfaces::BlockTip tip, double verification_progress, bool header) EXCLUSIVE_LOCKS_REQUIRED(!m_cached_tip_mutex);
+    void TipChanged(SynchronizationState sync_state, interfaces::BlockTip tip, double verification_progress, int header) EXCLUSIVE_LOCKS_REQUIRED(!m_cached_tip_mutex);
     void subscribeToCoreSignals();
     void unsubscribeFromCoreSignals();
 
 Q_SIGNALS:
     void numConnectionsChanged(int count);
-    void numBlocksChanged(int count, const QDateTime& blockDate, double nVerificationProgress, bool header, SynchronizationState sync_state);
+    void numBlocksChanged(int count, const QDateTime& blockDate, double nVerificationProgress, int header, SynchronizationState sync_state);
     void mempoolSizeChanged(long count, size_t mempoolSizeInBytes);
     void networkActiveChanged(bool networkActive);
     void alertsChanged(const QString &warnings);

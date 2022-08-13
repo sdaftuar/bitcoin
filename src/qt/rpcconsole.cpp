@@ -973,9 +973,9 @@ void RPCConsole::setNetworkActive(bool networkActive)
     updateNetworkState();
 }
 
-void RPCConsole::setNumBlocks(int count, const QDateTime& blockDate, double nVerificationProgress, bool headers)
+void RPCConsole::setNumBlocks(int count, const QDateTime& blockDate, double nVerificationProgress, int header)
 {
-    if (!headers) {
+    if (!header) {
         ui->numberOfBlocks->setText(QString::number(count));
         ui->lastBlockTime->setText(blockDate.toString());
     }
