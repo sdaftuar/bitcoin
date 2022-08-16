@@ -28,15 +28,15 @@ void CChain::SetTip(CBlockIndex& block)
     }
 }
 
-std::vector<std::pair<int, uint256>> LocatorEntries(const CBlockIndex* index)
+std::vector<uint256> LocatorEntries(const CBlockIndex* index)
 {
     int step = 1;
-    std::vector<std::pair<int, uint256>> have;
+    std::vector<uint256> have;
     if (index == nullptr) return have;
 
     have.reserve(32);
     while (index) {
-        have.emplace_back(index->nHeight, index->GetBlockHash());
+        have.emplace_back(index->GetBlockHash());
         if (index->nHeight == 0) break;
         // Exponentially larger steps back, plus the genesis block.
         int height = std::max(index->nHeight - step, 0);
@@ -47,18 +47,9 @@ std::vector<std::pair<int, uint256>> LocatorEntries(const CBlockIndex* index)
     return have;
 }
 
-CBlockLocator BuildLocator(const std::vector<std::pair<int, uint256>>& entries)
-{
-    std::vector<uint256> hashes;
-    hashes.reserve(entries.size());
-    // Build the locator using the hashes in entries, in order.
-    for (const auto& [_, hash] : entries) hashes.push_back(hash);
-    return CBlockLocator{std::move(hashes)};
-}
-
 CBlockLocator GetLocator(const CBlockIndex* index)
 {
-    return BuildLocator(LocatorEntries(index));
+    return CBlockLocator{std::move(LocatorEntries(index))};
 }
 
 CBlockLocator CChain::GetLocator(const CBlockIndex* index) const

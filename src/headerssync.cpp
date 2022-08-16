@@ -298,52 +298,25 @@ std::vector<CBlockHeader> HeadersSyncState::PopHeadersReadyForAcceptance()
     return ret;
 }
 
-CBlockLocator HeadersSyncState::MakeNextHeadersRequest(const CBlockIndex* tip) const
+CBlockLocator HeadersSyncState::MakeNextHeadersRequest() const
 {
     Assume(m_download_state != State::FINAL);
     if (m_download_state == State::FINAL) return {};
 
-    // Start with locator entries built from the provided tip.
-    auto entries = LocatorEntries(tip != nullptr ? tip : m_chain_start);
-
-    // In what follows, we switch to std::pair<int, uint256> entries, where the first field refers
-    // to "double height", representing the sum of how far the presync phase got, plus how far
-    // the redownload phase got (or where it'll start). The entries added so far, if the peer
-    // starts from those, will trigger both phases starting at the entry's height, so double them.
-    for (auto& [height, _] : entries) height *= 2;
+    auto chain_start_locator = LocatorEntries(m_chain_start);
+    std::vector<uint256> locator;
 
     if (m_download_state == State::PRESYNC) {
-        // During pre-synchronization, we continue from the last header received. The double height
-        // for this is the height of the presync chain tip, plus the chain_start height (where
-        // redownload will start).
-        entries.emplace_back(m_current_height + m_chain_start->nHeight,
-            m_last_header_received.GetHash());
+        // During pre-synchronization, we continue from the last header received.
+        locator.push_back(m_last_header_received.GetHash());
     }
 
     if (m_download_state == State::REDOWNLOAD) {
-        // During redownload, we will download from the last received header that we stored. The
-        // double height here is the height of the presync chain tip, plus the height of the
-        // currently redownloaded chain tip.
-        entries.emplace_back(m_current_height + m_redownload_buffer_last_height,
-            m_redownload_buffer_last_hash);
+        // During redownload, we will download from the last received header that we stored.
+        locator.push_back(m_redownload_buffer_last_hash);
     }
 
-    // First sort the list by (hash, -double height), and use std::unique to delete duplicate
-    // hashes, preferring highest double height.
-    std::sort(entries.begin(), entries.end(), [](const auto& a, const auto& b) {
-        if (a.second != b.second) return a.second < b.second;
-        return a.first > b.first;
-    });
-    entries.erase(std::unique(entries.begin(), entries.end(), [](const auto& a, const auto& b) {
-        return a.second == b.second;
-    }), entries.end());
+    locator.insert(locator.end(), chain_start_locator.begin(), chain_start_locator.end());
 
-    // Then sort the entries by decreasing "double height", meaning the peer should prefer to send
-    // us the header that causes us least amount of headers left to fetch. Note that we expect the
-    // peer to only have a single, linear, chain without forks to give us. Thus, even if tip and
-    // m_chain_start (and what follows it) are on separate forks, it suffices to sort entries by
-    // (double) height, and we don't need to care about chainwork to compare them.
-    std::sort(entries.begin(), entries.end(), std::greater<>{});
-
-    return BuildLocator(std::move(entries));
+    return CBlockLocator{std::move(locator)};
 }

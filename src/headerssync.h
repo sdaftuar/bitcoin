@@ -157,13 +157,9 @@ public:
     /** Issue the next GETHEADERS message to our peer.
      *
      * This will return a locator appropriate for the current sync object, to continue the
-     * synchronization phase it is in. If tip is provided, the locator will also have entries from
-     * that tip. This permits the remote party to help us "skip ahead" if our global state has
-     * progressed past where this sync object currently is (because another sync peer was faster,
-     * perhaps). Note that this skipping ahead is not handled by HeadersSyncState - instead, it
-     * is expected that the caller will handle it, potentially by creating a new HeadersSyncState
-     * for it. */
-    CBlockLocator MakeNextHeadersRequest(const CBlockIndex* tip) const;
+     * synchronization phase it is in.
+     */
+    CBlockLocator MakeNextHeadersRequest() const;
 
 private:
     /** Clear out all download state that might be in progress (freeing any used

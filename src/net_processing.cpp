@@ -613,8 +613,7 @@ private:
      */
     bool IsContinuationOfLowWorkHeadersSync(Peer& peer, CNode& pfrom, const
                                       std::vector<CBlockHeader>& headers,
-                                      std::vector<CBlockHeader>& previously_downloaded_headers,
-                                      const CBlockIndex* headers_tip)
+                                      std::vector<CBlockHeader>& previously_downloaded_headers)
         EXCLUSIVE_LOCKS_REQUIRED(peer.m_headers_sync_mutex);
     /** Check work on a headers chain to be processed, and if insufficient,
      * initiate our anti-DoS headers sync mechanism.
@@ -629,8 +628,7 @@ private:
      */
     bool TryLowWorkHeadersSync(Peer& peer, CNode& pfrom,
                                   const CBlockIndex* chain_start_header,
-                                  const std::vector<CBlockHeader>& headers,
-                                  const CBlockIndex* headers_tip)
+                                  const std::vector<CBlockHeader>& headers)
         EXCLUSIVE_LOCKS_REQUIRED(!peer.m_headers_sync_mutex, !m_peer_mutex);
 
     /** Request further headers from this peer with a given locator.
@@ -2382,17 +2380,12 @@ bool PeerManagerImpl::CheckHeadersAreContinuous(const std::vector<CBlockHeader>&
     return true;
 }
 
-bool PeerManagerImpl::IsContinuationOfLowWorkHeadersSync(Peer& peer, CNode& pfrom, const std::vector<CBlockHeader>& headers, std::vector<CBlockHeader>& previously_downloaded_headers, const CBlockIndex* headers_tip)
+bool PeerManagerImpl::IsContinuationOfLowWorkHeadersSync(Peer& peer, CNode& pfrom, const std::vector<CBlockHeader>& headers, std::vector<CBlockHeader>& previously_downloaded_headers)
 {
     if (peer.m_headers_sync) {
         auto result = peer.m_headers_sync->ProcessNextHeaders(headers, headers.size() == MAX_HEADERS_RESULTS);
         if (result.request_more) {
-            // Use the parent of the best known header as tip to mix into the locator to send out.
-            // This matches the behavior of the initial getheaders locator sent, for the same
-            // reason: making sure we always get information back we can use to prime headers
-            // synchronization structures with.
-            if (headers_tip && headers_tip->pprev) headers_tip = headers_tip->pprev;
-            auto locator = peer.m_headers_sync->MakeNextHeadersRequest(headers_tip);
+            auto locator = peer.m_headers_sync->MakeNextHeadersRequest();
             // If we were instructed to ask for a locator, it should not be empty.
             Assume(!locator.vHave.empty());
             if (!locator.vHave.empty()) {
@@ -2428,7 +2421,7 @@ bool PeerManagerImpl::IsContinuationOfLowWorkHeadersSync(Peer& peer, CNode& pfro
     return false;
 }
 
-bool PeerManagerImpl::TryLowWorkHeadersSync(Peer& peer, CNode& pfrom, const CBlockIndex* chain_start_header, const std::vector<CBlockHeader>& headers, const CBlockIndex* headers_tip)
+bool PeerManagerImpl::TryLowWorkHeadersSync(Peer& peer, CNode& pfrom, const CBlockIndex* chain_start_header, const std::vector<CBlockHeader>& headers)
 {
     // Calculate the total work on this chain.
     arith_uint256 total_work = chain_start_header->nChainWork + CalculateHeadersWork(headers);
@@ -2463,7 +2456,7 @@ bool PeerManagerImpl::TryLowWorkHeadersSync(Peer& peer, CNode& pfrom, const CBlo
             // Now a HeadersSyncState object for tracking this synchronization is created,
             // process the headers using it as normal.
             std::vector<CBlockHeader> headers_dummy;
-            bool ret = IsContinuationOfLowWorkHeadersSync(peer, pfrom, headers, headers_dummy, headers_tip);
+            bool ret = IsContinuationOfLowWorkHeadersSync(peer, pfrom, headers, headers_dummy);
             // As this processing has just started, it cannot yet return headers to process.
             Assume(headers_dummy.empty());
             return ret;
@@ -2654,8 +2647,6 @@ void PeerManagerImpl::ProcessHeadersMessage(CNode& pfrom, Peer& peer,
     const std::vector<CBlockHeader>* headers_to_process = &headers;
     std::vector<CBlockHeader> previously_downloaded_headers;
 
-    const CBlockIndex* headers_tip = WITH_LOCK(::cs_main, return m_chainman.m_best_header);
-
     // We'll set already_validated_work to true if the headers-sync logic
     // returns headers for us to process, to bypass the minimum work check
     // (which is done separately inside m_headers_sync)
@@ -2665,7 +2656,7 @@ void PeerManagerImpl::ProcessHeadersMessage(CNode& pfrom, Peer& peer,
     bool have_headers_sync = false;
     {
         LOCK(peer.m_headers_sync_mutex);
-        if (IsContinuationOfLowWorkHeadersSync(peer, pfrom, headers, previously_downloaded_headers, headers_tip)) {
+        if (IsContinuationOfLowWorkHeadersSync(peer, pfrom, headers, previously_downloaded_headers)) {
             return;
         } else if (!previously_downloaded_headers.empty()) {
             // Headers sync may have returned headers for processing.
@@ -2695,7 +2686,7 @@ void PeerManagerImpl::ProcessHeadersMessage(CNode& pfrom, Peer& peer,
     // Do anti-DoS checks to determine if we should process or store for later
     // processing.
     if (!already_validated_work && TryLowWorkHeadersSync(peer, pfrom,
-                chain_start_header, *headers_to_process, headers_tip)) {
+                chain_start_header, *headers_to_process)) {
         return;
     }
 
