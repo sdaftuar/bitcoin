@@ -148,7 +148,11 @@ public:
     /** Process a batch of headers, once a sync via this mechanism has started
      *
      * received_headers: headers that were received over the network for processing.
-     *                   Assumes the caller has already verified the headers connect.
+     *                   Assumes the caller has already verified the headers connect,
+     *                   and has checked that each header satisfies the
+     *                   proof-of-work target included in the header (but not
+     *                   necessarily verified that the proof-of-work target is
+     *                   correct and passes consensus rules).
      * full_headers_message: true if the message was at max capacity,
      *                       indicating more headers may be available
      * ProcessingResult.pow_validated_headers: will be filled in with any
@@ -235,7 +239,7 @@ private:
     CBlockHeader m_last_header_received;
 
     /** Height of m_last_header_received */
-    int64_t m_current_height{0}; // height of last header received
+    int64_t m_current_height{0};
 
     /** During phase 2 (REDOWNLOAD), we buffer redownloaded headers in memory
      *  until enough commitments have been verified; those are stored in

@@ -2712,8 +2712,10 @@ void PeerManagerImpl::ProcessHeadersMessage(CNode& pfrom, Peer& peer,
 
     // Before we do any processing, make sure these pass basic sanity checks.
     // We'll rely on headers having valid proof-of-work further down, as an
-    // anti-DoS criteria.
+    // anti-DoS criteria (note: this check is required before passing any
+    // headers/ into HeadersSyncState).
     if (!CheckHeadersPoW(headers, m_chainparams.GetConsensus(), peer)) {
+        Misbehaving(peer, 100, "invalid proof-of-work");
         return;
     }
 

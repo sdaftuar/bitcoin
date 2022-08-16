@@ -139,8 +139,8 @@ bool HeadersSyncState::ValidateAndStoreHeadersCommitments(const std::vector<CBlo
     Assume(headers.size() > 0);
     if (headers.size() == 0) return true;
 
-    Assume(m_download_state != State::FINAL);
-    if (m_download_state == State::FINAL) return false;
+    Assume(m_download_state == State::PRESYNC);
+    if (m_download_state != State::PRESYNC) return false;
 
     if (headers[0].hashPrevBlock != m_last_header_received.GetHash()) {
         // Somehow our peer gave us a header that doesn't connect.
@@ -192,11 +192,6 @@ bool HeadersSyncState::ValidateAndProcessSingleHeader(const CBlockHeader& previo
         return false;
     }
 
-    if (!CheckProofOfWork(current.GetHash(), current.nBits, m_consensus_params)) {
-        LogPrint(BCLog::HEADERSSYNC, "Initial headers sync aborted with peer=%d: invalid PoW at height=%i (presync phase)\n", m_id, next_height);
-        return false;
-    }
-
     if (next_height % HEADER_COMMITMENT_PERIOD == m_commit_offset) {
         // Add a commitment.
         m_header_commitments.push_back(m_hasher(current.GetHash()) & 1);
@@ -219,8 +214,8 @@ bool HeadersSyncState::ValidateAndProcessSingleHeader(const CBlockHeader& previo
 
 bool HeadersSyncState::ValidateAndStoreRedownloadedHeader(const CBlockHeader& header)
 {
-    Assume(m_download_state != State::FINAL);
-    if (m_download_state == State::FINAL) return false;
+    Assume(m_download_state == State::REDOWNLOAD);
+    if (m_download_state != State::REDOWNLOAD) return false;
 
     int64_t next_height = m_redownload_buffer_last_height + 1;
 
@@ -286,8 +281,8 @@ std::vector<CBlockHeader> HeadersSyncState::PopHeadersReadyForAcceptance()
 {
     std::vector<CBlockHeader> ret;
 
-    Assume(m_download_state != State::FINAL);
-    if (m_download_state == State::FINAL) return ret;
+    Assume(m_download_state == State::REDOWNLOAD);
+    if (m_download_state != State::REDOWNLOAD) return ret;
 
     while (m_redownloaded_headers.size() > REDOWNLOAD_BUFFER_SIZE ||
             (m_redownloaded_headers.size() > 0 && m_process_all_remaining_headers)) {
