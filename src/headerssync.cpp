@@ -51,9 +51,9 @@ HeadersSyncState::HeadersSyncState(NodeId id, const Consensus::Params& consensus
 void HeadersSyncState::Finalize()
 {
     Assume(m_download_state != State::FINAL);
-    m_header_commitments.clear();
+    m_header_commitments = {};
     m_last_header_received.SetNull();
-    m_redownloaded_headers = std::deque<CompressedHeader>{};
+    m_redownloaded_headers = {};
     m_redownload_buffer_last_hash.SetNull();
     m_redownload_buffer_first_prev_hash.SetNull();
     m_process_all_remaining_headers = false;

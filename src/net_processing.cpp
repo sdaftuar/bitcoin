@@ -599,7 +599,7 @@ private:
      * @param[in]   via_compact_block   Whether this header came in via compact block handling.
     */
     void ProcessHeadersMessage(CNode& pfrom, Peer& peer,
-                               std::vector<CBlockHeader>& headers,
+                               std::vector<CBlockHeader>&& headers,
                                bool via_compact_block)
         EXCLUSIVE_LOCKS_REQUIRED(!m_peer_mutex, !m_headers_presync_mutex);
     /** Various helpers for headers processing, invoked by ProcessHeadersMessage() */
@@ -2566,7 +2566,7 @@ bool PeerManagerImpl::TryLowWorkHeadersSync(Peer& peer, CNode& pfrom, const CBlo
         } else {
             LogPrint(BCLog::NET, "Ignoring low-work chain (height=%u) from peer=%d\n", chain_start_header->nHeight + headers.size(), pfrom.GetId());
             // Since this is a low-work headers chain, no further processing is required.
-            std::vector<CBlockHeader>().swap(headers);
+            headers = {};
             return true;
         }
     }
@@ -2730,7 +2730,7 @@ void PeerManagerImpl::UpdatePeerStateForReceivedHeaders(CNode& pfrom,
 }
 
 void PeerManagerImpl::ProcessHeadersMessage(CNode& pfrom, Peer& peer,
-                                            std::vector<CBlockHeader>& headers,
+                                            std::vector<CBlockHeader>&& headers,
                                             bool via_compact_block)
 {
     size_t nCount = headers.size();
@@ -4254,8 +4254,7 @@ void PeerManagerImpl::ProcessMessage(CNode& pfrom, const std::string& msg_type, 
             // the peer if the header turns out to be for an invalid block.
             // Note that if a peer tries to build on an invalid chain, that
             // will be detected and the peer will be disconnected/discouraged.
-            std::vector<CBlockHeader> header{cmpctblock.header};
-            return ProcessHeadersMessage(pfrom, *peer, header, /*via_compact_block=*/true);
+            return ProcessHeadersMessage(pfrom, *peer, {cmpctblock.header}, /*via_compact_block=*/true);
         }
 
         if (fBlockReconstructed) {
@@ -4388,7 +4387,7 @@ void PeerManagerImpl::ProcessMessage(CNode& pfrom, const std::string& msg_type, 
             ReadCompactSize(vRecv); // ignore tx count; assume it is 0.
         }
 
-        ProcessHeadersMessage(pfrom, *peer, headers, /*via_compact_block=*/false);
+        ProcessHeadersMessage(pfrom, *peer, std::move(headers), /*via_compact_block=*/false);
 
         // Check if the headers presync progress needs to be reported to validation.
         // This needs to be done without holding the m_headers_presync_mutex lock.
