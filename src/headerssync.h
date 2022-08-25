@@ -148,11 +148,12 @@ public:
     /** Process a batch of headers, once a sync via this mechanism has started
      *
      * received_headers: headers that were received over the network for processing.
-     *                   Assumes the caller has already verified the headers connect,
-     *                   and has checked that each header satisfies the
-     *                   proof-of-work target included in the header (but not
-     *                   necessarily verified that the proof-of-work target is
-     *                   correct and passes consensus rules).
+     *                   Assumes the caller has already verified the headers
+     *                   are continuous, and has checked that each header
+     *                   satisfies the proof-of-work target included in the
+     *                   header (but not necessarily verified that the
+     *                   proof-of-work target is correct and passes consensus
+     *                   rules).
      * full_headers_message: true if the message was at max capacity,
      *                       indicating more headers may be available
      * ProcessingResult.pow_validated_headers: will be filled in with any
