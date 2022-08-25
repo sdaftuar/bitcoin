@@ -96,7 +96,9 @@ class AcceptBlockTest(BitcoinTestFramework):
             blocks_h2[i].solve()
             block_time += 1
         test_node.send_and_ping(msg_block(blocks_h2[0]))
-        min_work_node.send_and_ping(msg_block(blocks_h2[1]))
+
+        with self.nodes[1].assert_debug_log(expected_msgs=[f"AcceptBlockHeader: not adding new block header {blocks_h2[1].hash}, missing anti-dos proof-of-work validation"]):
+            min_work_node.send_and_ping(msg_block(blocks_h2[1]))
 
         assert_equal(self.nodes[0].getblockcount(), 2)
         assert_equal(self.nodes[1].getblockcount(), 1)
