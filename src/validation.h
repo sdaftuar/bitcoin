@@ -1004,7 +1004,11 @@ public:
      *
      * @param[in]   block The block we want to process.
      * @param[in]   force_processing Process this block even if unrequested; used for non-network block sources.
-     * @param[in]   min_pow_checked  True if proof-of-work anti-DoS checks have been done by caller for headers chain
+     * @param[in]   min_pow_checked  True if proof-of-work anti-DoS checks have
+     *                               been done by caller for headers chain
+     *                               (note: only affects headers acceptance; if
+     *                               block header is already present in block
+     *                               index then this parameter has no effect)
      * @param[out]  new_block A boolean which is set to indicate if the block was first received via this call
      * @returns     If the block was processed, independently of block validity
      */
