@@ -2546,16 +2546,13 @@ bool PeerManagerImpl::TryLowWorkHeadersSync(Peer& peer, CNode& pfrom, const CBlo
         if (headers.size() == MAX_HEADERS_RESULTS) {
             // Note: we could advance to the last header in this set that is
             // known to us, rather than starting at the first header (which we
-            // may already have). But we actually might have all the headers in
-            // this set already, because headers sync can be imprecise when a
-            // peer has to serve us a long chain (due to imprecision in the way
-            // locators are calculated). So philosophically, if we wanted to
-            // optimize this correctly, we could consider requesting more
-            // headers until we find the peer's first new header on this chain,
-            // and start the sync from there. In practice this is unlikely to
-            // matter much outside of initial sync, which we generally only do
-            // once, so for now we'll just start the sync with the first header
-            // in the set and not worry about this issue.
+            // may already have); however this is unlikely to matter much since
+            // ProcessHeadersMessage() already handles the case where all
+            // headers in a received message are already known and are
+            // ancestors of m_best_header or chainActive.Tip(), by skipping
+            // this logic in that case. So even if the first header in this set
+            // of headers is known, some header in this set must be new, so
+            // advancing to the first unknown header would be a small effect.
             LOCK(peer.m_headers_sync_mutex);
             peer.m_headers_sync.reset(new HeadersSyncState(peer.m_id, m_chainparams.GetConsensus(),
                 chain_start_header, minimum_chain_work));
