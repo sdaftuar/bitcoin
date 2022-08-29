@@ -603,7 +603,7 @@ private:
                                bool via_compact_block)
         EXCLUSIVE_LOCKS_REQUIRED(!m_peer_mutex, !m_headers_presync_mutex);
     /** Various helpers for headers processing, invoked by ProcessHeadersMessage() */
-    /** Return true if headers are continuous and have valid proof-of-work */
+    /** Return true if headers are continuous and have valid proof-of-work (DoS points assigned on failure) */
     bool CheckHeadersPoW(const std::vector<CBlockHeader>& headers, const Consensus::Params& consensusParams, Peer& peer);
     /** Calculate an anti-DoS work threshold for headers chains */
     arith_uint256 GetAntiDoSWorkThreshold();
@@ -2751,10 +2751,10 @@ void PeerManagerImpl::ProcessHeadersMessage(CNode& pfrom, Peer& peer,
     // anti-DoS criteria (note: this check is required before passing any
     // headers into HeadersSyncState).
     if (!CheckHeadersPoW(headers, m_chainparams.GetConsensus(), peer)) {
-        // Note that even if a header is announced via compact block, the
-        // header itself should be valid, so this type of error can always be
-        // punished.
-        Misbehaving(peer, 100, "invalid proof-of-work");
+        // Misbehaving() calls are handled within CheckHeadersPoW(), so we can
+        // just return. (Note that even if a header is announced via compact
+        // block, the header itself should be valid, so this type of error can
+        // always be punished.)
         return;
     }
 
