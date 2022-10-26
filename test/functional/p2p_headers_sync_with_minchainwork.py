@@ -12,6 +12,9 @@ from test_framework.p2p import (
 
 from test_framework.messages import (
     msg_headers,
+    from_hex,
+    CBlockHeader,
+    CBlock
 )
 
 from test_framework.blocktools import (
@@ -20,6 +23,8 @@ from test_framework.blocktools import (
 )
 
 from test_framework.util import assert_equal
+
+import time
 
 NODE1_BLOCKS_REQUIRED = 15
 NODE2_BLOCKS_REQUIRED = 2047
@@ -150,6 +155,74 @@ class RejectLowDifficultyHeadersTest(BitcoinTestFramework):
 
         self.sync_blocks(timeout=300) # Ensure tips eventually agree
 
+    def test_headers_processing_failure_cannot_evade_checks(self, node):
+        self.log.info("Test that an initial headers message that fails presync validation cannot bypass acceptance logic")
+        # This was an actual bug in the original PR:
+        # The idea is that if we got a set of headers that was low work, we'd
+        # enter presync and start processing the headers in the original
+        # message. However there was a logic bug where encountering an error
+        # during presync-validation of those headers would result in the
+        # headers being passed through to validation.  There seem to be two
+        # types of presync-validation errors that could occur: encountering an
+        # invalid nBits value or overrunning the maximum number of commitments
+        # allowed (based on MTP of the chain-start block, and the current
+        # time).
+        # For regtest, violating the max number of commitments is easier: we
+        # just add a header that has an MTP close to 2 hours in the
+        # future, and that will limit the number of commitments that are
+        # permitted to build off that header.
+        headers_branch_length = 11
+        MAX_FUTURE_TIMESTAMP = int(time.time()) + 7200 - 10 # Leave a little room at the end
+
+        self.log.info(f'Generate {headers_branch_length} blocks that fork from genesis, at time stamps near the 2-hour limit')
+        genesis_hash = node.getblockhash(0) # Start from genesis
+        prev_header = from_hex(CBlockHeader(), node.getblockheader(blockhash=genesis_hash, verbose=False))
+        prev_header.calc_sha256()
+
+        def next_block(previous_hash, nTime, nBits):
+            block = CBlock()
+            block.nVersion = 4
+            block.hashPrevBlock = previous_hash
+            block.nTime = nTime
+            block.nBits = nBits
+            block.solve()
+            return block
+
+        for i in range(headers_branch_length):
+            block = next_block(prev_header.sha256, MAX_FUTURE_TIMESTAMP - headers_branch_length + i, prev_header.nBits)
+            prev_header = block
+            node.submitheader(hexdata = prev_header.serialize().hex())
+
+        # The last header we added should be in getchaintips now
+        def check_entry_in_chaintips(block_hash, height, branch_length, chaintips):
+            assert {
+                'height': height,
+                'hash': block_hash,
+                'branchlen': branch_length,
+                'status': 'headers-only',
+            } in chaintips
+
+        check_entry_in_chaintips(prev_header.hash, headers_branch_length, headers_branch_length, node.getchaintips())
+
+        chaintip_entry_hash = prev_header.hash
+
+        # Test setup is now complete. Construct a set of headers that builds off this branch.
+        self.log.info("Create 2000 headers that build off this branch")
+        headers = []
+        for i in range(2000):
+            block = next_block(prev_header.sha256, MAX_FUTURE_TIMESTAMP+i, prev_header.nBits)
+            prev_header = block
+            headers.append(prev_header)
+
+        # Send a headers message to the peer
+        p2p = node.add_p2p_connection(P2PInterface())
+
+        p2p.sync_with_ping()
+        self.log.info("Send these headers to the node and verify none are accepted")
+        p2p.send_and_ping(msg_headers(headers))
+
+        # chaintips should not have changed
+        check_entry_in_chaintips(chaintip_entry_hash, headers_branch_length, headers_branch_length, node.getchaintips())
 
     def run_test(self):
         self.test_chains_sync_when_long_enough()
@@ -158,6 +231,7 @@ class RejectLowDifficultyHeadersTest(BitcoinTestFramework):
 
         self.test_peerinfo_includes_headers_presync_height()
 
+        self.test_headers_processing_failure_cannot_evade_checks(node=self.nodes[2])
 
 
 if __name__ == '__main__':
