@@ -40,6 +40,7 @@
 class CBlockIndex;
 class CChain;
 class Chainstate;
+class CTxMemPoolEntry;
 
 /** Fake height value used in Coin to signify they are only in the memory pool (since 0.8) */
 static const uint32_t MEMPOOL_HEIGHT = 0x7FFFFFFF;
@@ -48,6 +49,87 @@ static const uint32_t MEMPOOL_HEIGHT = 0x7FFFFFFF;
  * Test whether the LockPoints height and time are still valid on the current chain
  */
 bool TestLockPointValidity(CChain& active_chain, const LockPoints& lp) EXCLUSIVE_LOCKS_REQUIRED(cs_main);
+
+/**
+ * Data structure for managing clusters of transactions in the mempool.
+ *
+ * We can consider the graph of mempool transactions where edges connect
+ * transactions that have a parent/child relationship. Then two transactions
+ * are in a "cluster" if they are connected in this graph.
+ *
+ * Clusters are sorted for transaction selection/eviction purposes
+ * independently of each other.
+ */
+
+class CTxMemPool;
+
+class Cluster {
+public:
+    Cluster(int64_t id, CTxMemPool* mempool) : m_id(id), m_mempool(mempool) {}
+
+    void Clear() {
+        m_chunks.clear();
+        m_tx_count = 0;
+    }
+
+    // Add a transaction and update the sort.
+    void AddTransaction(const CTxMemPoolEntry& entry, bool sort) {
+        m_chunks.emplace_back(entry.GetModifiedFee(), entry.GetTxSize());
+        m_chunks.back().txs.push_back(entry);
+        entry.m_cluster = this;
+        ++m_tx_count;
+        if (sort) Sort();
+        return;
+    }
+
+    // Remove a transaction, leaving cluster in inconsistent state.
+    void RemoveTransaction(const CTxMemPoolEntry& entry) {
+        m_chunks[entry.m_loc.first].txs.erase(entry.m_loc.second);
+        // Chunk (or cluster) may now be empty, but this will get cleaned up
+        // when the cluster is resorted (or when the cluster is deleted) Note:
+        // if we cleaned up empty chunks here, then this would break the
+        // locations of other entries in the cluster. Since we would like to be
+        // able to do multiple removals in a row and then clean up the sort, we
+        // can't clean up empty chunks here.
+        --m_tx_count;
+        return;
+    }
+
+    // Sort the cluster and partition into chunks.
+    void Sort(bool reassign_locations = true);
+
+    // Just rechunk the cluster using its existing linearization.
+    void Rechunk();
+
+    // Helper function
+    void RechunkFromLinearization(std::vector<CTxMemPoolEntry::CTxMemPoolEntryRef>& txs, bool reassign_locations);
+
+    void Merge(std::vector<Cluster *>::iterator first, std::vector<Cluster*>::iterator last, bool this_cluster_first);
+
+    // The chunks of transactions which will be added to blocks or
+    // evicted from the mempool.
+    struct Chunk {
+        Chunk(CAmount _fee, int64_t _size) : fee(_fee), size(_size) {}
+        Chunk(Chunk&& other) = default;
+        Chunk& operator=(Cluster::Chunk&& other) = default;
+        Chunk& operator=(const Cluster::Chunk& other) = delete;
+
+        CAmount fee{0};
+        int64_t size{0};
+        std::list<CTxMemPoolEntry::CTxMemPoolEntryRef> txs;
+    };
+
+    typedef std::vector<Chunk>::iterator ChunkIter;
+    typedef std::pair<ChunkIter, Cluster*> HeapEntry;
+
+    std::vector<Chunk> m_chunks;
+    size_t m_tx_count{0};
+
+    const int64_t m_id;
+    CTxMemPool* m_mempool;
+    mutable Epoch::Marker m_epoch_marker; //!< epoch when last touched
+};
+
 
 // extracts a transaction hash from CTxMemPoolEntry or CTransactionRef
 struct mempoolentry_txid
@@ -405,6 +487,11 @@ public:
     mutable RecursiveMutex cs;
     indexed_transaction_set mapTx GUARDED_BY(cs);
 
+    // Clusters
+    // TODO: account for memory use
+    std::unordered_map<int64_t, std::unique_ptr<Cluster>> m_cluster_map GUARDED_BY(cs);
+    int64_t m_next_cluster_id GUARDED_BY(cs){0};
+
     using txiter = indexed_transaction_set::nth_index<0>::type::const_iterator;
     std::vector<std::pair<uint256, txiter>> vTxHashes GUARDED_BY(cs); //!< All tx witness hashes/entries in mapTx, in random order
 
@@ -541,6 +628,10 @@ public:
      */
     void RemoveStaged(setEntries& stage, bool updateDescendants, MemPoolRemovalReason reason) EXCLUSIVE_LOCKS_REQUIRED(cs);
 
+    // Remove the given chunk (guaranteed to be last in the cluster)
+    // Leave the resulting cluster otherwise unchanged (ie don't repartition/re-sort).
+    void RemoveChunkForEviction(std::list<CTxMemPoolEntry::CTxMemPoolEntryRef>& entries) EXCLUSIVE_LOCKS_REQUIRED(cs);
+
     /** UpdateTransactionsFromBlock is called when adding transactions from a
      * disconnected block back to the mempool, new mempool entries may have
      * children in the mempool (which is generally not the case when otherwise
@@ -571,6 +662,8 @@ public:
     util::Result<setEntries> CalculateMemPoolAncestors(const CTxMemPoolEntry& entry,
                                    const Limits& limits,
                                    bool fSearchForParents = true) const EXCLUSIVE_LOCKS_REQUIRED(cs);
+
+    std::vector<CTxMemPool::txiter> CalculateAncestors(txiter iter) const EXCLUSIVE_LOCKS_REQUIRED(cs);
 
     /**
      * Same as CalculateMemPoolAncestors, but always returns a (non-optional) setEntries.
@@ -762,6 +855,10 @@ private:
      */
     void UpdateForDescendants(txiter updateIt, cacheMap& cachedDescendants,
                               const std::set<uint256>& setExclude, std::set<uint256>& descendants_to_remove) EXCLUSIVE_LOCKS_REQUIRED(cs);
+    // During reorg we add transactions back to mempool, must reconnect
+    // clusters with in-mempool descendants.
+    void UpdateClusterForDescendants(txiter updateIt) EXCLUSIVE_LOCKS_REQUIRED(cs);
+
     /** Update ancestors of hash to add/remove it as a descendant transaction. */
     void UpdateAncestorsOf(bool add, txiter hash, setEntries &setAncestors) EXCLUSIVE_LOCKS_REQUIRED(cs);
     /** Set ancestor state for an entry */
@@ -782,8 +879,11 @@ private:
      *  removal.
      */
     void removeUnchecked(txiter entry, MemPoolRemovalReason reason) EXCLUSIVE_LOCKS_REQUIRED(cs);
+
+    Cluster *AssignCluster() EXCLUSIVE_LOCKS_REQUIRED(cs);
+    void RecalculateClusterAndMaybeSort(Cluster *cluster, bool sort) EXCLUSIVE_LOCKS_REQUIRED(cs);
 public:
-    /** visited marks a CTxMemPoolEntry as having been traversed
+    /** visited marks a CTxMemPoolEntry or Cluster as having been traversed
      * during the lifetime of the most recently created Epoch::Guard
      * and returns false if we are the first visitor, true otherwise.
      *
@@ -791,9 +891,19 @@ public:
      * triggered.
      *
      */
+    bool visited(const CTxMemPoolEntry& entry) const EXCLUSIVE_LOCKS_REQUIRED(cs, m_epoch)
+    {
+        return m_epoch.visited(entry.m_epoch_marker);
+    }
+
     bool visited(const txiter it) const EXCLUSIVE_LOCKS_REQUIRED(cs, m_epoch)
     {
         return m_epoch.visited(it->m_epoch_marker);
+    }
+
+    bool visited(Cluster *cluster) const EXCLUSIVE_LOCKS_REQUIRED(cs, m_epoch)
+    {
+        return m_epoch.visited(cluster->m_epoch_marker);
     }
 
     bool visited(std::optional<txiter> it) const EXCLUSIVE_LOCKS_REQUIRED(cs, m_epoch)
@@ -923,6 +1033,104 @@ struct DisconnectedBlockTransactions {
         cachedInnerUsage = 0;
         queuedTx.clear();
     }
+};
+
+// Container for tracking updates to ancestor feerate as we include (parent)
+// transactions in a block
+struct CTxMemPoolModifiedEntry {
+    explicit CTxMemPoolModifiedEntry(CTxMemPool::txiter entry)
+    {
+        iter = entry;
+        nSizeWithAncestors = entry->GetSizeWithAncestors();
+        nModFeesWithAncestors = entry->GetModFeesWithAncestors();
+        nSigOpCostWithAncestors = entry->GetSigOpCostWithAncestors();
+    }
+
+    CAmount GetModifiedFee() const { return iter->GetModifiedFee(); }
+    uint64_t GetSizeWithAncestors() const { return nSizeWithAncestors; }
+    CAmount GetModFeesWithAncestors() const { return nModFeesWithAncestors; }
+    size_t GetTxSize() const { return iter->GetTxSize(); }
+    const CTransaction& GetTx() const { return iter->GetTx(); }
+
+    CTxMemPool::txiter iter;
+    uint64_t nSizeWithAncestors;
+    CAmount nModFeesWithAncestors;
+    int64_t nSigOpCostWithAncestors;
+};
+
+/** Comparator for CTxMemPool::txiter objects.
+ *  It simply compares the internal memory address of the CTxMemPoolEntry object
+ *  pointed to. This means it has no meaning, and is only useful for using them
+ *  as key in other indexes.
+ */
+struct CompareCTxMemPoolIter {
+    bool operator()(const CTxMemPool::txiter& a, const CTxMemPool::txiter& b) const
+    {
+        return &(*a) < &(*b);
+    }
+};
+
+
+// A comparator that sorts transactions based on number of ancestors.
+// This is sufficient to sort an ancestor package in an order that is valid
+// to appear in a block.
+struct CompareByAncestorCount {
+    bool operator()(const CTxMemPool::txiter& a, const CTxMemPool::txiter& b) const
+    {
+        if (a->GetCountWithAncestors() != b->GetCountWithAncestors()) {
+            return a->GetCountWithAncestors() < b->GetCountWithAncestors();
+        }
+        return CompareIteratorByHash()(a, b);
+    }
+    bool operator()(const CTxMemPoolEntry& a, const CTxMemPoolEntry& b) const
+    {
+        if (a.GetCountWithAncestors() != b.GetCountWithAncestors()) {
+            return a.GetCountWithAncestors() < b.GetCountWithAncestors();
+        }
+        return CompareIteratorByHash()(&a, &b);
+    }
+};
+
+struct modifiedentry_iter {
+    typedef CTxMemPool::txiter result_type;
+    result_type operator() (const CTxMemPoolModifiedEntry &entry) const
+    {
+        return entry.iter;
+    }
+};
+
+typedef boost::multi_index_container<
+    CTxMemPoolModifiedEntry,
+    boost::multi_index::indexed_by<
+        boost::multi_index::ordered_unique<
+            modifiedentry_iter,
+            CompareCTxMemPoolIter
+        >,
+        // sorted by modified ancestor fee rate
+        boost::multi_index::ordered_non_unique<
+            // Reuse same tag from CTxMemPool's similar index
+            boost::multi_index::tag<ancestor_score>,
+            boost::multi_index::identity<CTxMemPoolModifiedEntry>,
+            CompareTxMemPoolEntryByAncestorFee
+        >
+    >
+> indexed_modified_transaction_set;
+
+typedef indexed_modified_transaction_set::nth_index<0>::type::iterator modtxiter;
+typedef indexed_modified_transaction_set::index<ancestor_score>::type::iterator modtxscoreiter;
+
+struct update_for_parent_inclusion
+{
+    explicit update_for_parent_inclusion(CTxMemPool::txiter it) : iter(it) {}
+
+    void operator() (CTxMemPoolModifiedEntry &e)
+    {
+        e.nModFeesWithAncestors -= iter->GetModifiedFee();
+        e.nSizeWithAncestors -= iter->GetTxSize();
+        e.nSigOpCostWithAncestors -= iter->GetSigOpCost();
+    }
+
+    CTxMemPool::txiter iter;
 };
 
 #endif // BITCOIN_TXMEMPOOL_H

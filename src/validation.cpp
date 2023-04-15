@@ -837,6 +837,7 @@ bool MemPoolAccept::PreChecks(ATMPArgs& args, Workspace& ws)
 
     entry.reset(new CTxMemPoolEntry(ptx, ws.m_base_fees, nAcceptTime, m_active_chainstate.m_chain.Height(),
                                     fSpendsCoinbase, nSigOpsCost, lock_points.value()));
+
     ws.m_vsize = entry->GetTxSize();
 
     if (nSigOpsCost > MAX_STANDARD_TX_SIGOPS_COST)
@@ -946,30 +947,12 @@ bool MemPoolAccept::ReplacementChecks(Workspace& ws)
     const CTransaction& tx = *ws.m_ptx;
     const uint256& hash = ws.m_hash;
     TxValidationState& state = ws.m_state;
-
-    CFeeRate newFeeRate(ws.m_modified_fees, ws.m_vsize);
-    // Enforce Rule #6. The replacement transaction must have a higher feerate than its direct conflicts.
-    // - The motivation for this check is to ensure that the replacement transaction is preferable for
-    //   block-inclusion, compared to what would be removed from the mempool.
-    // - This logic predates ancestor feerate-based transaction selection, which is why it doesn't
-    //   consider feerates of descendants.
-    // - Note: Ancestor feerate-based transaction selection has made this comparison insufficient to
-    //   guarantee that this is incentive-compatible for miners, because it is possible for a
-    //   descendant transaction of a direct conflict to pay a higher feerate than the transaction that
-    //   might replace them, under these rules.
-    if (const auto err_string{PaysMoreThanConflicts(ws.m_iters_conflicting, newFeeRate, hash)}) {
-        return state.Invalid(TxValidationResult::TX_MEMPOOL_POLICY, "insufficient fee", *err_string);
-    }
+    CTxMemPool::setEntries& ancestors = ws.m_ancestors;
 
     // Calculate all conflicting entries and enforce Rule #5.
     if (const auto err_string{GetEntriesForConflicts(tx, m_pool, ws.m_iters_conflicting, ws.m_all_conflicting)}) {
         return state.Invalid(TxValidationResult::TX_MEMPOOL_POLICY,
                              "too many potential replacements", *err_string);
-    }
-    // Enforce Rule #2.
-    if (const auto err_string{HasNoNewUnconfirmed(tx, m_pool, ws.m_iters_conflicting)}) {
-        return state.Invalid(TxValidationResult::TX_MEMPOOL_POLICY,
-                             "replacement-adds-unconfirmed", *err_string);
     }
     // Check if it's economically rational to mine this transaction rather than the ones it
     // replaces and pays for its own relay fees. Enforce Rules #3 and #4.
@@ -981,6 +964,64 @@ bool MemPoolAccept::ReplacementChecks(Workspace& ws)
                                          m_pool.m_incremental_relay_feerate, hash)}) {
         return state.Invalid(TxValidationResult::TX_MEMPOOL_POLICY, "insufficient fee", *err_string);
     }
+
+    // Calculate whether the cluster size of the new transaction would exceed
+    // the cluster size limit.
+    int64_t cluster_size = 1;
+    std::set<Cluster*> clusters;
+    for (auto it : ancestors) {
+        clusters.insert(it->m_cluster);
+    }
+    for (auto c : clusters) {
+        cluster_size += c->m_tx_count;
+    }
+    for (auto it : ws.m_all_conflicting) {
+        // Don't count the transactions that would be removed, if they are in
+        // any of the clusters that the new transaction would merge.
+        if (clusters.count(it->m_cluster)) {
+            cluster_size -= 1;
+        }
+    }
+    // TODO: add a limit on the cluster size here.
+
+    // Check if the miner score of the new transaction exceeds that of all
+    // transactions to be removed.
+    Cluster temp_cluster(0, &m_pool);
+    for (const auto c: clusters) {
+        for (const auto& chunk: c->m_chunks) {
+            for (const auto& txentry: chunk.txs) {
+                temp_cluster.m_chunks.emplace_back(txentry.get().GetModifiedFee(), txentry.get().GetTxSize());
+                temp_cluster.m_chunks.back().txs.push_back(txentry);
+            }
+        }
+    }
+    // Unfortunately, the cluster sort algorithm uses the modified fee from the
+    // mempool entry (the chunk data is thrown away). So we need to update the
+    // modified fee and then undo it later (or else addUnchecked will apply it
+    // twice which is bad)
+    ws.m_entry->UpdateModifiedFee(ws.m_modified_fees-ws.m_base_fees);
+    temp_cluster.m_chunks.emplace_back(ws.m_modified_fees, ws.m_vsize);
+    temp_cluster.m_chunks.back().txs.push_back(*ws.m_entry);
+    temp_cluster.Sort(false);
+
+    // Find the new transaction and compare its feerate to that of the conflicts.
+    CAmount effective_fees = 0;
+    int64_t effective_size = 0;
+    for (auto &chunk: temp_cluster.m_chunks) {
+        for (auto &txentry: chunk.txs) {
+            if (txentry.get().GetTx().GetHash() == hash) {
+                effective_fees = chunk.fee;
+                effective_size = chunk.size;
+            }
+        }
+    }
+    // Undo the temporary modification to the mempool entry.
+    ws.m_entry->UpdateModifiedFee(-ws.m_modified_fees+ws.m_base_fees);
+    CFeeRate newFeeRate(effective_fees, effective_size);
+    if (const auto err_string{PaysMoreThanConflicts(ws.m_all_conflicting, newFeeRate, hash)}) {
+        return state.Invalid(TxValidationResult::TX_MEMPOOL_POLICY, "insufficient fee", *err_string);
+    }
+
     return true;
 }
 

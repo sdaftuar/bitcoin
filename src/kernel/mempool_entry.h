@@ -20,8 +20,10 @@
 #include <set>
 #include <stddef.h>
 #include <stdint.h>
+#include <list>
 
 class CBlockIndex;
+class Cluster;
 
 struct LockPoints {
     // Will be set to the blockchain height and median time past
@@ -49,6 +51,7 @@ struct CompareIteratorByHash {
         return a->GetTx().GetHash() < b->GetTx().GetHash();
     }
 };
+
 
 /** \class CTxMemPoolEntry
  *
@@ -168,6 +171,9 @@ public:
     Children& GetMemPoolChildren() const { return m_children; }
 
     mutable size_t vTxHashesIdx; //!< Index in mempool's vTxHashes
+    // TODO: is there a better way to refer back to the cluster?
+    mutable Cluster* m_cluster{nullptr}; //! The cluster this entry belongs to
+    mutable std::pair<size_t, std::list<CTxMemPoolEntryRef>::iterator> m_loc; //!< Location within a cluster
     mutable Epoch::Marker m_epoch_marker; //!< epoch when last touched, useful for graph algorithms
 };
 
