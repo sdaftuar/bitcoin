@@ -266,7 +266,8 @@ public:
 
     // Remove a transaction, leaving cluster in inconsistent state.
     void RemoveTransaction(const CTxMemPoolEntry& entry) {
-        //m_linearized_txs.erase(m_linearized_txs.begin() + entry.m_cluster_index);
+        // TODO: Does this need to be a list to avoid linear complexity?
+        m_chunks[entry.m_loc.first].txs.erase(m_chunks[entry.m_loc.first].txs.begin() + entry.m_loc.second);
         return;
     }
 

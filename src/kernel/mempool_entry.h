@@ -169,8 +169,7 @@ public:
     Children& GetMemPoolChildren() const { return m_children; }
 
     mutable size_t vTxHashesIdx; //!< Index in mempool's vTxHashes
-    typedef std::list<CTxMemPoolEntryRef>::iterator listit;
-    mutable std::pair<listit, listit> m_loc; //!< Location within a cluster
+    mutable std::pair<size_t, size_t> m_loc; //!< Location within a cluster
     mutable Epoch::Marker m_epoch_marker; //!< epoch when last touched, useful for graph algorithms
 };
 

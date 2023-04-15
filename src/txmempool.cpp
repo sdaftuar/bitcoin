@@ -1201,13 +1201,13 @@ void Cluster::Sort()
 
     std::sort(txs.begin(), txs.end(), comp);
 
-    std::vector<Chunk> new_chunks;
+    m_chunks.clear();
 
     for (auto txentry : txs) {
-        new_chunks.emplace_back(txentry.get().GetModifiedFee(), txentry.get().GetTxSize());
-        new_chunks.back().txs.emplace_back(txentry);
-        while (new_chunks.size() >= 2) {
-            auto cur_iter = std::prev(new_chunks.end());
+        m_chunks.emplace_back(txentry.get().GetModifiedFee(), txentry.get().GetTxSize());
+        m_chunks.back().txs.emplace_back(txentry);
+        while (m_chunks.size() >= 2) {
+            auto cur_iter = std::prev(m_chunks.end());
             auto prev_iter = std::prev(cur_iter);
             double feerate_prev = prev_iter->fee*cur_iter->size;
             double feerate_cur = cur_iter->fee*prev_iter->size;
@@ -1219,15 +1219,17 @@ void Cluster::Sort()
                 prev_iter->fee += cur_iter->fee;
                 prev_iter->size += cur_iter->size;
                 prev_iter->txs.insert(prev_iter->txs.end(), cur_iter->txs.begin(), cur_iter->txs.end());
-                new_chunks.erase(cur_iter);
+                m_chunks.erase(cur_iter);
             } else {
                 break;
             }
         }
     }
 
-    m_chunks = std::move(new_chunks);
-
     // Update locations of all transactions
-    //for (auto listit = m_chunks.begin(); listit != m_chunks.end(); +listit) {
+    for (size_t i=0; i<m_chunks.size(); ++i) {
+        for (size_t j=0; j<m_chunks[i].txs.size(); ++j) {
+            m_chunks[i].txs[j].get().m_loc = {i, j};
+        }
+    }
 }
