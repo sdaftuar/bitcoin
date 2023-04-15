@@ -285,9 +285,9 @@ protected:
         Chunk(CAmount _fee, uint64_t _size) : fee(_fee), size(_size) {}
         CAmount fee;
         uint64_t size;
-        std::list<CTxMemPoolEntry::CTxMemPoolEntryRef> txs;
+        std::vector<CTxMemPoolEntry::CTxMemPoolEntryRef> txs;
     };
-    std::list<Chunk> m_chunks;
+    std::vector<Chunk> m_chunks;
     size_t m_tx_count{0};
 };
 

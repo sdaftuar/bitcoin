@@ -1201,7 +1201,7 @@ void Cluster::Sort()
 
     std::sort(txs.begin(), txs.end(), comp);
 
-    std::list<Chunk> new_chunks;
+    std::vector<Chunk> new_chunks;
 
     for (auto txentry : txs) {
         new_chunks.emplace_back(txentry.get().GetModifiedFee(), txentry.get().GetTxSize());
@@ -1218,7 +1218,7 @@ void Cluster::Sort()
             if (feerate_cur > feerate_prev) {
                 prev_iter->fee += cur_iter->fee;
                 prev_iter->size += cur_iter->size;
-                prev_iter->txs.splice(prev_iter->txs.end(), cur_iter->txs);
+                prev_iter->txs.insert(prev_iter->txs.end(), cur_iter->txs.begin(), cur_iter->txs.end());
                 new_chunks.erase(cur_iter);
             } else {
                 break;
