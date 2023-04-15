@@ -45,6 +45,7 @@ bool TestLockPointValidity(CChain& active_chain, const LockPoints& lp)
     return true;
 }
 
+
 void CTxMemPool::UpdateForDescendants(txiter updateIt, cacheMap& cachedDescendants,
                                       const std::set<uint256>& setExclude, std::set<uint256>& descendants_to_remove)
 {
@@ -1139,4 +1140,94 @@ std::string RemovalReasonToString(const MemPoolRemovalReason& r) noexcept
         case MemPoolRemovalReason::REPLACED: return "replaced";
     }
     assert(false);
+}
+
+#if 0
+// Given the cluster linearization described in m_chunks, recalculate where to
+// partition the linearization into decreasing feerate chunks.
+// None of the chunk metadata -- fee, size, or the existing chunk partitions --
+// are used; we only rely on the sequence of transactions from m_chunks.
+void Cluster::CalculateChunks()
+{
+    // Build up the new chunk calculation in a temp variable, which will get
+    // moved into place at the end.
+    std::list<Chunk> new_chunks;
+
+    for (auto listit=m_chunks.begin(); listit != m_chunks.end(); ++listit) {
+        for (auto chunkit = listit->txs.begin(); chunkit != listit->txs.end(); ++chunkit) {
+            new_chunks.emplace_back(chunkit->get().GetModifiedFee(), chunkit->get().GetTxSize());
+            while (new_chunks.size() >= 2) {
+                auto cur_iter = std::prev(new_chunks.end());
+                auto prev_iter = std::prev(cur_iter);
+                double feerate_prev = prev_iter->fee*cur_iter->size;
+                double feerate_cur = cur_iter->fee*prev_iter->size;
+                // We only combine chunks if the feerate would go up; if two
+                // chunks have equal feerate, we prefer to keep the smaller
+                // chunksize (which is generally better for both mining and
+                // eviction).
+                if (feerate_cur > feerate_prev) {
+                    prev_iter->fee += cur_iter->fee;
+                    prev_iter->size += cur_iter->size;
+                    prev_iter->txs.splice(prev_iter->txs.end(), cur_iter->txs);
+                    new_chunks.erase(cur_iter);
+                } else {
+                    break;
+                }
+            }
+        }
+    }
+
+    m_chunks = std::move(new_chunks);
+}
+#endif
+
+// TODO: replace this with some kind of smart sort -- ancestor-feerate based,
+// or optimal, or anything better.
+// Just topological for now to get everything working.
+void Cluster::Sort()
+{
+    std::vector<CTxMemPoolEntry::CTxMemPoolEntryRef> txs;
+    for (auto &chunk : m_chunks) {
+        for (auto chunk_tx : chunk.txs) {
+            txs.emplace_back(chunk_tx);
+        }
+    }
+    auto comp = [](const CTxMemPoolEntry& a, const CTxMemPoolEntry& b) {
+        if (a.GetCountWithAncestors() != b.GetCountWithAncestors()) {
+            return a.GetCountWithAncestors() < b.GetCountWithAncestors();
+        }
+        return a.GetTx().GetHash() < b.GetTx().GetHash();
+    };
+
+    std::sort(txs.begin(), txs.end(), comp);
+
+    std::list<Chunk> new_chunks;
+
+    for (auto txentry : txs) {
+        new_chunks.emplace_back(txentry.get().GetModifiedFee(), txentry.get().GetTxSize());
+        new_chunks.back().txs.emplace_back(txentry);
+        while (new_chunks.size() >= 2) {
+            auto cur_iter = std::prev(new_chunks.end());
+            auto prev_iter = std::prev(cur_iter);
+            double feerate_prev = prev_iter->fee*cur_iter->size;
+            double feerate_cur = cur_iter->fee*prev_iter->size;
+            // We only combine chunks if the feerate would go up; if two
+            // chunks have equal feerate, we prefer to keep the smaller
+            // chunksize (which is generally better for both mining and
+            // eviction).
+            if (feerate_cur > feerate_prev) {
+                prev_iter->fee += cur_iter->fee;
+                prev_iter->size += cur_iter->size;
+                prev_iter->txs.splice(prev_iter->txs.end(), cur_iter->txs);
+                new_chunks.erase(cur_iter);
+            } else {
+                break;
+            }
+        }
+    }
+
+    m_chunks = std::move(new_chunks);
+
+    // Update locations of all transactions
+    //for (auto listit = m_chunks.begin(); listit != m_chunks.end(); +listit) {
 }
