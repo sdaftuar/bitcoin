@@ -275,11 +275,6 @@ public:
     void Sort();
 
 protected:
-    // Given the sort order for the cluster, calculate successive
-    // prefixes with maximum feerate. These chunks are the groups
-    // which will be added to blocks or evicted from the mempool.
-    //  void CalculateChunks();
-
     // The chunks of transactions which will be added to blocks or
     // evicted from the mempool.
     struct Chunk {
