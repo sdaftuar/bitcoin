@@ -465,6 +465,42 @@ void CTxMemPool::addUnchecked(const CTxMemPoolEntry &entry, setEntries &setAnces
 
     vTxHashes.emplace_back(tx.GetWitnessHash(), newit);
     newit->vTxHashesIdx = vTxHashes.size() - 1;
+
+    // Figure out which cluster to add this to.
+    // TODO: cache this from above.
+    auto iterset = GetIterSet(setParentTransactions);
+    std::vector<Cluster*> clusters_to_merge;
+    {
+        WITH_FRESH_EPOCH(m_epoch);
+        for (auto parentit : iterset) {
+            if (!visited(parentit->m_cluster)) {
+                clusters_to_merge.push_back(parentit->m_cluster);
+            }
+        }
+    }
+
+    // Merge all the clusters together.
+    if (clusters_to_merge.size() == 0) {
+        // No parents, make a new cluster.
+        auto new_cluster = std::make_unique<Cluster>(m_next_cluster_id++);
+        newit->m_cluster = new_cluster.get();
+        new_cluster->AddTransaction(*newit);
+        // Add new_cluster to global cluster map
+        m_cluster_map[new_cluster->m_id] = std::move(new_cluster);
+    } else {
+        // Merge all the clusters together.
+        clusters_to_merge[0]->Merge(clusters_to_merge.begin()+1, clusters_to_merge.end());
+        // Add this transaction to the cluster.
+        clusters_to_merge[0]->AddTransaction(*newit);
+        // Need to delete the other clusters.
+        for (auto it=clusters_to_merge.begin()+1; it!= clusters_to_merge.end(); ++it) {
+            auto map_it = m_cluster_map.find((*it)->m_id);
+            Assume(map_it != m_cluster_map.end());
+            if (map_it != m_cluster_map.end()) {
+                m_cluster_map.erase(map_it);
+            }
+        }
+    }
 }
 
 void CTxMemPool::removeUnchecked(txiter it, MemPoolRemovalReason reason)
@@ -1191,6 +1227,60 @@ void Cluster::Sort()
     for (size_t i=0; i<m_chunks.size(); ++i) {
         for (size_t j=0; j<m_chunks[i].txs.size(); ++j) {
             m_chunks[i].txs[j].get().m_loc = {i, j};
+        }
+    }
+}
+
+void Cluster::Merge(std::vector<Cluster*>::iterator first, std::vector<Cluster*>::iterator last)
+{
+    if (first == last) return;
+
+    std::vector<Chunk> new_chunks;
+    typedef std::vector<Chunk>::iterator ChunkIter;
+    typedef std::pair<ChunkIter, Cluster*> HeapEntry;
+    std::vector<HeapEntry> heap_chunks;
+
+    // Make a heap of all the best chunks.
+    for (auto it = first; it != last; ++it) {
+        if ((*it)->m_chunks.size() > 0) {
+            heap_chunks.emplace_back(std::make_pair((*it)->m_chunks.begin(), *it));
+        }
+    }
+    // Define comparison operator on our heap entries (using feerate of chunks).
+    auto cmp = [](const HeapEntry& a, const HeapEntry& b) {
+        // TODO: branch on size of fee to do this as 32-bit calculation
+        // instead? etc
+        return a.first->fee*b.first->size < b.first->fee*a.first->size;
+    };
+
+    std::make_heap(heap_chunks.begin(), heap_chunks.end(), cmp);
+
+    while (!heap_chunks.empty()) {
+        // Take the best chunk from the heap.
+        auto best_chunk = heap_chunks.front();
+        new_chunks.emplace_back(std::move(*(best_chunk.first)));
+        // Remove the best chunk from the heap.
+        std::pop_heap(heap_chunks.begin(), heap_chunks.end());
+        heap_chunks.pop_back();
+        // If the cluster has more chunks, add the next best chunk to the heap.
+        ++best_chunk.first;
+        if (best_chunk.first != best_chunk.second->m_chunks.end()) {
+            heap_chunks.emplace_back(std::make_pair(best_chunk.first, best_chunk.second));
+            std::push_heap(heap_chunks.begin(), heap_chunks.end());
+        }
+    }
+
+    // At this point we've merged the clusters into new_chunks.
+    m_chunks = std::move(new_chunks);
+
+    m_tx_count=0;
+
+    // Update the cluster and location information for each transaction.
+    for (auto it=m_chunks.begin(); it != m_chunks.end(); ++it) {
+        for (size_t i=0; i<it->txs.size(); ++i) {
+            it->txs[i].get().m_cluster = this;
+            it->txs[i].get().m_loc = {it - m_chunks.begin(), i};
+            ++m_tx_count;
         }
     }
 }

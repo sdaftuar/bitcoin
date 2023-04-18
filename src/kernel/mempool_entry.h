@@ -23,6 +23,7 @@
 #include <list>
 
 class CBlockIndex;
+class Cluster;
 
 struct LockPoints {
     // Will be set to the blockchain height and median time past
@@ -50,6 +51,7 @@ struct CompareIteratorByHash {
         return a->GetTx().GetHash() < b->GetTx().GetHash();
     }
 };
+
 
 /** \class CTxMemPoolEntry
  *
@@ -169,8 +171,72 @@ public:
     Children& GetMemPoolChildren() const { return m_children; }
 
     mutable size_t vTxHashesIdx; //!< Index in mempool's vTxHashes
+    // TODO: is there a better way to refer back to the cluster?
+    mutable Cluster* m_cluster{nullptr}; //! The cluster this entry belongs to
     mutable std::pair<size_t, size_t> m_loc; //!< Location within a cluster
     mutable Epoch::Marker m_epoch_marker; //!< epoch when last touched, useful for graph algorithms
 };
+
+/**
+ * Data structure for managing clusters of transactions in the mempool.
+ *
+ * We can consider the graph of mempool transactions where edges connect
+ * transactions that have a parent/child relationship. Then two transactions
+ * are in a "cluster" if they are connected in this graph.
+ *
+ * Clusters are sorted for transaction selection/eviction purposes
+ * independently of each other.
+ */
+
+class Cluster {
+public:
+    Cluster(int64_t id) : m_id(id) {}
+
+    // Add a transaction and update the sort.
+    void AddTransaction(const CTxMemPoolEntry& entry) {
+        m_chunks.emplace_back(entry.GetModifiedFee(), entry.GetTxWeight());
+        m_chunks.back().txs.push_back(entry);
+        entry.m_cluster = this;
+        ++m_tx_count;
+        Sort();
+        return;
+    }
+
+    // Remove a transaction, leaving cluster in inconsistent state.
+    void RemoveTransaction(const CTxMemPoolEntry& entry) {
+        // TODO: Does this need to be a list to avoid linear complexity?
+        m_chunks[entry.m_loc.first].txs.erase(m_chunks[entry.m_loc.first].txs.begin() + entry.m_loc.second);
+        // Chunk (or cluster) may now be empty, but this will get cleaned up
+        // when the cluster is resorted (or when the cluster is deleted)
+        --m_tx_count;
+        return;
+    }
+
+    // Sort the cluster and partition into chunks.
+    void Sort();
+
+    void Merge(std::vector<Cluster *>::iterator first, std::vector<Cluster*>::iterator last);
+
+protected:
+    // The chunks of transactions which will be added to blocks or
+    // evicted from the mempool.
+    struct Chunk {
+        Chunk(CAmount _fee, uint64_t _size) : fee(_fee), size(_size) {}
+        Chunk(Chunk&& other) = default;
+        Chunk& operator=(Cluster::Chunk&& other) = default;
+        Chunk& operator=(const Cluster::Chunk& other) = delete;
+
+        CAmount fee{0};
+        uint64_t size{0};
+        std::vector<CTxMemPoolEntry::CTxMemPoolEntryRef> txs;
+    };
+    std::vector<Chunk> m_chunks;
+    size_t m_tx_count{0};
+
+public:
+    const int64_t m_id;
+    mutable Epoch::Marker m_epoch_marker; //!< epoch when last touched
+};
+
 
 #endif // BITCOIN_KERNEL_MEMPOOL_ENTRY_H

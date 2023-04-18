@@ -241,54 +241,6 @@ enum class MemPoolRemovalReason {
 std::string RemovalReasonToString(const MemPoolRemovalReason& r) noexcept;
 
 /**
- * Data structure for managing clusters of transactions in the mempool.
- *
- * We can consider the graph of mempool transactions where edges connect
- * transactions that have a parent/child relationship. Then two transactions
- * are in a "cluster" if they are connected in this graph.
- *
- * Clusters are sorted for transaction selection/eviction purposes
- * independently of each other.
- */
-
-class Cluster {
-public:
-    Cluster();
-
-    // Add a transaction and update the sort.
-    void AddTransaction(const CTxMemPoolEntry& entry) {
-        m_chunks.emplace_back(entry.GetModifiedFee(), entry.GetTxWeight());
-        m_chunks.back().txs.push_back(entry);
-        ++m_tx_count;
-        Sort();
-        return;
-    }
-
-    // Remove a transaction, leaving cluster in inconsistent state.
-    void RemoveTransaction(const CTxMemPoolEntry& entry) {
-        // TODO: Does this need to be a list to avoid linear complexity?
-        m_chunks[entry.m_loc.first].txs.erase(m_chunks[entry.m_loc.first].txs.begin() + entry.m_loc.second);
-        return;
-    }
-
-    // Sort the cluster and partition into chunks.
-    void Sort();
-
-protected:
-    // The chunks of transactions which will be added to blocks or
-    // evicted from the mempool.
-    struct Chunk {
-        Chunk(CAmount _fee, uint64_t _size) : fee(_fee), size(_size) {}
-        CAmount fee;
-        uint64_t size;
-        std::vector<CTxMemPoolEntry::CTxMemPoolEntryRef> txs;
-    };
-    std::vector<Chunk> m_chunks;
-    size_t m_tx_count{0};
-};
-
-
-/**
  * CTxMemPool stores valid-according-to-the-current-best-chain transactions
  * that may be included in the next block.
  *
@@ -453,6 +405,11 @@ public:
      */
     mutable RecursiveMutex cs;
     indexed_transaction_set mapTx GUARDED_BY(cs);
+
+    // Clusters
+    // TODO: account for memory use
+    std::unordered_map<int64_t, std::unique_ptr<Cluster>> m_cluster_map GUARDED_BY(cs);
+    int64_t m_next_cluster_id GUARDED_BY(cs){0};
 
     using txiter = indexed_transaction_set::nth_index<0>::type::const_iterator;
     std::vector<std::pair<uint256, txiter>> vTxHashes GUARDED_BY(cs); //!< All tx witness hashes/entries in mapTx, in random order
@@ -830,6 +787,11 @@ public:
     bool visited(const txiter it) const EXCLUSIVE_LOCKS_REQUIRED(cs, m_epoch)
     {
         return m_epoch.visited(it->m_epoch_marker);
+    }
+
+    bool visited(Cluster *cluster) const EXCLUSIVE_LOCKS_REQUIRED(cs, m_epoch)
+    {
+        return m_epoch.visited(cluster->m_epoch_marker);
     }
 
     bool visited(std::optional<txiter> it) const EXCLUSIVE_LOCKS_REQUIRED(cs, m_epoch)
