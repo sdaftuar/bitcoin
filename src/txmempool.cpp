@@ -687,6 +687,9 @@ void CTxMemPool::check(const CCoinsViewCache& active_coins_tip, int64_t spendhei
         checkTotal += it->GetTxSize();
         check_total_fee += it->GetFee();
         innerUsage += it->DynamicMemoryUsage();
+
+        // Check that a transaction's location in cluster is correct.
+        assert(it->GetTx().GetHash() == it->m_loc.second->get().GetTx().GetHash());
         const CTransaction& tx = it->GetTx();
         innerUsage += memusage::DynamicUsage(it->GetMemPoolParentsConst()) + memusage::DynamicUsage(it->GetMemPoolChildrenConst());
         CTxMemPoolEntry::Parents setParentCheck;
@@ -697,6 +700,9 @@ void CTxMemPool::check(const CCoinsViewCache& active_coins_tip, int64_t spendhei
                 const CTransaction& tx2 = it2->GetTx();
                 assert(tx2.vout.size() > txin.prevout.n && !tx2.vout[txin.prevout.n].IsNull());
                 setParentCheck.insert(*it2);
+
+                // Check that every parent is in the same cluster.
+                assert(it2->m_cluster == it->m_cluster);
             }
             // We are iterating through the mempool entries sorted in order by ancestor count.
             // All parents must have been checked before their children and their coins added to
@@ -744,6 +750,8 @@ void CTxMemPool::check(const CCoinsViewCache& active_coins_tip, int64_t spendhei
             if (setChildrenCheck.insert(*childit).second) {
                 child_sizes += childit->GetTxSize();
             }
+            // Children should be in the same cluster.
+            assert(childit->m_cluster == it->m_cluster);
         }
         assert(setChildrenCheck.size() == it->GetMemPoolChildrenConst().size());
         assert(std::equal(setChildrenCheck.begin(), setChildrenCheck.end(), it->GetMemPoolChildrenConst().begin(), comp));
@@ -990,11 +998,14 @@ void CTxMemPool::RemoveStaged(setEntries &stage, bool updateDescendants, MemPool
     AssertLockHeld(cs);
     UpdateForRemoveFromMempool(stage, updateDescendants);
     std::vector<Cluster*> clusters;
-    for (txiter it : stage) {
-        if (!visited(it->m_cluster)) {
-            clusters.push_back(it->m_cluster);
+    {
+        WITH_FRESH_EPOCH(m_epoch);
+        for (txiter it : stage) {
+            if (!visited(it->m_cluster)) {
+                clusters.push_back(it->m_cluster);
+            }
+            removeUnchecked(it, reason);
         }
-        removeUnchecked(it, reason);
     }
 
     // Cluster removals need to be cleaned up.
@@ -1042,8 +1053,8 @@ void CTxMemPool::RecalculateClusterAndMaybeSort(Cluster *cluster, bool sort)
                 first = false;
             } else {
                 txentry.get().m_cluster = AssignCluster();
-                txentry.get().m_cluster->AddTransaction(txentry.get(), false);
             }
+            txentry.get().m_cluster->AddTransaction(txentry.get(), false);
             // We need to label all transactions connected to this one as
             // being in the same cluster.
             {
@@ -1093,6 +1104,11 @@ void CTxMemPool::RecalculateClusterAndMaybeSort(Cluster *cluster, bool sort)
                 it.get().m_cluster->Sort();
             }
         }
+    }
+
+    // Sanity check that all transactions are where they should be.
+    for (auto it : txs) {
+        assert(it.get().GetTx().GetHash() == it.get().m_loc.second->get().GetTx().GetHash());
     }
 }
 
@@ -1338,12 +1354,16 @@ void Cluster::Merge(std::vector<Cluster*>::iterator first, std::vector<Cluster*>
     typedef std::pair<ChunkIter, Cluster*> HeapEntry;
     std::vector<HeapEntry> heap_chunks;
 
+    size_t total_txs = m_tx_count;
+
     // Make a heap of all the best chunks.
     for (auto it = first; it != last; ++it) {
         if ((*it)->m_chunks.size() > 0) {
             heap_chunks.emplace_back(std::make_pair((*it)->m_chunks.begin(), *it));
         }
+        total_txs += (*it)->m_tx_count;
     }
+    heap_chunks.emplace_back(std::make_pair(m_chunks.begin(), this));
     // Define comparison operator on our heap entries (using feerate of chunks).
     auto cmp = [](const HeapEntry& a, const HeapEntry& b) {
         // TODO: branch on size of fee to do this as 32-bit calculation
@@ -1381,4 +1401,5 @@ void Cluster::Merge(std::vector<Cluster*>::iterator first, std::vector<Cluster*>
             ++m_tx_count;
         }
     }
+    assert(m_tx_count == total_txs);
 }
