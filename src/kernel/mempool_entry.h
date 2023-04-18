@@ -192,13 +192,18 @@ class Cluster {
 public:
     Cluster(int64_t id) : m_id(id) {}
 
+    void Clear() {
+	m_chunks.clear();
+	m_tx_count = 0;
+    }
+
     // Add a transaction and update the sort.
-    void AddTransaction(const CTxMemPoolEntry& entry) {
+    void AddTransaction(const CTxMemPoolEntry& entry, bool sort) {
         m_chunks.emplace_back(entry.GetModifiedFee(), entry.GetTxWeight());
         m_chunks.back().txs.push_back(entry);
         entry.m_cluster = this;
         ++m_tx_count;
-        Sort();
+        if (sort) Sort();
         return;
     }
 
@@ -217,7 +222,6 @@ public:
 
     void Merge(std::vector<Cluster *>::iterator first, std::vector<Cluster*>::iterator last);
 
-protected:
     // The chunks of transactions which will be added to blocks or
     // evicted from the mempool.
     struct Chunk {
@@ -233,7 +237,6 @@ protected:
     std::vector<Chunk> m_chunks;
     size_t m_tx_count{0};
 
-public:
     const int64_t m_id;
     mutable Epoch::Marker m_epoch_marker; //!< epoch when last touched
 };

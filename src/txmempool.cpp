@@ -482,23 +482,16 @@ void CTxMemPool::addUnchecked(const CTxMemPoolEntry &entry, setEntries &setAnces
     // Merge all the clusters together.
     if (clusters_to_merge.size() == 0) {
         // No parents, make a new cluster.
-        auto new_cluster = std::make_unique<Cluster>(m_next_cluster_id++);
-        newit->m_cluster = new_cluster.get();
-        new_cluster->AddTransaction(*newit);
-        // Add new_cluster to global cluster map
-        m_cluster_map[new_cluster->m_id] = std::move(new_cluster);
+        newit->m_cluster = AssignCluster();
+        newit->m_cluster->AddTransaction(*newit, true);
     } else {
         // Merge all the clusters together.
         clusters_to_merge[0]->Merge(clusters_to_merge.begin()+1, clusters_to_merge.end());
         // Add this transaction to the cluster.
-        clusters_to_merge[0]->AddTransaction(*newit);
+        clusters_to_merge[0]->AddTransaction(*newit, true);
         // Need to delete the other clusters.
         for (auto it=clusters_to_merge.begin()+1; it!= clusters_to_merge.end(); ++it) {
-            auto map_it = m_cluster_map.find((*it)->m_id);
-            Assume(map_it != m_cluster_map.end());
-            if (map_it != m_cluster_map.end()) {
-                m_cluster_map.erase(map_it);
-            }
+            m_cluster_map.erase((*it)->m_id);
         }
     }
 }
@@ -531,6 +524,9 @@ void CTxMemPool::removeUnchecked(txiter it, MemPoolRemovalReason reason)
             vTxHashes.shrink_to_fit();
     } else
         vTxHashes.clear();
+
+    // Remove this transaction from its cluster
+    it->m_cluster->RemoveTransaction(*it);
 
     totalTxSize -= it->GetTxSize();
     m_total_fee -= it->GetFee();
@@ -993,8 +989,110 @@ void CTxMemPool::RemoveUnbroadcastTx(const uint256& txid, const bool unchecked) 
 void CTxMemPool::RemoveStaged(setEntries &stage, bool updateDescendants, MemPoolRemovalReason reason) {
     AssertLockHeld(cs);
     UpdateForRemoveFromMempool(stage, updateDescendants);
+    std::vector<Cluster*> clusters;
     for (txiter it : stage) {
+        if (!visited(it->m_cluster)) {
+            clusters.push_back(it->m_cluster);
+        }
         removeUnchecked(it, reason);
+    }
+
+    // Cluster removals need to be cleaned up.
+    for (Cluster* cluster : clusters) {
+        if (cluster->m_tx_count == 0) {
+            m_cluster_map.erase(cluster->m_id);
+        } else {
+            // Potentially split clusters and re-sort.
+            // TODO: we can avoid re-sorting in the case of eviction.
+            RecalculateClusterAndMaybeSort(cluster, true);
+        }
+    }
+}
+
+Cluster * CTxMemPool::AssignCluster()
+{
+    auto new_cluster = std::make_unique<Cluster>(m_next_cluster_id++);
+    Cluster * ret = new_cluster.get(); // XXX: no one is going to like this.
+    m_cluster_map[new_cluster->m_id] = std::move(new_cluster);
+    return ret;
+}
+
+// TODO: respect the sort parameter (see comment below).
+void CTxMemPool::RecalculateClusterAndMaybeSort(Cluster *cluster, bool sort)
+{
+    // TODO: if the common case involves no cluster splitting, can we short
+    // circuit the work here somehow?
+
+    // Wipe cluster assignments.
+    std::vector<CTxMemPoolEntry::CTxMemPoolEntryRef> txs;
+    for (auto& chunk : cluster->m_chunks) {
+        for (auto& txentry: chunk.txs) {
+            txentry.get().m_cluster = nullptr;
+            txs.push_back(txentry);
+        }
+    }
+    cluster->Clear();
+
+    // The first transaction gets to stay in the existing cluster.
+    bool first = true;
+    for (auto& txentry : txs) {
+        if (txentry.get().m_cluster == nullptr) {
+            if (first) {
+                txentry.get().m_cluster = cluster;
+                first = false;
+            } else {
+                txentry.get().m_cluster = AssignCluster();
+                txentry.get().m_cluster->AddTransaction(txentry.get(), false);
+            }
+            // We need to label all transactions connected to this one as
+            // being in the same cluster.
+            {
+                WITH_FRESH_EPOCH(m_epoch);
+                auto children = txentry.get().GetMemPoolChildrenConst();
+                std::vector<CTxMemPoolEntry::CTxMemPoolEntryRef> work_queue;
+                for (auto entry : children) {
+                    work_queue.push_back(entry);
+                    visited(entry.get());
+                }
+
+                while (!work_queue.empty()) {
+                    auto next_entry = work_queue.back();
+                    work_queue.pop_back();
+                    next_entry.get().m_cluster = txentry.get().m_cluster;
+
+                    auto next_children = next_entry.get().GetMemPoolChildrenConst();
+                    for (auto& descendant : next_children) {
+                        if (!visited(descendant.get())) {
+                            work_queue.push_back(descendant);
+                        }
+                    }
+                    auto next_parents = next_entry.get().GetMemPoolParentsConst();
+                    for (auto& ancestor : next_parents) {
+                        if (!visited(ancestor.get())) {
+                            work_queue.push_back(ancestor);
+                        }
+                    }
+                }
+            }
+        } else {
+            // If we already have a cluster assignment, we need to just add
+            // ourselves to the cluster. Doing the addition here preserves
+            // the topology and sort order from the original cluster.
+            txentry.get().m_cluster->AddTransaction(txentry.get(), false);
+        }
+    }
+
+    // After all assignments are made, re-sort each cluster (once).
+    // TODO: if we don't need to sort (eg because this is following a TrimToSize eviction),
+    // then we should skip the full sort and just make sure our chunks are
+    // properly calculated, and the transaction locations are up-to-date.
+    {
+        WITH_FRESH_EPOCH(m_epoch);
+        for (auto it : txs) {
+            if (!visited(it.get().m_cluster)) {
+                it.get().m_cluster->Sort();
+            }
+        }
     }
 }
 

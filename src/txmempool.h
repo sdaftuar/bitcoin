@@ -775,8 +775,11 @@ private:
      *  removal.
      */
     void removeUnchecked(txiter entry, MemPoolRemovalReason reason) EXCLUSIVE_LOCKS_REQUIRED(cs);
+
+    Cluster *AssignCluster() EXCLUSIVE_LOCKS_REQUIRED(cs);
+    void RecalculateClusterAndMaybeSort(Cluster *cluster, bool sort) EXCLUSIVE_LOCKS_REQUIRED(cs);
 public:
-    /** visited marks a CTxMemPoolEntry as having been traversed
+    /** visited marks a CTxMemPoolEntry or Cluster as having been traversed
      * during the lifetime of the most recently created Epoch::Guard
      * and returns false if we are the first visitor, true otherwise.
      *
@@ -784,6 +787,11 @@ public:
      * triggered.
      *
      */
+    bool visited(const CTxMemPoolEntry& entry) const EXCLUSIVE_LOCKS_REQUIRED(cs, m_epoch)
+    {
+        return m_epoch.visited(entry.m_epoch_marker);
+    }
+
     bool visited(const txiter it) const EXCLUSIVE_LOCKS_REQUIRED(cs, m_epoch)
     {
         return m_epoch.visited(it->m_epoch_marker);
