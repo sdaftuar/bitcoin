@@ -1323,8 +1323,8 @@ void Cluster::Sort()
 
     // Update locations of all transactions
     for (size_t i=0; i<m_chunks.size(); ++i) {
-        for (size_t j=0; j<m_chunks[i].txs.size(); ++j) {
-            m_chunks[i].txs[j].get().m_loc = {i, j};
+        for (auto it = m_chunks[i].txs.begin(); it != m_chunks[i].txs.end(); ++it) {
+            it->get().m_loc = {i, it};
         }
     }
 }
@@ -1374,10 +1374,10 @@ void Cluster::Merge(std::vector<Cluster*>::iterator first, std::vector<Cluster*>
     m_tx_count=0;
 
     // Update the cluster and location information for each transaction.
-    for (auto it=m_chunks.begin(); it != m_chunks.end(); ++it) {
-        for (size_t i=0; i<it->txs.size(); ++i) {
-            it->txs[i].get().m_cluster = this;
-            it->txs[i].get().m_loc = {it - m_chunks.begin(), i};
+    for (size_t i=0; i<m_chunks.size(); ++i) {
+        for (auto it = m_chunks[i].txs.begin(); it != m_chunks[i].txs.end(); ++it) {
+            it->get().m_cluster = this;
+            it->get().m_loc = {i, it};
             ++m_tx_count;
         }
     }

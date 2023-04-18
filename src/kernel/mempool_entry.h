@@ -173,7 +173,7 @@ public:
     mutable size_t vTxHashesIdx; //!< Index in mempool's vTxHashes
     // TODO: is there a better way to refer back to the cluster?
     mutable Cluster* m_cluster{nullptr}; //! The cluster this entry belongs to
-    mutable std::pair<size_t, size_t> m_loc; //!< Location within a cluster
+    mutable std::pair<size_t, std::list<CTxMemPoolEntryRef>::iterator> m_loc; //!< Location within a cluster
     mutable Epoch::Marker m_epoch_marker; //!< epoch when last touched, useful for graph algorithms
 };
 
@@ -209,10 +209,13 @@ public:
 
     // Remove a transaction, leaving cluster in inconsistent state.
     void RemoveTransaction(const CTxMemPoolEntry& entry) {
-        // TODO: Does this need to be a list to avoid linear complexity?
-        m_chunks[entry.m_loc.first].txs.erase(m_chunks[entry.m_loc.first].txs.begin() + entry.m_loc.second);
-        // Chunk (or cluster) may now be empty, but this will get cleaned up
-        // when the cluster is resorted (or when the cluster is deleted)
+        m_chunks[entry.m_loc.first].txs.erase(entry.m_loc.second);
+	// Chunk (or cluster) may now be empty, but this will get cleaned up
+	// when the cluster is resorted (or when the cluster is deleted) Note:
+	// if we cleaned up empty chunks here, then this would break the
+	// locations of other entries in the cluster. Since we would like to be
+	// able to do multiple removals in a row and then clean up the sort, we
+	// can't clean up empty chunks here.
         --m_tx_count;
         return;
     }
@@ -232,7 +235,7 @@ public:
 
         CAmount fee{0};
         uint64_t size{0};
-        std::vector<CTxMemPoolEntry::CTxMemPoolEntryRef> txs;
+        std::list<CTxMemPoolEntry::CTxMemPoolEntryRef> txs;
     };
     std::vector<Chunk> m_chunks;
     size_t m_tx_count{0};
