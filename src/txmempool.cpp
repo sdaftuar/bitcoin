@@ -76,23 +76,34 @@ void CTxMemPool::UpdateForDescendants(txiter updateIt, cacheMap& cachedDescendan
     int64_t modifySize = 0;
     CAmount modifyFee = 0;
     int64_t modifyCount = 0;
-    for (const CTxMemPoolEntry& descendant : descendants) {
-        if (!setExclude.count(descendant.GetTx().GetHash())) {
-            modifySize += descendant.GetTxSize();
-            modifyFee += descendant.GetModifiedFee();
-            modifyCount++;
-            cachedDescendants[updateIt].insert(mapTx.iterator_to(descendant));
-            // Update ancestor state for each descendant
-            mapTx.modify(mapTx.iterator_to(descendant), [=](CTxMemPoolEntry& e) {
-              e.UpdateAncestorState(updateIt->GetTxSize(), updateIt->GetModifiedFee(), 1, updateIt->GetSigOpCost());
-            });
-            // Don't directly remove the transaction here -- doing so would
-            // invalidate iterators in cachedDescendants. Mark it for removal
-            // by inserting into descendants_to_remove.
-            if (descendant.GetCountWithAncestors() > uint64_t(m_limits.ancestor_count) || descendant.GetSizeWithAncestors() > uint64_t(m_limits.ancestor_size_vbytes)) {
-                descendants_to_remove.insert(descendant.GetTx().GetHash());
+    std::vector<Cluster *> clusters_to_merge{updateIt->m_cluster};
+    {
+        WITH_FRESH_EPOCH(m_epoch);
+        visited(updateIt->m_cluster);
+        for (const CTxMemPoolEntry& descendant : descendants) {
+            if (!visited(descendant.m_cluster)) {
+                clusters_to_merge.push_back(descendant.m_cluster);
+            }
+            if (!setExclude.count(descendant.GetTx().GetHash())) {
+                modifySize += descendant.GetTxSize();
+                modifyFee += descendant.GetModifiedFee();
+                modifyCount++;
+                cachedDescendants[updateIt].insert(mapTx.iterator_to(descendant));
+                // Update ancestor state for each descendant
+                mapTx.modify(mapTx.iterator_to(descendant), [=](CTxMemPoolEntry& e) {
+                        e.UpdateAncestorState(updateIt->GetTxSize(), updateIt->GetModifiedFee(), 1, updateIt->GetSigOpCost());
+                        });
+                // Don't directly remove the transaction here -- doing so would
+                // invalidate iterators in cachedDescendants. Mark it for removal
+                // by inserting into descendants_to_remove.
+                if (descendant.GetCountWithAncestors() > uint64_t(m_limits.ancestor_count) || descendant.GetSizeWithAncestors() > uint64_t(m_limits.ancestor_size_vbytes)) {
+                    descendants_to_remove.insert(descendant.GetTx().GetHash());
+                }
             }
         }
+    }
+    if (clusters_to_merge.size() > 1) {
+        clusters_to_merge[0]->Merge(clusters_to_merge.begin()+1, clusters_to_merge.end());
     }
     mapTx.modify(updateIt, [=](CTxMemPoolEntry& e) { e.UpdateDescendantState(modifySize, modifyFee, modifyCount); });
 }
@@ -484,6 +495,9 @@ void CTxMemPool::addUnchecked(const CTxMemPoolEntry &entry, setEntries &setAnces
         // No parents, make a new cluster.
         newit->m_cluster = AssignCluster();
         newit->m_cluster->AddTransaction(*newit, true);
+    } else if (clusters_to_merge.size() == 1) {
+        // Only one parent cluster, add to it.
+        clusters_to_merge[0]->AddTransaction(*newit, true);
     } else {
         // Merge all the clusters together.
         clusters_to_merge[0]->Merge(clusters_to_merge.begin()+1, clusters_to_merge.end());
