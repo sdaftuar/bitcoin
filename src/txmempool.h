@@ -103,13 +103,13 @@ public:
     // The chunks of transactions which will be added to blocks or
     // evicted from the mempool.
     struct Chunk {
-        Chunk(CAmount _fee, uint64_t _size) : fee(_fee), size(_size) {}
+        Chunk(CAmount _fee, int64_t _size) : fee(_fee), size(_size) {}
         Chunk(Chunk&& other) = default;
         Chunk& operator=(Cluster::Chunk&& other) = default;
         Chunk& operator=(const Cluster::Chunk& other) = delete;
 
         CAmount fee{0};
-        uint64_t size{0};
+        int64_t size{0};
         std::list<CTxMemPoolEntry::CTxMemPoolEntryRef> txs;
     };
 

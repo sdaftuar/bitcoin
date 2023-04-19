@@ -798,17 +798,23 @@ void CTxMemPool::check(const CCoinsViewCache& active_coins_tip, int64_t spendhei
         assert(&tx == it->second);
     }
 
-    // Check that clusters are sorted topologically
+    // Check that clusters are sorted topologically and that the chunks match the txs.
     for (const auto & [id, cluster] : m_cluster_map) {
         CTxMemPoolEntry::Parents txs_so_far;
         for (size_t i=0; i<cluster->m_chunks.size(); ++i) {
+            int64_t fee{0};
+            int64_t size{0};
             for (auto it=cluster->m_chunks[i].txs.begin(); it != cluster->m_chunks[i].txs.end(); ++it) {
+                fee += it->get().GetModifiedFee();
+                size += it->get().GetTxSize();
                 // Check that all parents are in txs_so_far
                 for (const auto& parent : it->get().GetMemPoolParentsConst()) {
                     assert(txs_so_far.count(parent));
                 }
                 txs_so_far.insert(*it);
             }
+            assert(fee == cluster->m_chunks[i].fee);
+            assert(size == cluster->m_chunks[i].size);
         }
     }
 
@@ -933,6 +939,9 @@ void CTxMemPool::PrioritiseTransaction(const uint256& hash, const CAmount& nFeeD
                 mapTx.modify(descendantIt, [=](CTxMemPoolEntry& e){ e.UpdateAncestorState(0, nFeeDelta, 0, 0); });
             }
             ++nTransactionsUpdated;
+
+            // Re-sort the cluster this came from.
+            it->m_cluster->Sort();
         }
     }
     LogPrintf("PrioritiseTransaction: %s fee += %s\n", hash.ToString(), FormatMoney(nFeeDelta));
@@ -1503,13 +1512,13 @@ void Cluster::Merge(std::vector<Cluster*>::iterator first, std::vector<Cluster*>
         auto best_chunk = heap_chunks.front();
         new_chunks.emplace_back(std::move(*(best_chunk.first)));
         // Remove the best chunk from the heap.
-        std::pop_heap(heap_chunks.begin(), heap_chunks.end());
+        std::pop_heap(heap_chunks.begin(), heap_chunks.end(), cmp);
         heap_chunks.pop_back();
         // If the cluster has more chunks, add the next best chunk to the heap.
         ++best_chunk.first;
         if (best_chunk.first != best_chunk.second->m_chunks.end()) {
             heap_chunks.emplace_back(std::make_pair(best_chunk.first, best_chunk.second));
-            std::push_heap(heap_chunks.begin(), heap_chunks.end());
+            std::push_heap(heap_chunks.begin(), heap_chunks.end(), cmp);
         }
     }
 
