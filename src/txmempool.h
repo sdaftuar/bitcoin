@@ -50,6 +50,81 @@ static const uint32_t MEMPOOL_HEIGHT = 0x7FFFFFFF;
  */
 bool TestLockPointValidity(CChain& active_chain, const LockPoints& lp) EXCLUSIVE_LOCKS_REQUIRED(cs_main);
 
+/**
+ * Data structure for managing clusters of transactions in the mempool.
+ *
+ * We can consider the graph of mempool transactions where edges connect
+ * transactions that have a parent/child relationship. Then two transactions
+ * are in a "cluster" if they are connected in this graph.
+ *
+ * Clusters are sorted for transaction selection/eviction purposes
+ * independently of each other.
+ */
+
+class CTxMemPool;
+
+class Cluster {
+public:
+    Cluster(int64_t id, CTxMemPool* mempool) : m_id(id), m_mempool(mempool) {}
+
+    void Clear() {
+        m_chunks.clear();
+        m_tx_count = 0;
+    }
+
+    // Add a transaction and update the sort.
+    void AddTransaction(const CTxMemPoolEntry& entry, bool sort) {
+        m_chunks.emplace_back(entry.GetModifiedFee(), entry.GetTxWeight());
+        m_chunks.back().txs.push_back(entry);
+        entry.m_cluster = this;
+        ++m_tx_count;
+        if (sort) Sort();
+        return;
+    }
+
+    // Remove a transaction, leaving cluster in inconsistent state.
+    void RemoveTransaction(const CTxMemPoolEntry& entry) {
+        m_chunks[entry.m_loc.first].txs.erase(entry.m_loc.second);
+        // Chunk (or cluster) may now be empty, but this will get cleaned up
+        // when the cluster is resorted (or when the cluster is deleted) Note:
+        // if we cleaned up empty chunks here, then this would break the
+        // locations of other entries in the cluster. Since we would like to be
+        // able to do multiple removals in a row and then clean up the sort, we
+        // can't clean up empty chunks here.
+        --m_tx_count;
+        return;
+    }
+
+    // Sort the cluster and partition into chunks.
+    void Sort();
+
+    void Merge(std::vector<Cluster *>::iterator first, std::vector<Cluster*>::iterator last);
+
+    // The chunks of transactions which will be added to blocks or
+    // evicted from the mempool.
+    struct Chunk {
+        Chunk(CAmount _fee, uint64_t _size) : fee(_fee), size(_size) {}
+        Chunk(Chunk&& other) = default;
+        Chunk& operator=(Cluster::Chunk&& other) = default;
+        Chunk& operator=(const Cluster::Chunk& other) = delete;
+
+        CAmount fee{0};
+        uint64_t size{0};
+        std::list<CTxMemPoolEntry::CTxMemPoolEntryRef> txs;
+    };
+
+    typedef std::vector<Chunk>::iterator ChunkIter;
+    typedef std::pair<ChunkIter, Cluster*> HeapEntry;
+
+    std::vector<Chunk> m_chunks;
+    size_t m_tx_count{0};
+
+    const int64_t m_id;
+    CTxMemPool* m_mempool;
+    mutable Epoch::Marker m_epoch_marker; //!< epoch when last touched
+};
+
+
 // extracts a transaction hash from CTxMemPoolEntry or CTransactionRef
 struct mempoolentry_txid
 {

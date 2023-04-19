@@ -103,6 +103,7 @@ void CTxMemPool::UpdateForDescendants(txiter updateIt, cacheMap& cachedDescendan
         }
     }
     if (clusters_to_merge.size() > 1) {
+        // FIXME: the merge should preserve the topology! This is broken
         clusters_to_merge[0]->Merge(clusters_to_merge.begin()+1, clusters_to_merge.end());
     }
     mapTx.modify(updateIt, [=](CTxMemPoolEntry& e) { e.UpdateDescendantState(modifySize, modifyFee, modifyCount); });
@@ -788,6 +789,17 @@ void CTxMemPool::check(const CCoinsViewCache& active_coins_tip, int64_t spendhei
         assert(&tx == it->second);
     }
 
+    // Check that clusters are sorted topologically
+    for (const auto & [id, cluster] : m_cluster_map) {
+        uint64_t prev_ancestor_count = 1;
+        for (size_t i=0; i<cluster->m_chunks.size(); ++i) {
+            for (auto it=cluster->m_chunks[i].txs.begin(); it != cluster->m_chunks[i].txs.end(); ++it) {
+                assert(it->get().GetCountWithAncestors() >= prev_ancestor_count);
+                prev_ancestor_count = it->get().GetCountWithAncestors();
+            }
+        }
+    }
+
     assert(totalTxSize == checkTotal);
     assert(m_total_fee == check_total_fee);
     assert(innerUsage == cachedInnerUsage);
@@ -1036,7 +1048,7 @@ void CTxMemPool::RemoveStaged(setEntries &stage, bool updateDescendants, MemPool
 
 Cluster * CTxMemPool::AssignCluster()
 {
-    auto new_cluster = std::make_unique<Cluster>(m_next_cluster_id++);
+    auto new_cluster = std::make_unique<Cluster>(m_next_cluster_id++, this);
     Cluster * ret = new_cluster.get(); // XXX: no one is going to like this.
     m_cluster_map[new_cluster->m_id] = std::move(new_cluster);
     return ret;
@@ -1209,19 +1221,59 @@ void CTxMemPool::TrimToSize(size_t sizelimit, std::vector<COutPoint>* pvNoSpends
     unsigned nTxnRemoved = 0;
     CFeeRate maxFeeRateRemoved(0);
     while (!mapTx.empty() && DynamicMemoryUsage() > sizelimit) {
-        indexed_transaction_set::index<descendant_score>::type::iterator it = mapTx.get<descendant_score>().begin();
+        //indexed_transaction_set::index<descendant_score>::type::iterator it = mapTx.get<descendant_score>().begin();
+        std::vector<Cluster::HeapEntry> heap_chunks;
+        if (heap_chunks.empty()) {
+            // TODO: avoid redoing this heap each time through.
+            // Right now we have to do this because when we remove
+            // transactions, that can trigger a reclustering. Ideally we'd just
+            // evict everything we need to first, and then go back and clean up
+            // the clusters that were affected.
+            for (const auto & [id, cluster] : m_cluster_map) {
+                if (!cluster->m_chunks.empty()) {
+                    heap_chunks.emplace_back(make_pair(cluster->m_chunks.end()-1, cluster.get()));
+                }
+            }
+        }
+
+        // Define comparison operator on our heap entries (using feerate of chunks).
+        auto cmp = [](const Cluster::HeapEntry& a, const Cluster::HeapEntry& b) {
+            // TODO: branch on size of fee to do this as 32-bit calculation
+            // instead? etc
+            return a.first->fee*b.first->size > b.first->fee*a.first->size;
+        };
+
+        std::make_heap(heap_chunks.begin(), heap_chunks.end(), cmp);
+
+        // Remove the top element (lowest feerate) and evict.
+        auto worst_chunk = heap_chunks.front();
+
+        /* No need to clean up the heap since we're going to throw it all
+         * away, for now (see comment above)
+        std::pop_heap(heap_chunks.begin(), heap_chunks.end());
+        heap_chunks.pop_back();
+        if (worst_chunk.first != worst_chunk.second->m_chunks.begin()) {
+            // If we're not at the beginning of the cluster's chunk list, we can
+            // just decrement the iterator to get the next-lowest feerate chunk.
+            heap_chunks.emplace_back(make_pair(worst_chunk.first-1, worst_chunk.second));
+            std::push_heap(heap_chunks.begin(), heap_chunks.end(), cmp);
+        }
+        */
 
         // We set the new mempool min fee to the feerate of the removed set, plus the
         // "minimum reasonable fee rate" (ie some value under which we consider txn
         // to have 0 fee). This way, we don't allow txn to enter mempool with feerate
         // equal to txn which were removed with no block in between.
-        CFeeRate removed(it->GetModFeesWithDescendants(), it->GetSizeWithDescendants());
+        CFeeRate removed(worst_chunk.first->fee, worst_chunk.first->size);
         removed += m_incremental_relay_feerate;
         trackPackageRemoved(removed);
         maxFeeRateRemoved = std::max(maxFeeRateRemoved, removed);
 
         setEntries stage;
-        CalculateDescendants(mapTx.project<0>(it), stage);
+        for (const auto& it : worst_chunk.first->txs) {
+            auto mi = GetIter(it.get().GetTx().GetHash());
+            if (mi) stage.insert(*mi);
+        }
         nTxnRemoved += stage.size();
 
         std::vector<CTransaction> txn;
@@ -1230,6 +1282,8 @@ void CTxMemPool::TrimToSize(size_t sizelimit, std::vector<COutPoint>* pvNoSpends
             for (txiter iter : stage)
                 txn.push_back(iter->GetTx());
         }
+        // TODO: Optimize this so that we don't re-sort the cluster after the
+        // eviction.
         RemoveStaged(stage, false, MemPoolRemovalReason::SIZELIMIT);
         if (pvNoSpendsRemaining) {
             for (const CTransaction& tx : txn) {
@@ -1364,9 +1418,7 @@ void Cluster::Merge(std::vector<Cluster*>::iterator first, std::vector<Cluster*>
     if (first == last) return;
 
     std::vector<Chunk> new_chunks;
-    typedef std::vector<Chunk>::iterator ChunkIter;
-    typedef std::pair<ChunkIter, Cluster*> HeapEntry;
-    std::vector<HeapEntry> heap_chunks;
+    std::vector<Cluster::HeapEntry> heap_chunks;
 
     size_t total_txs = m_tx_count;
 
@@ -1379,7 +1431,7 @@ void Cluster::Merge(std::vector<Cluster*>::iterator first, std::vector<Cluster*>
     }
     heap_chunks.emplace_back(std::make_pair(m_chunks.begin(), this));
     // Define comparison operator on our heap entries (using feerate of chunks).
-    auto cmp = [](const HeapEntry& a, const HeapEntry& b) {
+    auto cmp = [](const Cluster::HeapEntry& a, const Cluster::HeapEntry& b) {
         // TODO: branch on size of fee to do this as 32-bit calculation
         // instead? etc
         return a.first->fee*b.first->size < b.first->fee*a.first->size;
