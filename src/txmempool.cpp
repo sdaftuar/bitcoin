@@ -1377,57 +1377,69 @@ std::string RemovalReasonToString(const MemPoolRemovalReason& r) noexcept
 // Just topological for now to get everything working.
 void Cluster::Sort()
 {
-    indexed_modified_transaction_set mapModifiedTx;
-
     std::vector<CTxMemPool::txiter> txs;
 
-    // Insert all transactions from the cluster into the multi_index.
-    for (auto &chunk : m_chunks) {
-        for (auto chunk_tx : chunk.txs) {
-            mapModifiedTx.insert(CTxMemPoolModifiedEntry(m_mempool->mapTx.iterator_to(chunk_tx.get())));
-        }
-    }
+    if (m_tx_count < 50) {
+        indexed_modified_transaction_set mapModifiedTx;
 
-    m_chunks.clear();
-
-    while (!mapModifiedTx.empty()) {
-        // Remove the top element by ancestor feerate.
-        modtxscoreiter it = mapModifiedTx.get<ancestor_score>().begin();
-        auto ancestors{m_mempool->AssumeCalculateMemPoolAncestors(__func__, *it->iter, CTxMemPool::Limits::NoLimits(), /*fSearchForParents=*/false)};
-        ancestors.insert(it->iter);
-
-        // Remove entries that are not in mapModifiedTx (they must already be selected)
-        for (auto setit = ancestors.begin(); setit != ancestors.end(); ) {
-            if (mapModifiedTx.find(*setit) == mapModifiedTx.end()) {
-                setit = ancestors.erase(setit);
-            } else {
-                ++setit;
+        // Insert all transactions from the cluster into the multi_index.
+        for (auto &chunk : m_chunks) {
+            for (auto chunk_tx : chunk.txs) {
+                mapModifiedTx.insert(CTxMemPoolModifiedEntry(m_mempool->mapTx.iterator_to(chunk_tx.get())));
             }
         }
 
-        // Sort what is left by ancestor count (a topologically valid sort).
-        std::vector<CTxMemPool::txiter> txs_to_sort(ancestors.begin(), ancestors.end());
-        std::sort(txs_to_sort.begin(), txs_to_sort.end(), CompareTxIterByAncestorCount());
 
-        txs.insert(txs.end(), txs_to_sort.begin(), txs_to_sort.end());
+        while (!mapModifiedTx.empty()) {
+            // Remove the top element by ancestor feerate.
+            modtxscoreiter it = mapModifiedTx.get<ancestor_score>().begin();
+            auto ancestors{m_mempool->AssumeCalculateMemPoolAncestors(__func__, *it->iter, CTxMemPool::Limits::NoLimits(), /*fSearchForParents=*/false)};
+            ancestors.insert(it->iter);
 
-        // Remove the selected transactions from mapModifiedTx.
-        for (auto setit = ancestors.begin(); setit != ancestors.end(); ++setit) {
-            mapModifiedTx.erase(*setit);
-        }
-        for (auto setit = ancestors.begin(); setit != ancestors.end(); ++setit) {
-            // Also update any entries in mapModifiedTx that are descendants so that they get a new score.
-            CTxMemPool::setEntries descendants;
-            m_mempool->CalculateDescendants(*setit, descendants);
+            // Remove entries that are not in mapModifiedTx (they must already be selected)
+            for (auto setit = ancestors.begin(); setit != ancestors.end(); ) {
+                if (mapModifiedTx.find(*setit) == mapModifiedTx.end()) {
+                    setit = ancestors.erase(setit);
+                } else {
+                    ++setit;
+                }
+            }
 
-            for (auto desc : descendants) {
-                auto mit = mapModifiedTx.find(desc);
-                if (mit != mapModifiedTx.end()) {
-                    mapModifiedTx.modify(mit, update_for_parent_inclusion(*setit));
+            // Sort what is left by ancestor count (a topologically valid sort).
+            std::vector<CTxMemPool::txiter> txs_to_sort(ancestors.begin(), ancestors.end());
+            std::sort(txs_to_sort.begin(), txs_to_sort.end(), CompareTxIterByAncestorCount());
+
+            txs.insert(txs.end(), txs_to_sort.begin(), txs_to_sort.end());
+
+            // Remove the selected transactions from mapModifiedTx.
+            for (auto setit = ancestors.begin(); setit != ancestors.end(); ++setit) {
+                mapModifiedTx.erase(*setit);
+            }
+            for (auto setit = ancestors.begin(); setit != ancestors.end(); ++setit) {
+                // Also update any entries in mapModifiedTx that are descendants so that they get a new score.
+                CTxMemPool::setEntries descendants;
+                m_mempool->CalculateDescendants(*setit, descendants);
+
+                for (auto desc : descendants) {
+                    auto mit = mapModifiedTx.find(desc);
+                    if (mit != mapModifiedTx.end()) {
+                        mapModifiedTx.modify(mit, update_for_parent_inclusion(*setit));
+                    }
                 }
             }
         }
+    } else {
+        // Only do the topological sort for big clusters
+        // Insert all transactions from the cluster into txs
+        for (auto &chunk : m_chunks) {
+            for (auto chunk_tx : chunk.txs) {
+                txs.push_back(m_mempool->mapTx.iterator_to(chunk_tx.get()));
+            }
+        }
+        std::sort(txs.begin(), txs.end(), CompareTxIterByAncestorCount());
     }
+
+    m_chunks.clear();
 
     for (auto txentry : txs) {
         m_chunks.emplace_back(txentry->GetModifiedFee(), txentry->GetTxSize());
