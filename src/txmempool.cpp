@@ -1528,6 +1528,7 @@ void Cluster::AddTransaction(const CTxMemPoolEntry& entry, bool sort)
     m_chunks.back().txs.push_back(entry);
     entry.m_cluster = this;
     ++m_tx_count;
+    m_tx_size += entry.GetTxSize();
     if (sort) Sort();
     return;
 }
@@ -1543,12 +1544,14 @@ void Cluster::RemoveTransaction(const CTxMemPoolEntry& entry)
     // able to do multiple removals in a row and then clean up the sort, we
     // can't clean up empty chunks here.
     --m_tx_count;
+    m_tx_size -= entry.GetTxSize();
     return;
 }
 
 void Cluster::RechunkFromLinearization(std::vector<CTxMemPoolEntry::CTxMemPoolEntryRef>& txs, bool reassign_locations)
 {
     m_chunks.clear();
+    m_tx_size = 0;
 
     for (auto txentry : txs) {
         m_chunks.emplace_back(txentry.get().GetModifiedFee(), txentry.get().GetTxSize());
@@ -1571,6 +1574,7 @@ void Cluster::RechunkFromLinearization(std::vector<CTxMemPoolEntry::CTxMemPoolEn
                 break;
             }
         }
+        m_tx_size += txentry.get().GetTxSize();
     }
 
     if (reassign_locations) {

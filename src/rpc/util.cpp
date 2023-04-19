@@ -1141,7 +1141,7 @@ void RPCResult::CheckInnerDoc() const
     }
     // Everything else must either be empty or not
     const bool inner_needed{m_type == Type::ARR || m_type == Type::ARR_FIXED || m_type == Type::OBJ_DYN};
-    CHECK_NONFATAL(inner_needed != m_inner.empty());
+    assert(inner_needed != m_inner.empty());
 }
 
 std::string RPCArg::ToStringObj(const bool oneline) const
