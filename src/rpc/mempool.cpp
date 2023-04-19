@@ -685,6 +685,14 @@ UniValue MempoolInfoToJSON(const CTxMemPool& pool)
     ret.pushKV("incrementalrelayfee", ValueFromAmount(pool.m_incremental_relay_feerate.GetFeePerK()));
     ret.pushKV("unbroadcastcount", uint64_t{pool.GetUnbroadcastTxs().size()});
     ret.pushKV("fullrbf", pool.m_full_rbf);
+    ret.pushKV("numberofclusters", pool.m_cluster_map.size());
+    size_t max_cluster_size = 1;
+    for (const auto& [id, cluster] : pool.m_cluster_map) {
+        if (cluster->m_tx_count > max_cluster_size) {
+            max_cluster_size = cluster->m_tx_count;
+        }
+    }
+    ret.pushKV("maxclustersize", max_cluster_size);
     return ret;
 }
 
@@ -707,6 +715,8 @@ static RPCHelpMan getmempoolinfo()
                 {RPCResult::Type::NUM, "incrementalrelayfee", "minimum fee rate increment for mempool limiting or replacement in " + CURRENCY_UNIT + "/kvB"},
                 {RPCResult::Type::NUM, "unbroadcastcount", "Current number of transactions that haven't passed initial broadcast yet"},
                 {RPCResult::Type::BOOL, "fullrbf", "True if the mempool accepts RBF without replaceability signaling inspection"},
+                {RPCResult::Type::NUM, "numberofclusters", "Number of mempool clusters"},
+                {RPCResult::Type::NUM, "maxclustersize", "Size of biggest cluster"}
             }},
         RPCExamples{
             HelpExampleCli("getmempoolinfo", "")
