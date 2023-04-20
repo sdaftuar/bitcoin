@@ -74,7 +74,7 @@ public:
 
     // Add a transaction and update the sort.
     void AddTransaction(const CTxMemPoolEntry& entry, bool sort) {
-        m_chunks.emplace_back(entry.GetModifiedFee(), entry.GetTxWeight());
+        m_chunks.emplace_back(entry.GetModifiedFee(), entry.GetTxSize());
         m_chunks.back().txs.push_back(entry);
         entry.m_cluster = this;
         ++m_tx_count;
@@ -96,13 +96,13 @@ public:
     }
 
     // Sort the cluster and partition into chunks.
-    void Sort();
+    void Sort(bool reassign_locations = true);
 
     // Just rechunk the cluster using its existing linearization.
     void Rechunk();
 
     // Helper function
-    void RechunkFromLinearization(std::vector<CTxMemPoolEntry::CTxMemPoolEntryRef>& txs);
+    void RechunkFromLinearization(std::vector<CTxMemPoolEntry::CTxMemPoolEntryRef>& txs, bool reassign_locations);
 
     void Merge(std::vector<Cluster *>::iterator first, std::vector<Cluster*>::iterator last, bool this_cluster_first);
 

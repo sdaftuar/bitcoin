@@ -124,13 +124,15 @@ BOOST_FIXTURE_TEST_CASE(rbf_helper_functions, TestChain100Setup)
     BOOST_CHECK(PaysMoreThanConflicts(set_12_normal, CFeeRate(entry1->GetModifiedFee(), entry1->GetTxSize()), unused_txid).has_value());
     BOOST_CHECK(PaysMoreThanConflicts(set_12_normal, CFeeRate(entry1->GetModifiedFee() + 1, entry1->GetTxSize()), unused_txid) == std::nullopt);
     // These tests use modified fees (including prioritisation), not base fees.
-    BOOST_CHECK(PaysMoreThanConflicts({entry5}, CFeeRate(entry5->GetModifiedFee() + 1, entry5->GetTxSize()), unused_txid) == std::nullopt);
+    // Entry5 will get chunked with entry6, so we need to beat the combined feerate of the two.
+    BOOST_CHECK(PaysMoreThanConflicts({entry5}, CFeeRate(entry6->GetModifiedFee() + entry5->GetModifiedFee() + 1, entry5->GetTxSize() + entry6->GetTxSize()), unused_txid) == std::nullopt);
     BOOST_CHECK(PaysMoreThanConflicts({entry6}, CFeeRate(entry6->GetFee() + 1, entry6->GetTxSize()), unused_txid).has_value());
     BOOST_CHECK(PaysMoreThanConflicts({entry6}, CFeeRate(entry6->GetModifiedFee() + 1, entry6->GetTxSize()), unused_txid) == std::nullopt);
-    // PaysMoreThanConflicts checks individual feerate, not ancestor feerate. This test compares
-    // replacement_feerate and entry4's feerate, which are the same. The replacement_feerate is
-    // considered too low even though entry4 has a low ancestor feerate.
-    BOOST_CHECK(PaysMoreThanConflicts(set_34_cpfp, CFeeRate(entry4->GetModifiedFee(), entry4->GetTxSize()), unused_txid).has_value());
+    // PaysMoreThanConflicts compares against the actual mining feerate of each
+    // transaction. Entry3 and Entry4 will be chunked together at the average
+    // feerate of the two, so that's the feerate to beat.
+    BOOST_CHECK(PaysMoreThanConflicts(set_34_cpfp, CFeeRate(entry4->GetModifiedFee(), entry4->GetTxSize()), unused_txid) == std::nullopt);
+    BOOST_CHECK(PaysMoreThanConflicts(set_34_cpfp, CFeeRate(entry4->GetModifiedFee()+entry3->GetModifiedFee()-1, entry4->GetTxSize()+entry3->GetTxSize()), unused_txid).has_value());
 
     // Tests for EntriesAndTxidsDisjoint
     BOOST_CHECK(EntriesAndTxidsDisjoint(empty_set, {tx1->GetHash()}, unused_txid) == std::nullopt);

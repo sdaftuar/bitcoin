@@ -1438,7 +1438,7 @@ std::string RemovalReasonToString(const MemPoolRemovalReason& r) noexcept
     assert(false);
 }
 
-void Cluster::RechunkFromLinearization(std::vector<CTxMemPoolEntry::CTxMemPoolEntryRef>& txs)
+void Cluster::RechunkFromLinearization(std::vector<CTxMemPoolEntry::CTxMemPoolEntryRef>& txs, bool reassign_locations)
 {
     m_chunks.clear();
 
@@ -1465,10 +1465,12 @@ void Cluster::RechunkFromLinearization(std::vector<CTxMemPoolEntry::CTxMemPoolEn
         }
     }
 
-    // Update locations of all transactions
-    for (size_t i=0; i<m_chunks.size(); ++i) {
-        for (auto it = m_chunks[i].txs.begin(); it != m_chunks[i].txs.end(); ++it) {
-            it->get().m_loc = {i, it};
+    if (reassign_locations) {
+        // Update locations of all transactions
+        for (size_t i=0; i<m_chunks.size(); ++i) {
+            for (auto it = m_chunks[i].txs.begin(); it != m_chunks[i].txs.end(); ++it) {
+                it->get().m_loc = {i, it};
+            }
         }
     }
 }
@@ -1476,7 +1478,7 @@ void Cluster::RechunkFromLinearization(std::vector<CTxMemPoolEntry::CTxMemPoolEn
 // TODO: replace this with some kind of smart sort -- ancestor-feerate based,
 // or optimal, or anything better.
 // Just topological for now to get everything working.
-void Cluster::Sort()
+void Cluster::Sort(bool reassign_locations)
 {
     std::vector<CTxMemPoolEntry::CTxMemPoolEntryRef> txs;
 
@@ -1539,7 +1541,7 @@ void Cluster::Sort()
         std::sort(txs.begin(), txs.end(), CompareByAncestorCount());
     }
 
-    RechunkFromLinearization(txs);
+    RechunkFromLinearization(txs, reassign_locations);
 }
 
 void Cluster::Rechunk()
@@ -1553,7 +1555,7 @@ void Cluster::Rechunk()
         }
     }
 
-    RechunkFromLinearization(txs);
+    RechunkFromLinearization(txs, true);
 }
 
 void Cluster::Merge(std::vector<Cluster*>::iterator first, std::vector<Cluster*>::iterator last, bool this_cluster_first)

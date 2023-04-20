@@ -143,7 +143,8 @@ std::optional<std::string> PaysMoreThanConflicts(const CTxMemPool::setEntries& i
         // descendants. While that does mean high feerate children are ignored when deciding whether
         // or not to replace, we do require the replacement to pay more overall fees too, mitigating
         // most cases.
-        CFeeRate original_feerate(mi->GetModifiedFee(), mi->GetTxSize());
+        Cluster::Chunk &chunk = mi->m_cluster->m_chunks[mi->m_loc.first];
+        CFeeRate original_feerate(chunk.fee, chunk.size);
         if (replacement_feerate <= original_feerate) {
             return strprintf("rejecting replacement %s; new feerate %s <= old feerate %s",
                              txid.ToString(),
