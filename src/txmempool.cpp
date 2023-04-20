@@ -103,8 +103,10 @@ void CTxMemPool::UpdateForDescendants(txiter updateIt, cacheMap& cachedDescendan
         }
     }
     if (clusters_to_merge.size() > 1) {
-        // FIXME: the merge should preserve the topology! This is broken
-        clusters_to_merge[0]->Merge(clusters_to_merge.begin()+1, clusters_to_merge.end());
+        // Merge the other clusters into this one, but keep this cluster as
+        // first so that it's topologically sound.
+        clusters_to_merge[0]->Merge(clusters_to_merge.begin()+1, clusters_to_merge.end(), true);
+        // TODO: limit the size of the cluster, in case it got too big.
         // Need to delete the other clusters.
         for (auto it=clusters_to_merge.begin()+1; it!= clusters_to_merge.end(); ++it) {
             m_cluster_map.erase((*it)->m_id);
@@ -534,8 +536,7 @@ void CTxMemPool::addUnchecked(const CTxMemPoolEntry &entry, setEntries &setAnces
         // Only one parent cluster, add to it.
         clusters_to_merge[0]->AddTransaction(*newit, true);
     } else {
-        // Merge all the clusters together.
-        clusters_to_merge[0]->Merge(clusters_to_merge.begin()+1, clusters_to_merge.end());
+        clusters_to_merge[0]->Merge(clusters_to_merge.begin()+1, clusters_to_merge.end(), false);
         // Add this transaction to the cluster.
         clusters_to_merge[0]->AddTransaction(*newit, true);
         // Need to delete the other clusters.
@@ -1555,7 +1556,7 @@ void Cluster::Rechunk()
     RechunkFromLinearization(txs);
 }
 
-void Cluster::Merge(std::vector<Cluster*>::iterator first, std::vector<Cluster*>::iterator last)
+void Cluster::Merge(std::vector<Cluster*>::iterator first, std::vector<Cluster*>::iterator last, bool this_cluster_first)
 {
     if (first == last) return;
 
@@ -1571,7 +1572,18 @@ void Cluster::Merge(std::vector<Cluster*>::iterator first, std::vector<Cluster*>
         }
         total_txs += (*it)->m_tx_count;
     }
-    heap_chunks.emplace_back(std::make_pair(m_chunks.begin(), this));
+
+    // During a reorg, we want to merge clusters corresponding to descendants
+    // so that they appear after the cluster with their parent. This allows us
+    // to trim megaclusters down to our cluster size limit in a way that
+    // respects topology but still preferences higher feerate chunks over lower
+    // feerate chunks.
+    if (this_cluster_first) {
+        new_chunks = std::move(m_chunks);
+        m_chunks.clear();
+    } else {
+        heap_chunks.emplace_back(std::make_pair(m_chunks.begin(), this));
+    }
     // Define comparison operator on our heap entries (using feerate of chunks).
     auto cmp = [](const Cluster::HeapEntry& a, const Cluster::HeapEntry& b) {
         // TODO: branch on size of fee to do this as 32-bit calculation

@@ -104,7 +104,7 @@ public:
     // Helper function
     void RechunkFromLinearization(std::vector<CTxMemPoolEntry::CTxMemPoolEntryRef>& txs);
 
-    void Merge(std::vector<Cluster *>::iterator first, std::vector<Cluster*>::iterator last);
+    void Merge(std::vector<Cluster *>::iterator first, std::vector<Cluster*>::iterator last, bool this_cluster_first);
 
     // The chunks of transactions which will be added to blocks or
     // evicted from the mempool.
