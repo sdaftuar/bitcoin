@@ -98,6 +98,12 @@ public:
     // Sort the cluster and partition into chunks.
     void Sort();
 
+    // Just rechunk the cluster using its existing linearization.
+    void Rechunk();
+
+    // Helper function
+    void RechunkFromLinearization(std::vector<CTxMemPoolEntry::CTxMemPoolEntryRef>& txs);
+
     void Merge(std::vector<Cluster *>::iterator first, std::vector<Cluster*>::iterator last);
 
     // The chunks of transactions which will be added to blocks or
@@ -615,6 +621,10 @@ public:
      */
     void RemoveStaged(setEntries& stage, bool updateDescendants, MemPoolRemovalReason reason) EXCLUSIVE_LOCKS_REQUIRED(cs);
 
+    // Remove the given chunk (guaranteed to be last in the cluster)
+    // Leave the resulting cluster otherwise unchanged (ie don't repartition/re-sort).
+    void RemoveChunkForEviction(std::list<CTxMemPoolEntry::CTxMemPoolEntryRef>& entries) EXCLUSIVE_LOCKS_REQUIRED(cs);
+
     /** UpdateTransactionsFromBlock is called when adding transactions from a
      * disconnected block back to the mempool, new mempool entries may have
      * children in the mempool (which is generally not the case when otherwise
@@ -1047,13 +1057,20 @@ struct CompareCTxMemPoolIter {
 // A comparator that sorts transactions based on number of ancestors.
 // This is sufficient to sort an ancestor package in an order that is valid
 // to appear in a block.
-struct CompareTxIterByAncestorCount {
+struct CompareByAncestorCount {
     bool operator()(const CTxMemPool::txiter& a, const CTxMemPool::txiter& b) const
     {
         if (a->GetCountWithAncestors() != b->GetCountWithAncestors()) {
             return a->GetCountWithAncestors() < b->GetCountWithAncestors();
         }
         return CompareIteratorByHash()(a, b);
+    }
+    bool operator()(const CTxMemPoolEntry& a, const CTxMemPoolEntry& b) const
+    {
+        if (a.GetCountWithAncestors() != b.GetCountWithAncestors()) {
+            return a.GetCountWithAncestors() < b.GetCountWithAncestors();
+        }
+        return CompareIteratorByHash()(&a, &b);
     }
 };
 

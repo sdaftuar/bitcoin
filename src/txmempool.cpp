@@ -1067,6 +1067,23 @@ void CTxMemPool::RemoveUnbroadcastTx(const uint256& txid, const bool unchecked) 
     }
 }
 
+void CTxMemPool::RemoveChunkForEviction(std::list<CTxMemPoolEntry::CTxMemPoolEntryRef>& entries)
+{
+    AssertLockHeld(cs);
+
+    setEntries entriesToRemove;
+    for (auto entry_ref : entries) {
+        entriesToRemove.insert(mapTx.iterator_to(entry_ref.get()));
+    }
+    UpdateForRemoveFromMempool(entriesToRemove, false);
+    for (auto it : entriesToRemove) {
+        removeUnchecked(it, MemPoolRemovalReason::SIZELIMIT);
+    }
+
+    // Note: at this point the clusters will still be sorted, but they may need
+    // to be split.
+}
+
 void CTxMemPool::RemoveStaged(setEntries &stage, bool updateDescendants, MemPoolRemovalReason reason) {
     AssertLockHeld(cs);
     UpdateForRemoveFromMempool(stage, updateDescendants);
@@ -1166,21 +1183,22 @@ void CTxMemPool::RecalculateClusterAndMaybeSort(Cluster *cluster, bool sort)
         }
     }
 
-    // After all assignments are made, re-sort each cluster (once).
-    // TODO: if we don't need to sort (eg because this is following a TrimToSize eviction),
-    // then we should skip the full sort and just make sure our chunks are
-    // properly calculated, and the transaction locations are up-to-date.
-    std::vector<Cluster *> clusters_to_sort;
+    // After all assignments are made, either re-sort or re-chunk each cluster.
+    std::vector<Cluster *> clusters_to_fix;
     {
         WITH_FRESH_EPOCH(m_epoch);
         for (auto it : txs) {
             if (!visited(it.get().m_cluster)) {
-                clusters_to_sort.push_back(it.get().m_cluster);
+                clusters_to_fix.push_back(it.get().m_cluster);
             }
         }
     }
-    for (auto cluster : clusters_to_sort) {
-        cluster->Sort();
+    for (auto cluster : clusters_to_fix) {
+        if (sort) {
+            cluster->Sort();
+        } else {
+            cluster->Rechunk();
+        }
     }
 
     // Sanity check that all transactions are where they should be.
@@ -1271,15 +1289,13 @@ void CTxMemPool::TrimToSize(size_t sizelimit, std::vector<COutPoint>* pvNoSpends
 
     unsigned nTxnRemoved = 0;
     CFeeRate maxFeeRateRemoved(0);
+
+    // Use a heap to determine which chunks to evict, but only make the heap if
+    // we're actually above the size limit.
+    std::vector<Cluster::HeapEntry> heap_chunks;
+    std::set<Cluster*> clusters_with_evictions;
     while (!mapTx.empty() && DynamicMemoryUsage() > sizelimit) {
-        //indexed_transaction_set::index<descendant_score>::type::iterator it = mapTx.get<descendant_score>().begin();
-        std::vector<Cluster::HeapEntry> heap_chunks;
         if (heap_chunks.empty()) {
-            // TODO: avoid redoing this heap each time through.
-            // Right now we have to do this because when we remove
-            // transactions, that can trigger a reclustering. Ideally we'd just
-            // evict everything we need to first, and then go back and clean up
-            // the clusters that were affected.
             for (const auto & [id, cluster] : m_cluster_map) {
                 if (!cluster->m_chunks.empty()) {
                     heap_chunks.emplace_back(make_pair(cluster->m_chunks.end()-1, cluster.get()));
@@ -1299,9 +1315,9 @@ void CTxMemPool::TrimToSize(size_t sizelimit, std::vector<COutPoint>* pvNoSpends
         // Remove the top element (lowest feerate) and evict.
         auto worst_chunk = heap_chunks.front();
 
-        /* No need to clean up the heap since we're going to throw it all
-         * away, for now (see comment above)
-        std::pop_heap(heap_chunks.begin(), heap_chunks.end());
+        assert(worst_chunk.first->size > 0);
+
+        std::pop_heap(heap_chunks.begin(), heap_chunks.end(), cmp);
         heap_chunks.pop_back();
         if (worst_chunk.first != worst_chunk.second->m_chunks.begin()) {
             // If we're not at the beginning of the cluster's chunk list, we can
@@ -1309,7 +1325,8 @@ void CTxMemPool::TrimToSize(size_t sizelimit, std::vector<COutPoint>* pvNoSpends
             heap_chunks.emplace_back(make_pair(worst_chunk.first-1, worst_chunk.second));
             std::push_heap(heap_chunks.begin(), heap_chunks.end(), cmp);
         }
-        */
+
+        clusters_with_evictions.insert(worst_chunk.second);
 
         // We set the new mempool min fee to the feerate of the removed set, plus the
         // "minimum reasonable fee rate" (ie some value under which we consider txn
@@ -1320,22 +1337,19 @@ void CTxMemPool::TrimToSize(size_t sizelimit, std::vector<COutPoint>* pvNoSpends
         trackPackageRemoved(removed);
         maxFeeRateRemoved = std::max(maxFeeRateRemoved, removed);
 
-        setEntries stage;
-        for (const auto& it : worst_chunk.first->txs) {
-            auto mi = GetIter(it.get().GetTx().GetHash());
-            if (mi) stage.insert(*mi);
-        }
-        nTxnRemoved += stage.size();
+        nTxnRemoved += worst_chunk.first->txs.size();
 
         std::vector<CTransaction> txn;
         if (pvNoSpendsRemaining) {
-            txn.reserve(stage.size());
-            for (txiter iter : stage)
-                txn.push_back(iter->GetTx());
+            txn.reserve(worst_chunk.first->txs.size());
+            for (auto tx_entry_ref : worst_chunk.first->txs)
+                txn.push_back(tx_entry_ref.get().GetTx());
         }
-        // TODO: Optimize this so that we don't re-sort the cluster after the
-        // eviction.
-        RemoveStaged(stage, false, MemPoolRemovalReason::SIZELIMIT);
+
+        // We'll remove this chunk without otherwise updating the cluster (ie
+        // without trying to re-sort, and without trying to re-partition/split
+        // the cluster if it's no longer connected).
+        RemoveChunkForEviction(worst_chunk.first->txs);
         if (pvNoSpendsRemaining) {
             for (const CTransaction& tx : txn) {
                 for (const CTxIn& txin : tx.vin) {
@@ -1343,6 +1357,18 @@ void CTxMemPool::TrimToSize(size_t sizelimit, std::vector<COutPoint>* pvNoSpends
                     pvNoSpendsRemaining->push_back(txin.prevout);
                 }
             }
+        }
+    }
+
+    // Before we can return, we have to clean up the clusters that saw
+    // evictions, because they will have stray chunks and may need to be
+    // re-partitioned.
+    // However, these clusters do not need to be re-sorted, because evicted
+    // chunks at the end can never change the relative ordering of transactions
+    // that come before them.
+    {
+        for (Cluster* cluster : clusters_with_evictions) {
+            RecalculateClusterAndMaybeSort(cluster, false);
         }
     }
 
@@ -1411,76 +1437,13 @@ std::string RemovalReasonToString(const MemPoolRemovalReason& r) noexcept
     assert(false);
 }
 
-// TODO: replace this with some kind of smart sort -- ancestor-feerate based,
-// or optimal, or anything better.
-// Just topological for now to get everything working.
-void Cluster::Sort()
+void Cluster::RechunkFromLinearization(std::vector<CTxMemPoolEntry::CTxMemPoolEntryRef>& txs)
 {
-    std::vector<CTxMemPool::txiter> txs;
-
-    if (m_tx_count < 50) {
-        indexed_modified_transaction_set mapModifiedTx;
-
-        // Insert all transactions from the cluster into the multi_index.
-        for (auto &chunk : m_chunks) {
-            for (auto chunk_tx : chunk.txs) {
-                mapModifiedTx.insert(CTxMemPoolModifiedEntry(m_mempool->mapTx.iterator_to(chunk_tx.get())));
-            }
-        }
-
-        while (!mapModifiedTx.empty()) {
-            // Remove the top element by ancestor feerate.
-            modtxscoreiter it = mapModifiedTx.get<ancestor_score>().begin();
-            std::vector<CTxMemPool::txiter> ancestors = m_mempool->CalculateAncestors(it->iter);
-            ancestors.push_back(it->iter);
-
-            std::vector<CTxMemPool::txiter> remaining_ancestors;
-
-            // Remove entries that are not in mapModifiedTx (they must already be selected)
-            for (auto iter : ancestors) {
-                if (mapModifiedTx.find(iter) != mapModifiedTx.end()) {
-                    remaining_ancestors.push_back(iter);
-                }
-            }
-
-            // Sort what is left by ancestor count (a topologically valid sort).
-            std::sort(remaining_ancestors.begin(), remaining_ancestors.end(), CompareTxIterByAncestorCount());
-
-            txs.insert(txs.end(), remaining_ancestors.begin(), remaining_ancestors.end());
-
-            // Remove the selected transactions from mapModifiedTx.
-            for (auto setit = ancestors.begin(); setit != ancestors.end(); ++setit) {
-                mapModifiedTx.erase(*setit);
-            }
-            for (auto setit = ancestors.begin(); setit != ancestors.end(); ++setit) {
-                // Also update any entries in mapModifiedTx that are descendants so that they get a new score.
-                CTxMemPool::setEntries descendants;
-                m_mempool->CalculateDescendants(*setit, descendants);
-
-                for (auto desc : descendants) {
-                    auto mit = mapModifiedTx.find(desc);
-                    if (mit != mapModifiedTx.end()) {
-                        mapModifiedTx.modify(mit, update_for_parent_inclusion(*setit));
-                    }
-                }
-            }
-        }
-    } else {
-        // Only do the topological sort for big clusters
-        // Insert all transactions from the cluster into txs
-        for (auto &chunk : m_chunks) {
-            for (auto chunk_tx : chunk.txs) {
-                txs.push_back(m_mempool->mapTx.iterator_to(chunk_tx.get()));
-            }
-        }
-        std::sort(txs.begin(), txs.end(), CompareTxIterByAncestorCount());
-    }
-
     m_chunks.clear();
 
     for (auto txentry : txs) {
-        m_chunks.emplace_back(txentry->GetModifiedFee(), txentry->GetTxSize());
-        m_chunks.back().txs.emplace_back(*txentry);
+        m_chunks.emplace_back(txentry.get().GetModifiedFee(), txentry.get().GetTxSize());
+        m_chunks.back().txs.emplace_back(txentry);
         while (m_chunks.size() >= 2) {
             auto cur_iter = std::prev(m_chunks.end());
             auto prev_iter = std::prev(cur_iter);
@@ -1507,6 +1470,89 @@ void Cluster::Sort()
             it->get().m_loc = {i, it};
         }
     }
+}
+
+// TODO: replace this with some kind of smart sort -- ancestor-feerate based,
+// or optimal, or anything better.
+// Just topological for now to get everything working.
+void Cluster::Sort()
+{
+    std::vector<CTxMemPoolEntry::CTxMemPoolEntryRef> txs;
+
+    if (m_tx_count < 50) {
+        indexed_modified_transaction_set mapModifiedTx;
+
+        // Insert all transactions from the cluster into the multi_index.
+        for (auto &chunk : m_chunks) {
+            for (auto chunk_tx : chunk.txs) {
+                mapModifiedTx.insert(CTxMemPoolModifiedEntry(m_mempool->mapTx.iterator_to(chunk_tx.get())));
+            }
+        }
+
+        while (!mapModifiedTx.empty()) {
+            // Remove the top element by ancestor feerate.
+            modtxscoreiter it = mapModifiedTx.get<ancestor_score>().begin();
+            std::vector<CTxMemPool::txiter> ancestors = m_mempool->CalculateAncestors(it->iter);
+            ancestors.push_back(it->iter);
+
+            std::vector<CTxMemPoolEntry::CTxMemPoolEntryRef> remaining_ancestors;
+
+            // Remove entries that are not in mapModifiedTx (they must already be selected)
+            for (auto iter : ancestors) {
+                if (mapModifiedTx.find(iter) != mapModifiedTx.end()) {
+                    remaining_ancestors.push_back(*iter);
+                }
+            }
+
+            // Sort what is left by ancestor count (a topologically valid sort).
+            std::sort(remaining_ancestors.begin(), remaining_ancestors.end(), CompareByAncestorCount());
+
+            txs.insert(txs.end(), remaining_ancestors.begin(), remaining_ancestors.end());
+
+            // Remove the selected transactions from mapModifiedTx.
+            for (auto ancestor : remaining_ancestors) {
+                mapModifiedTx.erase(m_mempool->mapTx.iterator_to(ancestor));
+            }
+            for (auto setit = remaining_ancestors.begin(); setit != remaining_ancestors.end(); ++setit) {
+                // Also update any entries in mapModifiedTx that are descendants so that they get a new score.
+                CTxMemPool::setEntries descendants;
+                CTxMemPool::txiter iter = m_mempool->mapTx.iterator_to(setit->get());
+                m_mempool->CalculateDescendants(iter, descendants);
+
+                for (auto desc : descendants) {
+                    auto mit = mapModifiedTx.find(desc);
+                    if (mit != mapModifiedTx.end()) {
+                        mapModifiedTx.modify(mit, update_for_parent_inclusion(iter));
+                    }
+                }
+            }
+        }
+    } else {
+        // Only do the topological sort for big clusters
+        // Insert all transactions from the cluster into txs
+        for (auto &chunk : m_chunks) {
+            for (auto chunk_tx : chunk.txs) {
+                txs.push_back(chunk_tx.get());
+            }
+        }
+        std::sort(txs.begin(), txs.end(), CompareByAncestorCount());
+    }
+
+    RechunkFromLinearization(txs);
+}
+
+void Cluster::Rechunk()
+{
+    std::vector<CTxMemPoolEntry::CTxMemPoolEntryRef> txs;
+
+    // Insert all transactions from the cluster into txs
+    for (auto &chunk : m_chunks) {
+        for (auto chunk_tx : chunk.txs) {
+            txs.push_back(chunk_tx);
+        }
+    }
+
+    RechunkFromLinearization(txs);
 }
 
 void Cluster::Merge(std::vector<Cluster*>::iterator first, std::vector<Cluster*>::iterator last)
