@@ -646,6 +646,8 @@ public:
                                    const Limits& limits,
                                    bool fSearchForParents = true) const EXCLUSIVE_LOCKS_REQUIRED(cs);
 
+    std::vector<CTxMemPool::txiter> CalculateAncestors(txiter iter) const EXCLUSIVE_LOCKS_REQUIRED(cs);
+
     /**
      * Same as CalculateMemPoolAncestors, but always returns a (non-optional) setEntries.
      * Should only be used when it is assumed CalculateMemPoolAncestors would not fail. If

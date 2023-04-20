@@ -275,6 +275,32 @@ util::Result<CTxMemPool::setEntries> CTxMemPool::CalculateMemPoolAncestors(
                                             limits);
 }
 
+std::vector<CTxMemPool::txiter> CTxMemPool::CalculateAncestors(txiter iter) const
+{
+    std::vector<txiter> result;
+    {
+        WITH_FRESH_EPOCH(m_epoch);
+        const auto& parents = iter->GetMemPoolParentsConst();
+        std::vector<CTxMemPool::txiter> work_queue;
+        for (auto p : parents) {
+            work_queue.emplace_back(mapTx.iterator_to(p));
+            visited(work_queue.back());
+        }
+        while (!work_queue.empty()) {
+            auto next = work_queue.back();
+            result.emplace_back(next);
+            work_queue.pop_back();
+            const auto& parents = next->GetMemPoolParentsConst();
+            for (auto p : parents) {
+                if (!visited(p)) {
+                    work_queue.emplace_back(mapTx.iterator_to(p));
+                }
+            }
+        }
+    }
+    return result;
+}
+
 CTxMemPool::setEntries CTxMemPool::AssumeCalculateMemPoolAncestors(
     std::string_view calling_fn_name,
     const CTxMemPoolEntry &entry,
@@ -1144,13 +1170,17 @@ void CTxMemPool::RecalculateClusterAndMaybeSort(Cluster *cluster, bool sort)
     // TODO: if we don't need to sort (eg because this is following a TrimToSize eviction),
     // then we should skip the full sort and just make sure our chunks are
     // properly calculated, and the transaction locations are up-to-date.
+    std::vector<Cluster *> clusters_to_sort;
     {
         WITH_FRESH_EPOCH(m_epoch);
         for (auto it : txs) {
             if (!visited(it.get().m_cluster)) {
-                it.get().m_cluster->Sort();
+                clusters_to_sort.push_back(it.get().m_cluster);
             }
         }
+    }
+    for (auto cluster : clusters_to_sort) {
+        cluster->Sort();
     }
 
     // Sanity check that all transactions are where they should be.
@@ -1398,27 +1428,25 @@ void Cluster::Sort()
             }
         }
 
-
         while (!mapModifiedTx.empty()) {
             // Remove the top element by ancestor feerate.
             modtxscoreiter it = mapModifiedTx.get<ancestor_score>().begin();
-            auto ancestors{m_mempool->AssumeCalculateMemPoolAncestors(__func__, *it->iter, CTxMemPool::Limits::NoLimits(), /*fSearchForParents=*/false)};
-            ancestors.insert(it->iter);
+            std::vector<CTxMemPool::txiter> ancestors = m_mempool->CalculateAncestors(it->iter);
+            ancestors.push_back(it->iter);
+
+            std::vector<CTxMemPool::txiter> remaining_ancestors;
 
             // Remove entries that are not in mapModifiedTx (they must already be selected)
-            for (auto setit = ancestors.begin(); setit != ancestors.end(); ) {
-                if (mapModifiedTx.find(*setit) == mapModifiedTx.end()) {
-                    setit = ancestors.erase(setit);
-                } else {
-                    ++setit;
+            for (auto iter : ancestors) {
+                if (mapModifiedTx.find(iter) != mapModifiedTx.end()) {
+                    remaining_ancestors.push_back(iter);
                 }
             }
 
             // Sort what is left by ancestor count (a topologically valid sort).
-            std::vector<CTxMemPool::txiter> txs_to_sort(ancestors.begin(), ancestors.end());
-            std::sort(txs_to_sort.begin(), txs_to_sort.end(), CompareTxIterByAncestorCount());
+            std::sort(remaining_ancestors.begin(), remaining_ancestors.end(), CompareTxIterByAncestorCount());
 
-            txs.insert(txs.end(), txs_to_sort.begin(), txs_to_sort.end());
+            txs.insert(txs.end(), remaining_ancestors.begin(), remaining_ancestors.end());
 
             // Remove the selected transactions from mapModifiedTx.
             for (auto setit = ancestors.begin(); setit != ancestors.end(); ++setit) {
