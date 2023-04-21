@@ -1482,9 +1482,10 @@ void Cluster::RechunkFromLinearization(std::vector<CTxMemPoolEntry::CTxMemPoolEn
 // Just topological for now to get everything working.
 void Cluster::Sort(bool reassign_locations)
 {
+    const auto time_start{SteadyClock::now()};
     std::vector<CTxMemPoolEntry::CTxMemPoolEntryRef> txs;
 
-    if (m_tx_count < 50) {
+    if (m_tx_count < 100) {
         indexed_modified_transaction_set mapModifiedTx;
 
         // Insert all transactions from the cluster into the multi_index.
@@ -1544,6 +1545,11 @@ void Cluster::Sort(bool reassign_locations)
     }
 
     RechunkFromLinearization(txs, reassign_locations);
+
+    const auto time_1{SteadyClock::now()};
+    if (m_tx_count >= 50 && m_tx_count < 100) {
+        LogPrint(BCLog::BENCH, "Ancestor Sort: %d txs %.4fms\n", m_tx_count, Ticks<MillisecondsDouble>(time_1-time_start));
+    }
 }
 
 void Cluster::Rechunk()
