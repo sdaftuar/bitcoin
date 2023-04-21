@@ -686,12 +686,17 @@ UniValue MempoolInfoToJSON(const CTxMemPool& pool)
     ret.pushKV("unbroadcastcount", uint64_t{pool.GetUnbroadcastTxs().size()});
     ret.pushKV("fullrbf", pool.m_full_rbf);
     ret.pushKV("numberofclusters", pool.m_cluster_map.size());
-    size_t max_cluster_size = 1;
+    size_t max_cluster_count = 1;
+    size_t max_cluster_size = 0;
     for (const auto& [id, cluster] : pool.m_cluster_map) {
-        if (cluster->m_tx_count > max_cluster_size) {
-            max_cluster_size = cluster->m_tx_count;
+        if (cluster->m_tx_count > max_cluster_count) {
+            max_cluster_count = cluster->m_tx_count;
+        }
+        if (cluster->m_tx_size > max_cluster_size) {
+            max_cluster_size = cluster->m_tx_size;
         }
     }
+    ret.pushKV("maxclustercount", max_cluster_count);
     ret.pushKV("maxclustersize", max_cluster_size);
     return ret;
 }
@@ -716,6 +721,7 @@ static RPCHelpMan getmempoolinfo()
                 {RPCResult::Type::NUM, "unbroadcastcount", "Current number of transactions that haven't passed initial broadcast yet"},
                 {RPCResult::Type::BOOL, "fullrbf", "True if the mempool accepts RBF without replaceability signaling inspection"},
                 {RPCResult::Type::NUM, "numberofclusters", "Number of mempool clusters"},
+                {RPCResult::Type::NUM, "maxclustercount", "Count of biggest cluster"},
                 {RPCResult::Type::NUM, "maxclustersize", "Size of biggest cluster"}
             }},
         RPCExamples{

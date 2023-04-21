@@ -1441,6 +1441,7 @@ std::string RemovalReasonToString(const MemPoolRemovalReason& r) noexcept
 void Cluster::RechunkFromLinearization(std::vector<CTxMemPoolEntry::CTxMemPoolEntryRef>& txs, bool reassign_locations)
 {
     m_chunks.clear();
+    m_tx_size = 0;
 
     for (auto txentry : txs) {
         m_chunks.emplace_back(txentry.get().GetModifiedFee(), txentry.get().GetTxSize());
@@ -1463,6 +1464,7 @@ void Cluster::RechunkFromLinearization(std::vector<CTxMemPoolEntry::CTxMemPoolEn
                 break;
             }
         }
+        m_tx_size += txentry.get().GetTxSize();
     }
 
     if (reassign_locations) {

@@ -78,6 +78,7 @@ public:
         m_chunks.back().txs.push_back(entry);
         entry.m_cluster = this;
         ++m_tx_count;
+        m_tx_size += entry.GetTxSize();
         if (sort) Sort();
         return;
     }
@@ -92,6 +93,7 @@ public:
         // able to do multiple removals in a row and then clean up the sort, we
         // can't clean up empty chunks here.
         --m_tx_count;
+        m_tx_size -= entry.GetTxSize();
         return;
     }
 
@@ -124,6 +126,7 @@ public:
 
     std::vector<Chunk> m_chunks;
     size_t m_tx_count{0};
+    size_t m_tx_size{0};
 
     const int64_t m_id;
     CTxMemPool* m_mempool;
