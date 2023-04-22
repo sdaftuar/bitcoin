@@ -250,6 +250,18 @@ static RPCHelpMan testmempoolaccept()
     };
 }
 
+static std::vector<RPCResult> ClusterDescription()
+{
+    return {
+        RPCResult{RPCResult::Type::NUM, "vsize", "virtual transaction size as defined in BIP 141. This is different from actual serialized size for witness transactions as witness data is discounted."},
+        RPCResult{RPCResult::Type::NUM, "txcount", "number of transactions (including this one)"},
+        RPCResult{RPCResult::Type::NUM, "chunkcount", "number of chunks"},
+        RPCResult{RPCResult::Type::NUM, "clusterid", "id of the cluster containing this tx"},
+        RPCResult{RPCResult::Type::ARR, "txids", "txs in cluster in linearized order",
+            {RPCResult{RPCResult::Type::STR_HEX, "transactionid", "transaction id"}}}
+    };
+}
+
 static std::vector<RPCResult> MempoolEntryDescription()
 {
     return {
@@ -261,6 +273,8 @@ static std::vector<RPCResult> MempoolEntryDescription()
         RPCResult{RPCResult::Type::NUM, "descendantsize", "virtual transaction size of in-mempool descendants (including this one)"},
         RPCResult{RPCResult::Type::NUM, "ancestorcount", "number of in-mempool ancestor transactions (including this one)"},
         RPCResult{RPCResult::Type::NUM, "ancestorsize", "virtual transaction size of in-mempool ancestors (including this one)"},
+        RPCResult{RPCResult::Type::NUM, "chunksize", "virtual transaction size of this transaction's chunk"},
+        RPCResult{RPCResult::Type::NUM, "clusterid", "id of the cluster containing this tx"},
         RPCResult{RPCResult::Type::STR_HEX, "wtxid", "hash of serialized transaction, including witness data"},
         RPCResult{RPCResult::Type::OBJ, "fees", "",
             {
@@ -268,6 +282,7 @@ static std::vector<RPCResult> MempoolEntryDescription()
                 RPCResult{RPCResult::Type::STR_AMOUNT, "modified", "transaction fee with fee deltas used for mining priority, denominated in " + CURRENCY_UNIT},
                 RPCResult{RPCResult::Type::STR_AMOUNT, "ancestor", "transaction fees of in-mempool ancestors (including this one) with fee deltas used for mining priority, denominated in " + CURRENCY_UNIT},
                 RPCResult{RPCResult::Type::STR_AMOUNT, "descendant", "transaction fees of in-mempool descendants (including this one) with fee deltas used for mining priority, denominated in " + CURRENCY_UNIT},
+                RPCResult{RPCResult::Type::STR_AMOUNT, "chunk", "transaction fees of chunk, denominated in " + CURRENCY_UNIT},
             }},
         RPCResult{RPCResult::Type::ARR, "depends", "unconfirmed transactions used as inputs for this transaction",
             {RPCResult{RPCResult::Type::STR_HEX, "transactionid", "parent transaction id"}}},
@@ -276,6 +291,22 @@ static std::vector<RPCResult> MempoolEntryDescription()
         RPCResult{RPCResult::Type::BOOL, "bip125-replaceable", "Whether this transaction signals BIP125 replaceability or has an unconfirmed ancestor signaling BIP125 replaceability.\n"},
         RPCResult{RPCResult::Type::BOOL, "unbroadcast", "Whether this transaction is currently unbroadcast (initial broadcast not yet acknowledged by any peers)"},
     };
+}
+
+static void clusterToJSON(const CTxMemPool& pool, UniValue& info, const Cluster& c) EXCLUSIVE_LOCKS_REQUIRED(pool.cs)
+{
+    AssertLockHeld(pool.cs);
+    info.pushKV("vsize", (int)c.m_tx_size);
+    info.pushKV("txcount", (int)c.m_tx_count);
+    info.pushKV("chunkcount", (int)c.m_chunks.size());
+    info.pushKV("clusterid", (int)c.m_id);
+    UniValue txids(UniValue::VARR);
+    for (auto &chunk : c.m_chunks) {
+        for (auto &tx : chunk.txs) {
+            txids.push_back(tx.get().GetTx().GetHash().ToString());
+        }
+    }
+    info.pushKV("txids", txids);
 }
 
 static void entryToJSON(const CTxMemPool& pool, UniValue& info, const CTxMemPoolEntry& e) EXCLUSIVE_LOCKS_REQUIRED(pool.cs)
@@ -291,12 +322,15 @@ static void entryToJSON(const CTxMemPool& pool, UniValue& info, const CTxMemPool
     info.pushKV("ancestorcount", e.GetCountWithAncestors());
     info.pushKV("ancestorsize", e.GetSizeWithAncestors());
     info.pushKV("wtxid", pool.vTxHashes[e.vTxHashesIdx].first.ToString());
+    info.pushKV("chunksize", e.m_cluster->m_chunks[e.m_loc.first].size);
+    info.pushKV("clusterid", e.m_cluster->m_id);
 
     UniValue fees(UniValue::VOBJ);
     fees.pushKV("base", ValueFromAmount(e.GetFee()));
     fees.pushKV("modified", ValueFromAmount(e.GetModifiedFee()));
     fees.pushKV("ancestor", ValueFromAmount(e.GetModFeesWithAncestors()));
     fees.pushKV("descendant", ValueFromAmount(e.GetModFeesWithDescendants()));
+    fees.pushKV("chunk", ValueFromAmount(e.m_cluster->m_chunks[e.m_loc.first].fee));
     info.pushKV("fees", fees);
 
     const CTransaction& tx = e.GetTx();
@@ -550,6 +584,39 @@ static RPCHelpMan getmempooldescendants()
         }
         return o;
     }
+},
+    };
+}
+
+static RPCHelpMan getmempoolcluster()
+{
+    return RPCHelpMan{"getmempoolcluster",
+        "\nReturns mempool data for given cluster\n",
+        {
+            {"id", RPCArg::Type::NUM, RPCArg::Optional::NO, "The cluster id (must be in mempool)"},
+        },
+        RPCResult{
+            RPCResult::Type::OBJ, "", "", ClusterDescription()},
+        RPCExamples{
+            HelpExampleCli("getmempoolcluster", "cluster_id")
+            + HelpExampleRpc("getmempoolcluster", "cluster_id")
+        },
+        [&](const RPCHelpMan& self, const JSONRPCRequest& request) -> UniValue
+{
+    int64_t cluster_id = request.params[0].getInt<int>();
+
+    const CTxMemPool& mempool = EnsureAnyMemPool(request.context);
+    LOCK(mempool.cs);
+
+    auto it = mempool.m_cluster_map.find(cluster_id);
+    if (it == mempool.m_cluster_map.end()) {
+        throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Cluster not in mempool");
+    }
+
+    const Cluster &c = *(it->second);
+    UniValue info(UniValue::VOBJ);
+    clusterToJSON(mempool, info, c);
+    return info;
 },
     };
 }
@@ -934,6 +1001,7 @@ void RegisterMempoolRPCCommands(CRPCTable& t)
         {"blockchain", &getmempoolancestors},
         {"blockchain", &getmempooldescendants},
         {"blockchain", &getmempoolentry},
+        {"blockchain", &getmempoolcluster},
         {"blockchain", &gettxspendingprevout},
         {"blockchain", &getmempoolinfo},
         {"blockchain", &getrawmempool},
