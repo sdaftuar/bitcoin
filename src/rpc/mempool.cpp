@@ -261,6 +261,7 @@ static std::vector<RPCResult> ClusterDescription()
                 {
                     RPCResult{RPCResult::Type::STR_AMOUNT, "fee", "fee of this chunk"},
                     RPCResult{RPCResult::Type::NUM, "vsize", "virtual size of this chunk"},
+                    RPCResult{RPCResult::Type::NUM, "feerate", "fee rate in " + CURRENCY_UNIT + "/kvB"},
                     RPCResult{RPCResult::Type::ARR, "txids", "txids in this chunk in sorted order",
                         {RPCResult{RPCResult::Type::STR_HEX, "transactionid", "the transaction id"}}}
                 }}
@@ -310,7 +311,8 @@ static void clusterToJSON(const CTxMemPool& pool, UniValue& info, const Cluster&
     for (auto &chunk : c.m_chunks) {
         UniValue chunkdata(UniValue::VOBJ);
         chunkdata.pushKV("vsize", (int)chunk.size);
-        chunkdata.pushKV("fee", (int)chunk.fee);
+        chunkdata.pushKV("fee", ValueFromAmount((int)chunk.fee));
+        chunkdata.pushKV("feerate", ValueFromAmount(CFeeRate(chunk.fee, chunk.size).GetFeePerK()));
 
         UniValue txids(UniValue::VARR);
         for (auto &tx : chunk.txs) {
@@ -424,6 +426,63 @@ UniValue MempoolToJSON(const CTxMemPool& pool, bool verbose, bool include_mempoo
             return o;
         }
     }
+}
+
+static RPCHelpMan getmempoolfeesize()
+{
+    return RPCHelpMan{"getmempoolfeesize",
+        "Returns fee/size data for the whole mempool.",
+        {},
+        {},
+        RPCExamples{
+            HelpExampleCli("getmempoolfeesize", "")
+            + HelpExampleRpc("getmempoolfeesize", "")
+        },
+        [&](const RPCHelpMan& self, const JSONRPCRequest& request) -> UniValue
+        {
+            const CTxMemPool& mempool = EnsureAnyMemPool(request.context);
+            LOCK(mempool.cs);
+
+            UniValue result(UniValue::VARR);
+
+            // TODO: refactor so that we're not just copying this from the miner.
+            std::vector<Cluster::HeapEntry> heap_chunks;
+            // Initialize the heap with the best entry from each cluster
+            for (const auto & [id, cluster] : mempool.m_cluster_map) {
+                if (!cluster->m_chunks.empty()) {
+                    heap_chunks.emplace_back(std::make_pair(cluster->m_chunks.begin(), cluster.get()));
+                }
+            }
+            // Define comparison operator on our heap entries (using feerate of chunks).
+            auto cmp = [](const Cluster::HeapEntry& a, const Cluster::HeapEntry& b) {
+                return a.first->fee*b.first->size < b.first->fee*a.first->size;
+            };
+            std::make_heap(heap_chunks.begin(), heap_chunks.end(), cmp);
+
+            CAmount accum_fee{0};
+            int64_t accum_size{0};
+            while (!heap_chunks.empty()) {
+                auto best_chunk = heap_chunks.front();
+                std::pop_heap(heap_chunks.begin(), heap_chunks.end(), cmp);
+                heap_chunks.pop_back();
+
+                accum_size += best_chunk.first->size;   
+                accum_fee += best_chunk.first->fee;
+
+                UniValue o(UniValue::VOBJ);
+                o.pushKV("size", accum_size);
+                o.pushKV("fee", ValueFromAmount(accum_fee));
+                result.push_back(o);
+
+                ++best_chunk.first;
+                if (best_chunk.first != best_chunk.second->m_chunks.end()) {
+                    heap_chunks.emplace_back(best_chunk);
+                    std::push_heap(heap_chunks.begin(), heap_chunks.end(), cmp);
+                }
+            }
+            return result;
+        }
+    };
 }
 
 static RPCHelpMan getrawmempool()
@@ -1018,6 +1077,7 @@ void RegisterMempoolRPCCommands(CRPCTable& t)
         {"blockchain", &getmempoolcluster},
         {"blockchain", &gettxspendingprevout},
         {"blockchain", &getmempoolinfo},
+        {"blockchain", &getmempoolfeesize},
         {"blockchain", &getrawmempool},
         {"blockchain", &savemempool},
         {"hidden", &submitpackage},
