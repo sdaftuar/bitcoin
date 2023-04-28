@@ -116,6 +116,12 @@ private:
     RecursiveMutex cs_LastBlockFile;
     std::vector<CBlockFileInfo> m_blockfile_info;
     int m_last_blockfile = 0;
+    // Track the largest height block whose undo data is in m_last_blockfile.
+    // When we move to the next blockfile, if the undo data is keeping up then
+    // we know we can trim the size of the file and truncate any excess
+    // allocations. If not, we assume that eventually we'll add more undo data
+    // to this file, and when we revisit it we'll trim it then.
+    unsigned int m_undo_height_in_last_blockfile = 0;
     /** Global flag to indicate we should check to see if there are
      *  block/undo files that should be deleted.  Set on startup
      *  or if we allocate more file space when we're in prune mode
