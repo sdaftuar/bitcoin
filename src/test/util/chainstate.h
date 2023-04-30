@@ -71,6 +71,7 @@ CreateAndActivateUTXOSnapshot(
             // This is a stripped-down version of node::LoadChainstate which
             // preserves the block index.
             LOCK(::cs_main);
+            CBlockIndex *orig_tip = node.chainman->ActiveChainstate().m_chain.Tip();
             uint256 gen_hash = node.chainman->ActiveChainstate().m_chain[0]->GetBlockHash();
             node.chainman->ResetChainstates();
             node.chainman->InitializeChainstate(node.mempool.get());
@@ -83,6 +84,18 @@ CreateAndActivateUTXOSnapshot(
             chain.setBlockIndexCandidates.insert(node.chainman->m_blockman.LookupBlockIndex(gen_hash));
             chain.LoadChainTip();
             node.chainman->MaybeRebalanceCaches();
+
+            // Reset the HAVE_DATA flags below the snapshot height, simulating
+            // never-having-downloaded them in the first place.
+            // TODO: perhaps we could improve this by using pruning to delete
+            // these blocks instead
+            CBlockIndex *pindex = orig_tip;
+            while (pindex && pindex != chain.m_chain.Tip()) {
+                pindex->nStatus &= ~BLOCK_HAVE_DATA;
+                pindex->nStatus &= ~BLOCK_HAVE_UNDO;
+                pindex->nStatus |= BLOCK_ASSUMED_VALID;
+                pindex = pindex->pprev;
+            }
         }
         BlockValidationState state;
         if (!node.chainman->ActiveChainstate().ActivateBestChain(state)) {
