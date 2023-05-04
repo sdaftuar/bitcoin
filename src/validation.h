@@ -1026,6 +1026,16 @@ public:
     int ActiveHeight() const EXCLUSIVE_LOCKS_REQUIRED(GetMutex()) { return ActiveChain().Height(); }
     CBlockIndex* ActiveTip() const EXCLUSIVE_LOCKS_REQUIRED(GetMutex()) { return ActiveChain().Tip(); }
 
+    //! The state of a background sync (for net processing)
+    bool BackgroundSyncInProgress() const EXCLUSIVE_LOCKS_REQUIRED(GetMutex()) {
+        return IsUsable(m_snapshot_chainstate.get()) && IsUsable(m_ibd_chainstate.get());
+    }
+
+    //! The tip of the background sync chain
+    const CBlockIndex* GetBackgroundSyncTip() const EXCLUSIVE_LOCKS_REQUIRED(GetMutex()) {
+        return BackgroundSyncInProgress() ? m_ibd_chainstate->m_chain.Tip() : nullptr;
+    }
+
     node::BlockMap& BlockIndex() EXCLUSIVE_LOCKS_REQUIRED(::cs_main)
     {
         AssertLockHeld(::cs_main);

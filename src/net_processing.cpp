@@ -898,6 +898,8 @@ private:
      */
     void FindNextBlocksToDownload(const Peer& peer, unsigned int count, std::vector<const CBlockIndex*>& vBlocks, NodeId& nodeStaller) EXCLUSIVE_LOCKS_REQUIRED(cs_main);
 
+    void TryDownloadingHistoricalBlocks(const Peer& peer, unsigned int count, std::vector<const CBlockIndex*>& vBlocks, const CBlockIndex* from_tip, const CBlockIndex* target_block) EXCLUSIVE_LOCKS_REQUIRED(cs_main);
+
     std::map<uint256, std::pair<NodeId, std::list<QueuedBlock>::iterator> > mapBlocksInFlight GUARDED_BY(cs_main);
 
     /** When our tip was last updated. */
@@ -1295,6 +1297,7 @@ void PeerManagerImpl::UpdateBlockAvailability(NodeId nodeid, const uint256 &hash
     }
 }
 
+// Logic for calculating which blocks to download from a given peer, given our current tip.
 void PeerManagerImpl::FindNextBlocksToDownload(const Peer& peer, unsigned int count, std::vector<const CBlockIndex*>& vBlocks, NodeId& nodeStaller)
 {
     if (count == 0)
@@ -1377,6 +1380,62 @@ void PeerManagerImpl::FindNextBlocksToDownload(const Peer& peer, unsigned int co
             } else if (waitingfor == -1) {
                 // This is the first already-in-flight block.
                 waitingfor = mapBlocksInFlight[pindex->GetBlockHash()].first;
+            }
+        }
+    }
+}
+
+void PeerManagerImpl::TryDownloadingHistoricalBlocks(const Peer& peer, unsigned int count, std::vector<const CBlockIndex*>& vBlocks, const CBlockIndex *from_tip, const CBlockIndex* target_block)
+{
+    if (vBlocks.size() >= count) {
+        return;
+    }
+
+    vBlocks.reserve(count);
+    CNodeState *state = State(peer.m_id);
+    assert(state != nullptr);
+
+    if (state->pindexBestKnownBlock == nullptr || state->pindexBestKnownBlock->GetAncestor(target_block->nHeight) != target_block) {
+        // This peer is useless to us -- it has a chain that doesn't contain
+        // our assumeutxo target.
+        // Presumably this peer's chain has less work than our ActiveChain()'s tip, or else we
+        // will eventually crash when we try to reorg to it. Let other logic
+        // deal with whether we disconnect this peer.
+        return;
+    }
+
+    const CBlockIndex *pindexWalk = from_tip;
+
+    int nWindowEnd = pindexWalk->nHeight + BLOCK_DOWNLOAD_WINDOW;
+    int nMaxHeight = std::min<int>(target_block->nHeight, nWindowEnd + 1);
+
+    std::vector<const CBlockIndex*> vToFetch;
+
+    while (pindexWalk->nHeight < nMaxHeight) {
+        int nToFetch = std::min(nMaxHeight-pindexWalk->nHeight, std::max<int>(count-vBlocks.size(), 128));
+        vToFetch.resize(nToFetch);
+        pindexWalk = state->pindexBestKnownBlock->GetAncestor(pindexWalk->nHeight + nToFetch);
+        vToFetch[nToFetch - 1] = pindexWalk;
+        for (unsigned int i = nToFetch - 1; i > 0; i--) {
+            vToFetch[i-1] = vToFetch[i]->pprev;
+        }
+        for (const CBlockIndex* pindex : vToFetch) {
+            if (!pindex->IsValid(BLOCK_VALID_TREE)) {
+                // This is a problem! XXX should crash or something
+                return;
+            }
+            if (!CanServeWitnesses(peer) && DeploymentActiveAt(*pindex, m_chainman, Consensus::DEPLOYMENT_SEGWIT)) {
+                // We wouldn't download this block or its descendants from this peer.
+                return;
+            }
+            if (!(pindex->nStatus & BLOCK_HAVE_DATA) && !IsBlockRequested(pindex->GetBlockHash())) {
+                if (pindex->nHeight > nWindowEnd) {
+                    return;
+                }
+                vBlocks.push_back(pindex);
+                if (vBlocks.size() == count) {
+                    return;
+                }
             }
         }
     }
@@ -5804,6 +5863,14 @@ bool PeerManagerImpl::SendMessages(CNode* pto)
             std::vector<const CBlockIndex*> vToDownload;
             NodeId staller = -1;
             FindNextBlocksToDownload(*peer, MAX_BLOCKS_IN_TRANSIT_PER_PEER - state.nBlocksInFlight, vToDownload, staller);
+            if (m_chainman.BackgroundSyncInProgress() && !IsLimitedPeer(*peer)) {
+                const CBlockIndex *target = m_chainman.m_blockman.LookupBlockIndex(*m_chainman.SnapshotBlockhash());
+                if (target != nullptr) {
+                    TryDownloadingHistoricalBlocks(*peer,
+                            MAX_BLOCKS_IN_TRANSIT_PER_PEER - state.nBlocksInFlight,
+                            vToDownload, m_chainman.GetBackgroundSyncTip(), target);
+                }
+            }
             for (const CBlockIndex *pindex : vToDownload) {
                 uint32_t nFetchFlags = GetFetchFlags(*peer);
                 vGetData.push_back(CInv(MSG_BLOCK | nFetchFlags, pindex->GetBlockHash()));
