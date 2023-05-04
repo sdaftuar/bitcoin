@@ -2627,6 +2627,50 @@ static RPCHelpMan dumptxoutset()
     };
 }
 
+static RPCHelpMan loadutxoset()
+{
+    return RPCHelpMan{
+        "loadutxoset",
+        "Load a utxo snapshot from disk.",
+        {
+            {"path", RPCArg::Type::STR, RPCArg::Optional::NO, "Path to the output file. If relative, will be prefixed by datadir."},
+        },
+        RPCResult{
+            RPCResult::Type::OBJ, "", "",
+            {
+                {RPCResult::Type::STR, "path", "the absolute path that the snapshot was written to"},
+            }
+        },
+        RPCExamples{
+            HelpExampleCli("loadutxoset", "utxo.dat")
+        },
+        [&](const RPCHelpMan& self, const JSONRPCRequest& request) -> UniValue
+{
+    const ArgsManager& args{EnsureAnyArgsman(request.context)};
+    const fs::path path = fsbridge::AbsPathJoin(args.GetDataDirNet(), fs::u8path(request.params[0].get_str()));
+
+    FILE* file{fsbridge::fopen(path, "rb")};
+    AutoFile afile{file};
+    if (afile.IsNull()) {
+        throw JSONRPCError(
+                RPC_INVALID_PARAMETER,
+                "Couldn't open file " + path.u8string() + " for reading.");
+    }
+    NodeContext& node = EnsureAnyNodeContext(request.context);
+    node::SnapshotMetadata metadata;
+    afile >> metadata;
+
+    UniValue result;
+    if (node.chainman->ActivateSnapshot(afile, metadata, false)) {
+        result.pushKV("path", path.u8string());
+    } else {
+        result.pushKV("path", "oops");
+    }
+    return result;
+}
+    };
+}
+
 UniValue CreateUTXOSnapshot(
     NodeContext& node,
     Chainstate& chainstate,
@@ -2731,6 +2775,7 @@ void RegisterBlockchainRPCCommands(CRPCTable& t)
         {"hidden", &waitforblockheight},
         {"hidden", &syncwithvalidationinterfacequeue},
         {"hidden", &dumptxoutset},
+        {"hidden", &loadutxoset},
     };
     for (const auto& c : commands) {
         t.appendCommand(c.name, &c);
