@@ -20,6 +20,7 @@
 #include <util/result.h>
 #include <util/system.h>
 #include <util/time.h>
+#include <util/trace.h>
 #include <util/translation.h>
 #include <validationinterface.h>
 
@@ -76,14 +77,9 @@ void CTxMemPool::UpdateForDescendants(txiter updateIt, cacheMap& cachedDescendan
     int64_t modifySize = 0;
     CAmount modifyFee = 0;
     int64_t modifyCount = 0;
-    std::vector<Cluster *> clusters_to_merge{updateIt->m_cluster};
     {
         WITH_FRESH_EPOCH(m_epoch);
-        visited(updateIt->m_cluster);
         for (const CTxMemPoolEntry& descendant : descendants) {
-            if (!visited(descendant.m_cluster)) {
-                clusters_to_merge.push_back(descendant.m_cluster);
-            }
             if (!setExclude.count(descendant.GetTx().GetHash())) {
                 modifySize += descendant.GetTxSize();
                 modifyFee += descendant.GetModifiedFee();
@@ -102,6 +98,22 @@ void CTxMemPool::UpdateForDescendants(txiter updateIt, cacheMap& cachedDescendan
             }
         }
     }
+    mapTx.modify(updateIt, [=](CTxMemPoolEntry& e) { e.UpdateDescendantState(modifySize, modifyFee, modifyCount); });
+}
+
+void CTxMemPool::UpdateClusterForDescendants(txiter updateIt)
+{
+    CTxMemPoolEntry::Children children = updateIt->GetMemPoolChildrenConst();
+    std::vector<Cluster *> clusters_to_merge{updateIt->m_cluster};
+    {
+        WITH_FRESH_EPOCH(m_epoch);
+        visited(updateIt->m_cluster);
+        for (auto child : children) {
+            if (!visited(child.get().m_cluster)) {
+                clusters_to_merge.push_back(child.get().m_cluster);
+            }
+        }
+    }
     if (clusters_to_merge.size() > 1) {
         // Merge the other clusters into this one, but keep this cluster as
         // first so that it's topologically sound.
@@ -116,7 +128,6 @@ void CTxMemPool::UpdateForDescendants(txiter updateIt, cacheMap& cachedDescendan
         // cluster size, and then sort.
         clusters_to_merge[0]->Sort();
     }
-    mapTx.modify(updateIt, [=](CTxMemPoolEntry& e) { e.UpdateDescendantState(modifySize, modifyFee, modifyCount); });
 }
 
 void CTxMemPool::UpdateTransactionsFromBlock(const std::vector<uint256>& vHashesToUpdate)
@@ -132,6 +143,8 @@ void CTxMemPool::UpdateTransactionsFromBlock(const std::vector<uint256>& vHashes
     std::set<uint256> setAlreadyIncluded(vHashesToUpdate.begin(), vHashesToUpdate.end());
 
     std::set<uint256> descendants_to_remove;
+
+    std::vector<txiter> txs_to_update_for_descendants;
 
     // Iterate in reverse, so that whenever we are looking at a transaction
     // we are sure that all in-mempool descendants have already been processed.
@@ -163,6 +176,14 @@ void CTxMemPool::UpdateTransactionsFromBlock(const std::vector<uint256>& vHashes
             }
         } // release epoch guard for UpdateForDescendants
         UpdateForDescendants(it, mapMemPoolDescendantsToUpdate, setAlreadyIncluded, descendants_to_remove);
+    }
+
+    // Fix clusters
+    for (const uint256& hash : reverse_iterate(vHashesToUpdate)) {
+        txiter it = mapTx.find(hash);
+        if (it == mapTx.end()) continue;
+
+        UpdateClusterForDescendants(it);
     }
 
     for (const auto& txid : descendants_to_remove) {
@@ -544,7 +565,13 @@ void CTxMemPool::addUnchecked(const CTxMemPoolEntry &entry, setEntries &setAnces
             m_cluster_map.erase((*it)->m_id);
         }
     }
-    LogPrintf("New tx %s is in cluster of size %d\n", tx.GetHash().ToString(), newit->m_cluster->m_tx_count);
+    LogPrintf("New tx %s is in cluster %d of size %d\n", tx.GetHash().ToString(), newit->m_cluster->m_id, newit->m_cluster->m_tx_count);
+
+    TRACE3(mempool, added,
+        entry.GetTx().GetHash().data(),
+        entry.GetTxSize(),
+        entry.GetFee()
+    );
 }
 
 void CTxMemPool::removeUnchecked(txiter it, MemPoolRemovalReason reason)
@@ -560,6 +587,13 @@ void CTxMemPool::removeUnchecked(txiter it, MemPoolRemovalReason reason)
         // notification.
         GetMainSignals().TransactionRemovedFromMempool(it->GetSharedTx(), reason, mempool_sequence);
     }
+    TRACE5(mempool, removed,
+        it->GetTx().GetHash().data(),
+        RemovalReasonToString(reason).c_str(),
+        it->GetTxSize(),
+        it->GetFee(),
+        std::chrono::duration_cast<std::chrono::duration<std::uint64_t>>(it->GetTime()).count()
+    );
 
     const uint256 hash = it->GetTx().GetHash();
     for (const CTxIn& txin : it->GetTx().vin)
@@ -827,6 +861,7 @@ void CTxMemPool::check(const CCoinsViewCache& active_coins_tip, int64_t spendhei
 
     // Check that clusters are sorted topologically and that the chunks match the txs.
     for (const auto & [id, cluster] : m_cluster_map) {
+        assert(cluster->m_tx_count > 0); // no empty clusters
         CTxMemPoolEntry::Parents txs_so_far;
         for (size_t i=0; i<cluster->m_chunks.size(); ++i) {
             int64_t fee{0};
@@ -1369,7 +1404,11 @@ void CTxMemPool::TrimToSize(size_t sizelimit, std::vector<COutPoint>* pvNoSpends
     // that come before them.
     {
         for (Cluster* cluster : clusters_with_evictions) {
-            RecalculateClusterAndMaybeSort(cluster, false);
+            if (cluster->m_tx_count == 0) {
+                m_cluster_map.erase(cluster->m_id);
+            } else {
+                RecalculateClusterAndMaybeSort(cluster, false);
+            }
         }
     }
 

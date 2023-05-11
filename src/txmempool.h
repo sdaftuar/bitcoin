@@ -789,6 +789,10 @@ private:
      */
     void UpdateForDescendants(txiter updateIt, cacheMap& cachedDescendants,
                               const std::set<uint256>& setExclude, std::set<uint256>& descendants_to_remove) EXCLUSIVE_LOCKS_REQUIRED(cs);
+    // During reorg we add transactions back to mempool, must reconnect
+    // clusters with in-mempool descendants.
+    void UpdateClusterForDescendants(txiter updateIt);
+
     /** Update ancestors of hash to add/remove it as a descendant transaction. */
     void UpdateAncestorsOf(bool add, txiter hash, setEntries &setAncestors) EXCLUSIVE_LOCKS_REQUIRED(cs);
     /** Set ancestor state for an entry */
