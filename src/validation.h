@@ -1054,6 +1054,12 @@ public:
     //!          that a background validation chainstate is also in use.
     bool IsSnapshotActive() const;
 
+    //! @returns true if the chainstate is the background chainstate
+    bool IsBackgroundChainstate(const Chainstate *chainstate) const EXCLUSIVE_LOCKS_REQUIRED(::cs_main)
+    {
+        return chainstate == m_ibd_chainstate.get();
+    }
+
     std::optional<uint256> SnapshotBlockhash() const;
 
     //! Is there a snapshot in use and has it been fully validated?
