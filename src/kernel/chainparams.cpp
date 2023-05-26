@@ -175,6 +175,10 @@ public:
 
         m_assumeutxo_data = MapAssumeutxo{
          // TODO to be specified in a future patch.
+            {
+                788279,
+                {AssumeutxoHash{uint256S("0xdbe4a2e9df603fe2be0d55e686d81fd5c8eebfb2ff487616eb0d31efca7b3020")}, 788279},
+            },
         };
 
         chainTxData = ChainTxData{
