@@ -18,6 +18,8 @@
 #include <kernel/mempool_limits.h>
 #include <kernel/mempool_options.h>
 
+#include <logging.h>
+#include <cluster_linearize.h>
 #include <coins.h>
 #include <consensus/amount.h>
 #include <indirectmap.h>
@@ -131,6 +133,39 @@ public:
     const int64_t m_id;
     CTxMemPool* m_mempool;
     mutable Epoch::Marker m_epoch_marker; //!< epoch when last touched
+
+private:
+    template <typename T>
+    void InvokeSort(bool reassign_locations)
+    {
+        const auto time_3{SteadyClock::now()};
+        T cluster;
+        std::vector<CTxMemPoolEntry::CTxMemPoolEntryRef> orig_txs;
+        std::map<const CTxMemPoolEntry *, unsigned> entry_to_index;
+        std::vector<unsigned> result;
+
+        cluster.reserve(m_tx_count);
+        for (auto &chunk : m_chunks) {
+            for (auto tx : chunk.txs) {
+                orig_txs.emplace_back(tx);
+                cluster.push_back({cluster_linearize::FeeAndSize(tx.get().GetModifiedFee(), tx.get().GetTxSize()), {}});
+                entry_to_index[&(tx.get())] = cluster.size() - 1;
+            }
+        }
+        for (size_t i=0; i<orig_txs.size(); ++i) {
+            for (auto& parent : orig_txs[i].get().GetMemPoolParentsConst()) {
+                cluster[i].second.Set(entry_to_index[&(parent.get())]);
+            }
+        }
+        const auto time_4{SteadyClock::now()};
+        LogPrint(BCLog::BENCH, "InvokeSort marshalling: %zu txs %.4fms\n", m_tx_count, Ticks<MillisecondsDouble>(time_4-time_3));
+        result = cluster_linearize::LinearizeCluster(cluster);
+        std::vector<CTxMemPoolEntry::CTxMemPoolEntryRef> txs;
+        for (auto index : result) {
+            txs.push_back(orig_txs[index]);
+        }
+        RechunkFromLinearization(txs, reassign_locations);
+    }
 };
 
 

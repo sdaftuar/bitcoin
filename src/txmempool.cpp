@@ -6,6 +6,7 @@
 #include <txmempool.h>
 
 #include <chain.h>
+#include <cluster_linearize.h>
 #include <coins.h>
 #include <consensus/consensus.h>
 #include <consensus/tx_verify.h>
@@ -1569,6 +1570,7 @@ void Cluster::RechunkFromLinearization(std::vector<CTxMemPoolEntry::CTxMemPoolEn
     }
 }
 
+#if 0
 // TODO: replace this with some kind of smart sort -- ancestor-feerate based,
 // or optimal, or anything better.
 // Just topological for now to get everything working.
@@ -1578,7 +1580,7 @@ void Cluster::Sort(bool reassign_locations)
     const auto time_start{SteadyClock::now()};
     std::vector<CTxMemPoolEntry::CTxMemPoolEntryRef> txs;
 
-    if (m_tx_count < 100) {
+    if (m_tx_count < 2000) {
         indexed_modified_transaction_set mapModifiedTx;
 
         // Insert all transactions from the cluster into the multi_index.
@@ -1643,6 +1645,41 @@ void Cluster::Sort(bool reassign_locations)
     if (m_tx_count >= 50 && m_tx_count < 100) {
         LogPrint(BCLog::BENCH, "Ancestor Sort: %d txs %.4fms\n", m_tx_count, Ticks<MillisecondsDouble>(time_1-time_start));
     }
+    printf("Ancestor Sort: %d txs %.4fms\n", m_tx_count, Ticks<MillisecondsDouble>(time_1-time_start));
+}
+#endif
+
+void Cluster::Sort(bool reassign_locations)
+{
+    const auto time_start{SteadyClock::now()};
+    if (m_tx_count <= 64) {
+        InvokeSort<cluster_linearize::Cluster<cluster_linearize::IntBitSet<uint64_t>>>(reassign_locations);
+    } else if (m_tx_count <= 128) {
+        InvokeSort<cluster_linearize::Cluster<cluster_linearize::MultiIntBitSet<uint64_t, 2>>>(reassign_locations);
+    } else if (m_tx_count <= 192) {
+        InvokeSort<cluster_linearize::Cluster<cluster_linearize::MultiIntBitSet<uint64_t, 3>>>(reassign_locations);
+    } else if (m_tx_count <= 256) {
+        InvokeSort<cluster_linearize::Cluster<cluster_linearize::MultiIntBitSet<uint64_t, 4>>>(reassign_locations);
+    } else if (m_tx_count <= 320) {
+        InvokeSort<cluster_linearize::Cluster<cluster_linearize::MultiIntBitSet<uint64_t, 5>>>(reassign_locations);
+    } else if (m_tx_count <= 384) {
+        InvokeSort<cluster_linearize::Cluster<cluster_linearize::MultiIntBitSet<uint64_t, 6>>>(reassign_locations);
+    } else if (m_tx_count <= 1280) {
+        InvokeSort<cluster_linearize::Cluster<cluster_linearize::MultiIntBitSet<uint64_t, 20>>>(reassign_locations);
+    } else {
+        std::vector<CTxMemPoolEntry::CTxMemPoolEntryRef> txs;
+        // Only do the topological sort for big clusters
+        for (auto &chunk : m_chunks) {
+            for (auto chunk_tx : chunk.txs) {
+                txs.push_back(chunk_tx.get());
+            }
+        }
+        std::sort(txs.begin(), txs.end(), CompareByAncestorCount());
+        RechunkFromLinearization(txs, reassign_locations);
+    }
+    const auto time_2{SteadyClock::now()};
+    LogPrint(BCLog::BENCH, "Ancestor Sort: %zu txs %.4fms\n", m_tx_count, Ticks<MillisecondsDouble>(time_2-time_start));
+    //printf("Ancestor Sort: %zu txs %.4fms\n", m_tx_count, Ticks<MillisecondsDouble>(time_2-time_start));
 }
 
 void Cluster::Rechunk()
