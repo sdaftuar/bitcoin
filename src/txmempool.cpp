@@ -1651,7 +1651,7 @@ void Cluster::Sort(bool reassign_locations)
 
 void Cluster::Sort(bool reassign_locations)
 {
-    const auto time_start{SteadyClock::now()};
+    //const auto time_start{SteadyClock::now()};
     if (m_tx_count <= 64) {
         InvokeSort<cluster_linearize::Cluster<cluster_linearize::IntBitSet<uint64_t>>>(reassign_locations);
     } else if (m_tx_count <= 128) {
@@ -1677,8 +1677,8 @@ void Cluster::Sort(bool reassign_locations)
         std::sort(txs.begin(), txs.end(), CompareByAncestorCount());
         RechunkFromLinearization(txs, reassign_locations);
     }
-    const auto time_2{SteadyClock::now()};
-    LogPrint(BCLog::BENCH, "Ancestor Sort: %zu txs %.4fms\n", m_tx_count, Ticks<MillisecondsDouble>(time_2-time_start));
+    //const auto time_2{SteadyClock::now()};
+    //LogPrint(BCLog::BENCH, "Ancestor Sort: %zu txs %.4fms\n", m_tx_count, Ticks<MillisecondsDouble>(time_2-time_start));
     //printf("Ancestor Sort: %zu txs %.4fms\n", m_tx_count, Ticks<MillisecondsDouble>(time_2-time_start));
 }
 

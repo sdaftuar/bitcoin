@@ -33,6 +33,7 @@
 #include <util/epochguard.h>
 #include <util/hasher.h>
 #include <util/result.h>
+#include <util/strencodings.h>
 
 #include <boost/multi_index/hashed_index.hpp>
 #include <boost/multi_index/ordered_index.hpp>
@@ -158,8 +159,8 @@ private:
             }
         }
         const auto time_4{SteadyClock::now()};
-        LogPrint(BCLog::BENCH, "InvokeSort marshalling: %zu txs %.4fms\n", m_tx_count, Ticks<MillisecondsDouble>(time_4-time_3));
         result = cluster_linearize::LinearizeCluster(cluster);
+        LogPrint(BCLog::BENCH, "InvokeSort linearize cluster: %zu txs %.4fms encoding: %s\n", m_tx_count, Ticks<MillisecondsDouble>(time_4-time_3), HexStr(DumpCluster(cluster)));
         std::vector<CTxMemPoolEntry::CTxMemPoolEntryRef> txs;
         for (auto index : result) {
             txs.push_back(orig_txs[index]);
