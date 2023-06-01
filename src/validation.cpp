@@ -994,6 +994,7 @@ bool MemPoolAccept::ReplacementChecks(Workspace& ws)
                 temp_cluster.m_chunks.back().txs.push_back(txentry);
             }
         }
+        temp_cluster.m_tx_count += c->m_tx_count;
     }
     // Unfortunately, the cluster sort algorithm uses the modified fee from the
     // mempool entry (the chunk data is thrown away). So we need to update the
