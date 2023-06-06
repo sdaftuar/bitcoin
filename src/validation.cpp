@@ -3404,6 +3404,15 @@ void Chainstate::ResetBlockFailureFlags(CBlockIndex *pindex) {
     }
 }
 
+void Chainstate::TryAddBlockIndexCandidate(CBlockIndex* pindex)
+{
+    AssertLockHeld(cs_main);
+    // If the block has more work than our tip, then it should be a candidate for most-work-chain.
+    if (m_chain.Tip() == nullptr || !setBlockIndexCandidates.value_comp()(pindex, m_chain.Tip())) {
+        setBlockIndexCandidates.insert(pindex);
+    }
+}
+
 /** Mark a block as having its data received and checked (up to BLOCK_VALID_TRANSACTIONS). */
 void Chainstate::ReceivedBlockTransactions(const CBlock& block, CBlockIndex* pindexNew, const FlatFilePos& pos)
 {
@@ -3431,9 +3440,7 @@ void Chainstate::ReceivedBlockTransactions(const CBlock& block, CBlockIndex* pin
             queue.pop_front();
             pindex->nChainTx = (pindex->pprev ? pindex->pprev->nChainTx : 0) + pindex->nTx;
             pindex->nSequenceId = m_chainman.nBlockSequenceId++;
-            if (m_chain.Tip() == nullptr || !setBlockIndexCandidates.value_comp()(pindex, m_chain.Tip())) {
-                setBlockIndexCandidates.insert(pindex);
-            }
+            TryAddBlockIndexCandidate(pindex);
             std::pair<std::multimap<CBlockIndex*, CBlockIndex*>::iterator, std::multimap<CBlockIndex*, CBlockIndex*>::iterator> range = m_blockman.m_blocks_unlinked.equal_range(pindex);
             while (range.first != range.second) {
                 std::multimap<CBlockIndex*, CBlockIndex*>::iterator it = range.first;
@@ -4367,10 +4374,9 @@ bool Chainstate::NeedsRedownload() const
     return false;
 }
 
-void Chainstate::UnloadBlockIndex()
+void Chainstate::ClearBlockIndexCandidates()
 {
     AssertLockHeld(::cs_main);
-    m_chainman.nBlockSequenceId = 1;
     setBlockIndexCandidates.clear();
 }
 
