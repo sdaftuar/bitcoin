@@ -431,6 +431,7 @@ BOOST_FIXTURE_TEST_CASE(chainstatemanager_loadblockindex, TestChain100Setup)
     CBlockIndex* assumed_tip{WITH_LOCK(chainman.GetMutex(), return chainman.ActiveChain().Tip())};
 
     auto reload_all_block_indexes = [&]() {
+        WITH_LOCK(::cs_main, return chainman.ResetBlockSequenceCounters());
         for (Chainstate* cs : chainman.GetAll()) {
             LOCK(::cs_main);
             cs->UnloadBlockIndex();
