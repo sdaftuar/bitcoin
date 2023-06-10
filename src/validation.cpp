@@ -1577,7 +1577,12 @@ Chainstate::Chainstate(
     : m_mempool(mempool),
       m_blockman(blockman),
       m_chainman(chainman),
-      m_from_snapshot_blockhash(from_snapshot_blockhash) {}
+      m_from_snapshot_blockhash(from_snapshot_blockhash)
+{
+    if (m_from_snapshot_blockhash) {
+        m_snapshot_entry = WITH_LOCK(::cs_main, return m_chainman.m_blockman.LookupBlockIndex(*m_from_snapshot_blockhash));
+    }
+}
 
 void Chainstate::InitCoinsDB(
     size_t cache_size_bytes,
@@ -4398,6 +4403,14 @@ bool ChainstateManager::LoadBlockIndex()
         bool ret{m_blockman.LoadBlockIndexDB()};
         if (!ret) return false;
 
+        // If we already have 2 chainstates, then we need to update the
+        // snapshot base to point to the correct block entry.
+        if (IsSnapshotActive()) {
+            CBlockIndex *entry = m_blockman.LookupBlockIndex(*SnapshotBlockhash());
+            m_ibd_chainstate->UpdateSnapshotBaseEntry(entry);
+            m_snapshot_chainstate->UpdateSnapshotBaseEntry(entry);
+        }
+
         m_blockman.ScanAndUnlinkAlreadyPrunedFiles();
 
         std::vector<CBlockIndex*> vSortedByHeight{m_blockman.GetAllBlockIndices()};
@@ -5165,6 +5178,8 @@ bool ChainstateManager::ActivateSnapshot(
             m_snapshot_chainstate->CoinsTip().DynamicMemoryUsage() / (1000 * 1000));
 
         this->MaybeRebalanceCaches();
+
+        m_ibd_chainstate->m_snapshot_entry = m_snapshot_chainstate->m_snapshot_entry;
     }
     return true;
 }
@@ -5644,6 +5659,8 @@ Chainstate& ChainstateManager::ActivateExistingSnapshot(CTxMemPool* mempool, uin
         std::make_unique<Chainstate>(mempool, m_blockman, *this, base_blockhash);
     LogPrintf("[snapshot] switching active chainstate to %s\n", m_snapshot_chainstate->ToString());
     m_active_chainstate = m_snapshot_chainstate.get();
+    // Note: m_snapshot_entry will be populated after the block index is
+    // loaded; see ChainstateManager::LoadBlockIndex.
     return *m_snapshot_chainstate;
 }
 

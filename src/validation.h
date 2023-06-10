@@ -491,6 +491,13 @@ protected:
     //! is set to true on the snapshot chainstate.
     bool m_disabled GUARDED_BY(::cs_main) {false};
 
+    void UpdateSnapshotBaseEntry(const CBlockIndex *entry) EXCLUSIVE_LOCKS_REQUIRED(::cs_main)
+        { m_snapshot_entry = entry; }
+
+    //! Track the snapshot entry
+    const CBlockIndex* m_snapshot_entry GUARDED_BY(::cs_main) {nullptr};
+
+
 public:
     //! Reference to a BlockManager instance which itself is shared across all
     //! Chainstate instances.
