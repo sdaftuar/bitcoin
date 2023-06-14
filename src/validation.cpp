@@ -948,6 +948,7 @@ bool MemPoolAccept::ReplacementChecks(Workspace& ws)
     const uint256& hash = ws.m_hash;
     TxValidationState& state = ws.m_state;
     CTxMemPool::setEntries& ancestors = ws.m_ancestors;
+    std::unique_ptr<CTxMemPoolEntry>& entry = ws.m_entry;
 
     // Calculate all conflicting entries and enforce Rule #5.
     if (const auto err_string{GetEntriesForConflicts(tx, m_pool, ws.m_iters_conflicting, ws.m_all_conflicting)}) {
@@ -996,6 +997,15 @@ bool MemPoolAccept::ReplacementChecks(Workspace& ws)
         }
         temp_cluster.m_tx_count += c->m_tx_count;
     }
+
+    // Populate the in-mempool parents (needed for potential RBF calculations)
+    for (const CTxIn &txin : tx.vin) {
+        const auto it = m_pool.mapTx.find(txin.prevout.hash);
+        if (it != m_pool.mapTx.end()) {
+            entry->GetMemPoolParents().insert(*it);
+        }
+    }
+
     // Unfortunately, the cluster sort algorithm uses the modified fee from the
     // mempool entry (the chunk data is thrown away). So we need to update the
     // modified fee and then undo it later (or else addUnchecked will apply it
@@ -1004,6 +1014,8 @@ bool MemPoolAccept::ReplacementChecks(Workspace& ws)
     temp_cluster.m_chunks.emplace_back(ws.m_modified_fees, ws.m_vsize);
     temp_cluster.m_chunks.back().txs.push_back(*ws.m_entry);
     temp_cluster.Sort(false);
+
+    entry->GetMemPoolParents().clear();
 
     // Find the new transaction and compare its feerate to that of the conflicts.
     CAmount effective_fees = 0;
