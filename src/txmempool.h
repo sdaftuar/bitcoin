@@ -158,8 +158,8 @@ private:
                 cluster[i].second.Set(entry_to_index[&(parent.get())]);
             }
         }
-        const auto time_4{SteadyClock::now()};
         result = cluster_linearize::LinearizeCluster(cluster);
+        const auto time_4{SteadyClock::now()};
         LogPrint(BCLog::BENCH, "InvokeSort linearize cluster: %zu txs %.4fms encoding: %s\n", m_tx_count, Ticks<MillisecondsDouble>(time_4-time_3), HexStr(DumpCluster(cluster)));
         std::vector<CTxMemPoolEntry::CTxMemPoolEntryRef> txs;
         for (auto index : result) {
