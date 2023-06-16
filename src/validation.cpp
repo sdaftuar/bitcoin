@@ -3424,8 +3424,7 @@ void Chainstate::TryAddBlockIndexCandidate(CBlockIndex* pindex)
             // towards the snapshot base (which can't be nullptr or else we'll
             // never make progress).
             assert(m_snapshot_entry != nullptr);
-            bool ancestor_of_snapshot_base = (m_snapshot_entry->GetAncestor(pindex->nHeight) == pindex);
-            if (ancestor_of_snapshot_base) {
+            if (m_snapshot_entry->GetAncestor(pindex->nHeight) == pindex) {
                 setBlockIndexCandidates.insert(pindex);
             }
         }
