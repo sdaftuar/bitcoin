@@ -4724,8 +4724,6 @@ void Chainstate::CheckBlockIndex()
         nNodes++;
         if (pindexFirstAssumeValid == nullptr && pindex->nStatus & BLOCK_ASSUMED_VALID) pindexFirstAssumeValid = pindex;
         if (pindexFirstInvalid == nullptr && pindex->nStatus & BLOCK_FAILED_VALID) pindexFirstInvalid = pindex;
-        // Assumed-valid index entries will not have data since we haven't downloaded the
-        // full block yet.
         if (pindexFirstMissing == nullptr && !(pindex->nStatus & BLOCK_HAVE_DATA)) {
             pindexFirstMissing = pindex;
         }
@@ -4854,8 +4852,8 @@ void Chainstate::CheckBlockIndex()
             // setBlockIndexCandidates, then it must be in m_blocks_unlinked.
             if (!CBlockIndexWorkComparator()(pindex, m_chain.Tip()) && setBlockIndexCandidates.count(pindex) == 0) {
                 if (pindexFirstInvalid == nullptr && pindexFirstAssumeValid == nullptr) {
-                    // If this is a snapshotted chain, then this block could
-                    // either be in mapBlocksUnlinked or in
+                    // If this is a chain based on an assumeutxo snapshot, then
+                    // this block could either be in mapBlocksUnlinked or in
                     // setBlockIndexCandidates; it may take a call to
                     // FindMostWorkChain() to figure out whether all the blocks
                     // between the tip and this block are actually available.
@@ -4886,6 +4884,7 @@ void Chainstate::CheckBlockIndex()
             if (pindex == pindexFirstNotTransactionsValid) pindexFirstNotTransactionsValid = nullptr;
             if (pindex == pindexFirstNotChainValid) pindexFirstNotChainValid = nullptr;
             if (pindex == pindexFirstNotScriptsValid) pindexFirstNotScriptsValid = nullptr;
+            if (pindex == pindexFirstAssumeValid) pindexFirstAssumeValid = nullptr;
             // Find our parent.
             CBlockIndex* pindexPar = pindex->pprev;
             // Find which child we just visited.
