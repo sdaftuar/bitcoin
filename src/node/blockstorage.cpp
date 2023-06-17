@@ -249,6 +249,12 @@ CBlockIndex* BlockManager::InsertBlockIndex(const uint256& hash)
     return pindex;
 }
 
+void BlockManager::AddDirty(CBlockIndex *pindex)
+{
+    AssertLockHeld(cs_main);
+    m_dirty_blockindex.insert(pindex);
+}
+
 bool BlockManager::LoadBlockIndex()
 {
     if (!m_block_tree_db->LoadBlockIndexGuts(GetConsensus(), [this](const uint256& hash) EXCLUSIVE_LOCKS_REQUIRED(cs_main) { return this->InsertBlockIndex(hash); })) {

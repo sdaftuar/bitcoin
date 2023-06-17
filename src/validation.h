@@ -337,9 +337,46 @@ public:
 /** Context-independent validity checks */
 bool CheckBlock(const CBlock& block, BlockValidationState& state, const Consensus::Params& consensusParams, bool fCheckPOW = true, bool fCheckMerkleRoot = true);
 
+/**
+ * If a block header hasn't already been seen, call CheckBlockHeader on it, ensure
+ * that it doesn't descend from an invalid block, and then add it to m_block_index.
+ * Caller must set min_pow_checked=true in order to add a new header to the
+ * block index (permanent memory storage), indicating that the header is
+ * known to be part of a sufficiently high-work chain (anti-dos check).
+ */
+bool AcceptBlockHeader(
+    const CBlockHeader& block,
+    ChainstateManager& chaiman,
+    BlockValidationState& state,
+    CBlockIndex** ppindex,
+    bool min_pow_checked) EXCLUSIVE_LOCKS_REQUIRED(cs_main);
+
+/**
+ * Sufficiently validate a block for disk storage (and store on disk).
+ *
+ * @param[in]   pblock          The block we want to process.
+ * @param[in]   fRequested      Whether we requested this block from a
+ *                              peer.
+ * @param[in]   dbp             The location on disk, if we are importing
+ *                              this block from prior storage.
+ * @param[in]   min_pow_checked True if proof-of-work anti-DoS checks have
+ *                              been done by caller for headers chain
+ *
+ * @param[out]  state       The state of the block validation.
+ * @param[out]  ppindex     Optional return parameter to get the
+ *                          CBlockIndex pointer for this block.
+ * @param[out]  fNewBlock   Optional return parameter to indicate if the
+ *                          block is new to our storage.
+ *
+ * @returns   False if the block or header is invalid, or if saving to disk fails (likely a fatal error); true otherwise.
+ */
+bool AcceptBlock(const std::shared_ptr<const CBlock>& pblock, ChainstateManager& chainman, BlockValidationState& state, CBlockIndex** ppindex, bool fRequested, const FlatFilePos* dbp, bool* fNewBlock, bool min_pow_checked) EXCLUSIVE_LOCKS_REQUIRED(cs_main);
+
+void ReceivedBlockTransactions(const CBlock& block, ChainstateManager& chainman, CBlockIndex* pindexNew, const FlatFilePos& pos) EXCLUSIVE_LOCKS_REQUIRED(cs_main);
+
 /** Check a block is completely valid from start to finish (only works on top of our current best block) */
 bool TestBlockValidity(BlockValidationState& state,
-                       const CChainParams& chainparams,
+        const CChainParams& chainparams,
                        Chainstate& chainstate,
                        const CBlock& block,
                        CBlockIndex* pindexPrev,
@@ -878,18 +915,6 @@ private:
         AutoFile& coins_file,
         const node::SnapshotMetadata& metadata);
 
-    /**
-     * If a block header hasn't already been seen, call CheckBlockHeader on it, ensure
-     * that it doesn't descend from an invalid block, and then add it to m_block_index.
-     * Caller must set min_pow_checked=true in order to add a new header to the
-     * block index (permanent memory storage), indicating that the header is
-     * known to be part of a sufficiently high-work chain (anti-dos check).
-     */
-    bool AcceptBlockHeader(
-        const CBlockHeader& block,
-        BlockValidationState& state,
-        CBlockIndex** ppindex,
-        bool min_pow_checked) EXCLUSIVE_LOCKS_REQUIRED(cs_main);
     friend Chainstate;
 
     /** Most recent headers presync progress update, for rate-limiting. */
@@ -1137,29 +1162,6 @@ public:
      * @param[out] ppindex If set, the pointer will be set to point to the last new block index object for the given headers
      */
     bool ProcessNewBlockHeaders(const std::vector<CBlockHeader>& block, bool min_pow_checked, BlockValidationState& state, const CBlockIndex** ppindex = nullptr) LOCKS_EXCLUDED(cs_main);
-
-    /**
-     * Sufficiently validate a block for disk storage (and store on disk).
-     *
-     * @param[in]   pblock          The block we want to process.
-     * @param[in]   fRequested      Whether we requested this block from a
-     *                              peer.
-     * @param[in]   dbp             The location on disk, if we are importing
-     *                              this block from prior storage.
-     * @param[in]   min_pow_checked True if proof-of-work anti-DoS checks have
-     *                              been done by caller for headers chain
-     *
-     * @param[out]  state       The state of the block validation.
-     * @param[out]  ppindex     Optional return parameter to get the
-     *                          CBlockIndex pointer for this block.
-     * @param[out]  fNewBlock   Optional return parameter to indicate if the
-     *                          block is new to our storage.
-     *
-     * @returns   False if the block or header is invalid, or if saving to disk fails (likely a fatal error); true otherwise.
-     */
-    bool AcceptBlock(const std::shared_ptr<const CBlock>& pblock, BlockValidationState& state, CBlockIndex** ppindex, bool fRequested, const FlatFilePos* dbp, bool* fNewBlock, bool min_pow_checked) EXCLUSIVE_LOCKS_REQUIRED(cs_main);
-
-    void ReceivedBlockTransactions(const CBlock& block, CBlockIndex* pindexNew, const FlatFilePos& pos) EXCLUSIVE_LOCKS_REQUIRED(cs_main);
 
     /**
      * Try to add a transaction to the memory pool.
