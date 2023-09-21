@@ -62,14 +62,6 @@ std::optional<std::string> GetEntriesForConflicts(const CTransaction& tx, CTxMem
                                                   CTxMemPool::setEntries& all_conflicts)
     EXCLUSIVE_LOCKS_REQUIRED(pool.cs);
 
-/** The replacement transaction may only include an unconfirmed input if that input was included in
- * one of the original transactions.
- * @returns error message if tx spends unconfirmed inputs not also spent by iters_conflicting,
- * otherwise std::nullopt. */
-std::optional<std::string> HasNoNewUnconfirmed(const CTransaction& tx, const CTxMemPool& pool,
-                                               const CTxMemPool::setEntries& iters_conflicting)
-    EXCLUSIVE_LOCKS_REQUIRED(pool.cs);
-
 /** Check the intersection between two sets of transactions (a set of mempool entries and a set of
  * txids) to make sure they are disjoint.
  * @param[in]   ancestors           Set of mempool entries corresponding to ancestors of the
@@ -82,14 +74,6 @@ std::optional<std::string> HasNoNewUnconfirmed(const CTransaction& tx, const CTx
 std::optional<std::string> EntriesAndTxidsDisjoint(const CTxMemPool::setEntries& ancestors,
                                                    const std::set<Txid>& direct_conflicts,
                                                    const uint256& txid);
-
-/** Check that the feerate of the replacement transaction(s) is higher than the feerate of each
- * of the transactions in iters_conflicting.
- * @param[in]   iters_conflicting  The set of mempool entries.
- * @returns error message if fees insufficient, otherwise std::nullopt.
- */
-std::optional<std::string> PaysMoreThanConflicts(const CTxMemPool::setEntries& iters_conflicting,
-                                                 CFeeRate replacement_feerate, const uint256& txid);
 
 /** The replacement transaction must pay more fees than the original transactions. The additional
  * fees must pay for the replacement's bandwidth at or above the incremental relay feerate.
@@ -105,5 +89,22 @@ std::optional<std::string> PaysForRBF(CAmount original_fees,
                                       size_t replacement_vsize,
                                       CFeeRate relay_fee,
                                       const uint256& txid);
+
+/**
+ * The replacement transaction must improve the feerate diagram of the mempool.
+ * @param[in]   pool                The mempool.
+ * @param[in]   direct_conflicts    Set of txids corresponding to the direct conflicts
+ * @param[in]   all_conflicts       Set of mempool entries corresponding to all conflicts
+ * @param[in]   entry               The replacement transaction
+ * @param[in]   modified_fee        The modified fee of the replacement transaction
+ * @returns error string if mempool diagram doesn't improve, otherwise std::nullopt.
+ */
+
+std::optional<std::string> ImprovesFeerateDiagram(CTxMemPool& pool,
+                                                const CTxMemPool::setEntries& direct_conflicts,
+                                                const CTxMemPool::setEntries& all_conflicts,
+                                                CTxMemPoolEntry& entry,
+                                                CAmount modified_fee)
+                                                EXCLUSIVE_LOCKS_REQUIRED(pool.cs);
 
 #endif // BITCOIN_POLICY_RBF_H

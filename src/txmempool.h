@@ -431,6 +431,9 @@ private:
                                                               const Limits& limits
                                                               ) const EXCLUSIVE_LOCKS_REQUIRED(cs);
 
+    std::vector<TxEntry::TxEntryRef> CalculateParents(const CTransaction& tx) const EXCLUSIVE_LOCKS_REQUIRED(cs);
+    std::vector<TxEntry::TxEntryRef> CalculateParents(const CTxMemPoolEntry &entry) const EXCLUSIVE_LOCKS_REQUIRED(cs);
+
 public:
     indirectmap<COutPoint, const CTransaction*> mapNextTx GUARDED_BY(cs);
     std::map<uint256, CAmount> mapDeltas GUARDED_BY(cs);
@@ -641,6 +644,11 @@ public:
      *  Assumes that setDescendants includes all in-mempool descendants of anything
      *  already in it.  */
     void CalculateDescendants(txiter it, setEntries& setDescendants) const EXCLUSIVE_LOCKS_REQUIRED(cs);
+
+    bool CalculateFeerateDiagramsForRBF(CTxMemPoolEntry& entry, CAmount
+            modified_fee, setEntries direct_conflicts, setEntries all_conflicts,
+            std::vector<FeeFrac>& old_diagram, std::vector<FeeFrac>& new_diagram);
+
 
     /** The minimum fee to get into the mempool, which may itself not be enough
      *  for larger-sized transactions.

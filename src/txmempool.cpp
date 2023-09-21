@@ -311,6 +311,26 @@ util::Result<bool> CTxMemPool::CheckClusterSizeLimit(int64_t entry_size, size_t 
     return CheckClusterSizeAgainstLimits(parents, entry_count, entry_size, limits);
 }
 
+std::vector<TxEntry::TxEntryRef> CTxMemPool::CalculateParents(const CTransaction& tx) const
+{
+    std::vector<TxEntry::TxEntryRef> ret;
+    {
+        WITH_FRESH_EPOCH(m_epoch);
+        for (const CTxIn &txin : tx.vin) {
+            std::optional<txiter> piter = GetIter(txin.prevout.hash);
+            if (piter && !visited(*piter)) {
+                ret.push_back(**piter);
+            }
+        }
+    }
+    return ret;
+}
+
+std::vector<TxEntry::TxEntryRef> CTxMemPool::CalculateParents(const CTxMemPoolEntry &entry) const
+{
+    return CalculateParents(entry.GetTx());
+}
+
 util::Result<CTxMemPool::setEntries> CTxMemPool::CalculateMemPoolAncestors(
     const CTxMemPoolEntry &entry,
     const Limits& limits,
@@ -1341,4 +1361,27 @@ std::vector<CTxMemPool::txiter> CTxMemPool::GatherClusters(const std::vector<uin
         }
     }
     return clustered_txs;
+}
+
+bool CTxMemPool::CalculateFeerateDiagramsForRBF(CTxMemPoolEntry& entry, CAmount modified_fee, setEntries direct_conflicts, setEntries all_conflicts, std::vector<FeeFrac>& old_diagram, std::vector<FeeFrac>& new_diagram)
+{
+    LOCK(cs);
+
+    CAmount old_fee = entry.GetModifiedFee();
+    entry.m_modified_fee = modified_fee;
+
+    std::vector<TxEntry::TxEntryRef> to_remove;
+    for (auto it : all_conflicts) {
+        to_remove.emplace_back(*it);
+    }
+
+    TxGraphChangeSet changeset(&txgraph, m_limits, to_remove);
+    if (!changeset.AddTx(entry, CalculateParents(entry))) {
+        entry.m_modified_fee = old_fee;
+        return false;
+    }
+    changeset.GetFeerateDiagramOld(old_diagram);
+    changeset.GetFeerateDiagramNew(new_diagram);
+    entry.m_modified_fee = old_fee;
+    return true;
 }
