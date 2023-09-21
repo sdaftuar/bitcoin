@@ -1177,29 +1177,38 @@ void CTxMemPool::TrimToSize(size_t sizelimit, std::vector<COutPoint>* pvNoSpends
 
     unsigned nTxnRemoved = 0;
     CFeeRate maxFeeRateRemoved(0);
+
+    auto evictor = m_txgraph->GetEvictor();
+
     while (!mapTx.empty() && DynamicMemoryUsage() > sizelimit) {
-        indexed_transaction_set::index<descendant_score>::type::iterator it = mapTx.get<descendant_score>().begin();
+        CFeeRate removed{evictor->GetCurrentChunkFeerate().fee, (uint32_t)evictor->GetCurrentChunkFeerate().size};;
 
         // We set the new mempool min fee to the feerate of the removed set, plus the
         // "minimum reasonable fee rate" (ie some value under which we consider txn
         // to have 0 fee). This way, we don't allow txn to enter mempool with feerate
         // equal to txn which were removed with no block in between.
-        CFeeRate removed(it->GetModFeesWithDescendants(), it->GetSizeWithDescendants());
         removed += m_opts.incremental_relay_feerate;
         trackPackageRemoved(removed);
         maxFeeRateRemoved = std::max(maxFeeRateRemoved, removed);
 
-        setEntries stage;
-        CalculateDescendants(mapTx.project<0>(it), stage);
-        nTxnRemoved += stage.size();
+        nTxnRemoved += evictor->GetCurrentChunk().size();
 
         std::vector<CTransaction> txn;
         if (pvNoSpendsRemaining) {
-            txn.reserve(stage.size());
-            for (txiter iter : stage)
-                txn.push_back(iter->GetTx());
+            txn.reserve(evictor->GetCurrentChunk().size());
+            for (auto ref : evictor->GetCurrentChunk()) {
+                txn.emplace_back(dynamic_cast<const CTxMemPoolEntry&>(*ref).GetTx());
+            }
         }
-        RemoveStaged(stage, false, MemPoolRemovalReason::SIZELIMIT);
+
+        setEntries stage;
+        for (auto ref : evictor->GetCurrentChunk()) {
+            stage.insert(mapTx.iterator_to(dynamic_cast<const CTxMemPoolEntry&>(*ref)));
+        }
+        UpdateForRemoveFromMempool(stage, false);
+        for (auto e : stage) {
+            removeUnchecked(e, MemPoolRemovalReason::SIZELIMIT);
+        }
         if (pvNoSpendsRemaining) {
             for (const CTransaction& tx : txn) {
                 for (const CTxIn& txin : tx.vin) {
@@ -1208,6 +1217,7 @@ void CTxMemPool::TrimToSize(size_t sizelimit, std::vector<COutPoint>* pvNoSpends
                 }
             }
         }
+        evictor->Next();
     }
 
     if (maxFeeRateRemoved > CFeeRate(0)) {
