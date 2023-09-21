@@ -1178,10 +1178,10 @@ void CTxMemPool::TrimToSize(size_t sizelimit, std::vector<COutPoint>* pvNoSpends
     unsigned nTxnRemoved = 0;
     CFeeRate maxFeeRateRemoved(0);
 
-    auto evictor = m_txgraph->GetEvictor();
-
     while (!mapTx.empty() && DynamicMemoryUsage() > sizelimit) {
-        CFeeRate removed{evictor->GetCurrentChunkFeerate().fee, (uint32_t)evictor->GetCurrentChunkFeerate().size};;
+        auto worst_chunk = m_txgraph->GetWorstMainChunk();
+        auto feerate = m_txgraph->GetMainChunkFeerate(*worst_chunk[0]);
+        CFeeRate removed{feerate.fee, (uint32_t)feerate.size};
 
         // We set the new mempool min fee to the feerate of the removed set, plus the
         // "minimum reasonable fee rate" (ie some value under which we consider txn
@@ -1191,18 +1191,18 @@ void CTxMemPool::TrimToSize(size_t sizelimit, std::vector<COutPoint>* pvNoSpends
         trackPackageRemoved(removed);
         maxFeeRateRemoved = std::max(maxFeeRateRemoved, removed);
 
-        nTxnRemoved += evictor->GetCurrentChunk().size();
+        nTxnRemoved += worst_chunk.size();
 
         std::vector<CTransaction> txn;
         if (pvNoSpendsRemaining) {
-            txn.reserve(evictor->GetCurrentChunk().size());
-            for (auto ref : evictor->GetCurrentChunk()) {
+            txn.reserve(worst_chunk.size());
+            for (auto ref : worst_chunk) {
                 txn.emplace_back(dynamic_cast<const CTxMemPoolEntry&>(*ref).GetTx());
             }
         }
 
         setEntries stage;
-        for (auto ref : evictor->GetCurrentChunk()) {
+        for (auto ref : worst_chunk) {
             stage.insert(mapTx.iterator_to(dynamic_cast<const CTxMemPoolEntry&>(*ref)));
         }
         UpdateForRemoveFromMempool(stage, false);
@@ -1217,7 +1217,6 @@ void CTxMemPool::TrimToSize(size_t sizelimit, std::vector<COutPoint>* pvNoSpends
                 }
             }
         }
-        evictor->Next();
     }
 
     if (maxFeeRateRemoved > CFeeRate(0)) {
