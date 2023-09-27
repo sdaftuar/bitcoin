@@ -298,6 +298,7 @@ public:
     using Limits = kernel::MemPoolLimits;
 
     uint64_t CalculateDescendantMaximum(txiter entry) const EXCLUSIVE_LOCKS_REQUIRED(cs);
+
 private:
     typedef std::map<txiter, setEntries, CompareIteratorByHash> cacheMap;
 
@@ -389,7 +390,7 @@ public:
     void removeConflicts(const CTransaction& tx) EXCLUSIVE_LOCKS_REQUIRED(cs);
     void removeForBlock(const std::vector<CTransactionRef>& vtx, unsigned int nBlockHeight) EXCLUSIVE_LOCKS_REQUIRED(cs);
 
-    bool CompareDepthAndScore(const uint256& hasha, const uint256& hashb, bool wtxid=false);
+    bool CompareMiningScoreWithTopology(const uint256& hasha, const uint256& hashb, bool wtxid=false);
     bool isSpent(const COutPoint& outpoint) const;
     unsigned int GetTransactionsUpdated() const;
     void AddTransactionsUpdated(unsigned int n);

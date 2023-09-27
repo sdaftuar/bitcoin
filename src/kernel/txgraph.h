@@ -262,6 +262,7 @@ class TxGraph {
         return tx.GetTxEntryChildren().size() > 0;
     }
 
+    // TODO: add test coverage
     bool CompareMiningScore(const TxEntry& a, const TxEntry& b) const {
         if (&a == &b) return false;
 
