@@ -652,7 +652,7 @@ public:
         LOCK(m_node.mempool->cs);
         const auto entry{m_node.mempool->GetEntry(Txid::FromUint256(txid))};
         if (entry == nullptr) return false;
-        return entry->GetCountWithDescendants() > 1;
+        return entry->GetMemPoolChildrenConst().size() > 0;
     }
     bool broadcastTransaction(const CTransactionRef& tx,
         const CAmount& max_tx_fee,
