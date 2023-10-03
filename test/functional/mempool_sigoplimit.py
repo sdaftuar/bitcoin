@@ -163,13 +163,16 @@ class BytesPerSigOpTest(BitcoinTestFramework):
         assert_equal(parent_individual_testres["vsize"], 5000 * 20)
 
         # But together, it's exceeding limits in the *package* context. If sigops adjusted vsize wasn't being checked
-        # here, it would get further in validation and give too-long-mempool-chain error instead.
+        # here, it would get further in validation and give too-large-cluster error instead.
         packet_test = self.nodes[0].testmempoolaccept([tx_parent.serialize().hex(), tx_child.serialize().hex()])
         assert_equal([x["package-error"] for x in packet_test], ["package-mempool-limits", "package-mempool-limits"])
 
         # When we actually try to submit, the parent makes it into the mempool, but the child would exceed ancestor vsize limits
         res = self.nodes[0].submitpackage([tx_parent.serialize().hex(), tx_child.serialize().hex()])
-        assert "too-long-mempool-chain" in res["tx-results"][tx_child.getwtxid()]["error"]
+        assert "too-large-cluster" in res["tx-results"][tx_child.getwtxid()]["error"]
+        # When we actually try to submit, the parent makes it into the mempool, but the child would exceed cluster vsize limits
+        #assert_raises_rpc_error(-26, "too-large-cluster", self.nodes[0].submitpackage, [tx_parent.serialize().hex(), tx_child.serialize().hex()])
+
         assert tx_parent.rehash() in self.nodes[0].getrawmempool()
 
         # Transactions are tiny in weight
