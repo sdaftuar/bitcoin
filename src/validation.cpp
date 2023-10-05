@@ -1091,7 +1091,7 @@ bool MemPoolAccept::Finalize(const ATMPArgs& args, Workspace& ws)
     }
     m_pool.RemoveStaged(ws.m_all_conflicting, false, MemPoolRemovalReason::REPLACED);
     // Store transaction in memory
-    m_pool.addUnchecked(*entry, ws.m_ancestors);
+    m_pool.addUnchecked(*entry);
 
     // trim mempool and check if tx was trimmed
     // If we are validating a package, don't trim here because we could evict a previous transaction
