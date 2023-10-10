@@ -930,15 +930,61 @@ void CTxMemPool::removeForBlock(const std::vector<CTransactionRef>& vtx, unsigne
     AssertLockHeld(cs);
     std::vector<RemovedMempoolTransactionInfo> txs_removed_for_block;
     txs_removed_for_block.reserve(vtx.size());
+    std::vector<txiter> entry_iters;
+
+    // Look up all iterators, and grab the transaction data that we'll need for
+    // the callback later.
     for (const auto& tx : vtx)
     {
         txiter it = mapTx.find(tx->GetHash());
         if (it != mapTx.end()) {
-            setEntries stage;
-            stage.insert(it);
             txs_removed_for_block.emplace_back(*it);
-            RemoveStaged(stage, true, MemPoolRemovalReason::BLOCK);
+            entry_iters.push_back(it);
         }
+    }
+
+    static std::vector<Cluster *> cluster_clean_up;
+    cluster_clean_up.clear();
+    // Caclulate the set of clusters affected by the block, so that we can
+    // clean them up later in one pass (rather than
+    // re-partitioning/re-clustering as each transaction is deleted).
+    {
+        WITH_FRESH_EPOCH(m_epoch);
+        for (auto it : entry_iters)
+        {
+            bool delete_now{false};
+            Cluster *cluster = it->m_cluster;
+
+            // Single transaction clusters can be deleted immediately without
+            // any additional work.  Clusters with more than one transaction
+            // need to be cleaned up later, even if they are ultimately fully
+            // cleared by the block, since we've left the pointer to the cluster
+            // in the cluster_clean_up structure (so don't want to delete it and
+            // invalidate the pointer).
+            if (!visited(cluster)) {
+                if (cluster->m_tx_count > 1) {
+                    cluster_clean_up.push_back(cluster);
+                } else {
+                    delete_now = true;
+                }
+                cachedInnerUsage -= cluster->GetMemoryUsage();
+            }
+            RemoveSingleTxForBlock(it);
+            if (delete_now) {
+                m_cluster_map.erase(cluster->m_id);
+            }
+        }
+    }
+    // After all transactions have been removed, delete the empty clusters and
+    // repartition/re-sort the remaining clusters (which could have split).
+    for (auto c : cluster_clean_up) {
+        if (c->m_tx_count == 0) {
+            m_cluster_map.erase(c->m_id);
+        } else {
+            RecalculateClusterAndMaybeSort(c, true);
+        }
+    }
+    for (const auto& tx : vtx) {
         removeConflicts(*tx);
         ClearPrioritisation(tx->GetHash());
     }
@@ -1458,6 +1504,14 @@ void CTxMemPool::RemoveChunkForEviction(Cluster *cluster, std::list<CTxMemPoolEn
     cachedInnerUsage += cluster->GetMemoryUsage();
     // Note: at this point the clusters will still be sorted, but they may need
     // to be split.
+}
+
+void CTxMemPool::RemoveSingleTxForBlock(txiter it)
+{
+    UpdateParentsOf(false, it);
+    UpdateChildrenForRemoval(it);
+
+    removeUnchecked(it, MemPoolRemovalReason::BLOCK);
 }
 
 void CTxMemPool::RemoveStaged(setEntries &stage, bool updateDescendants, MemPoolRemovalReason reason) {
