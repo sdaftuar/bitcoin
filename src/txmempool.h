@@ -322,15 +322,15 @@ private:
      *
      * @param[in]   staged_ancestors    Should contain entries in the mempool.
      *
-     * @return all in-mempool ancestors, or an error if any ancestor or descendant limits were hit
+     * @return all in-mempool ancestors
      */
-    util::Result<setEntries> CalculateAncestors(CTxMemPoolEntry::Parents &staged_ancestors)
+    setEntries CalculateAncestors(CTxMemPoolEntry::Parents &staged_ancestors)
             const EXCLUSIVE_LOCKS_REQUIRED(cs);
 
     std::vector<TxEntry::TxEntryRef> CalculateParents(const CTransaction& tx) const EXCLUSIVE_LOCKS_REQUIRED(cs);
     std::vector<TxEntry::TxEntryRef> CalculateParents(const CTxMemPoolEntry &entry) const EXCLUSIVE_LOCKS_REQUIRED(cs);
 
-    // Helper to remove all transactions that conflict with a given
+   // Helper to remove all transactions that conflict with a given
     // transaction (used for transactions appearing in a block).
     void removeConflicts(const CTransaction& tx) EXCLUSIVE_LOCKS_REQUIRED(cs);
 
@@ -470,7 +470,7 @@ private:
 
 public:
     /**
-     * Try to calculate all in-mempool ancestors of entry.
+     * Calculate all in-mempool ancestors of entry.
      * (these are all calculated including the tx itself)
      *
      * @param[in]   entry               CTxMemPoolEntry of which all in-mempool ancestors are calculated
@@ -480,27 +480,8 @@ public:
      *
      * @return all in-mempool ancestors
      */
-    util::Result<setEntries> CalculateMemPoolAncestors(const CTxMemPoolEntry& entry,
+    setEntries CalculateMemPoolAncestors(const CTxMemPoolEntry& entry,
                                    bool fSearchForParents = true) const EXCLUSIVE_LOCKS_REQUIRED(cs);
-
-    /**
-     * Same as CalculateMemPoolAncestors, but always returns a (non-optional) setEntries.
-     * Should only be used when it is assumed CalculateMemPoolAncestors would not fail. If
-     * CalculateMemPoolAncestors does unexpectedly fail, an empty setEntries is returned and the
-     * error is logged to BCLog::MEMPOOL with level BCLog::Level::Error. In debug builds, failure
-     * of CalculateMemPoolAncestors will lead to shutdown due to assertion failure.
-     *
-     * @param[in]   calling_fn_name     Name of calling function so we can properly log the call site
-     *
-     * @return a setEntries corresponding to the result of CalculateMemPoolAncestors or an empty
-     *         setEntries if it failed
-     *
-     * @see CTXMemPool::CalculateMemPoolAncestors()
-     */
-    setEntries AssumeCalculateMemPoolAncestors(
-        std::string_view calling_fn_name,
-        const CTxMemPoolEntry &entry,
-        bool fSearchForParents = true) const EXCLUSIVE_LOCKS_REQUIRED(cs);
 
     bool HasDescendants(const Txid& txid) const;
 
@@ -703,12 +684,10 @@ public:
 
         bool CheckMemPoolPolicyLimits();
 
-        util::Result<CTxMemPool::setEntries> CalculateMemPoolAncestors(TxHandle tx) {
+        CTxMemPool::setEntries CalculateMemPoolAncestors(TxHandle tx) {
             LOCK(m_pool->cs);
-            auto ret = m_pool->CalculateMemPoolAncestors(*tx);
-            if (ret) m_ancestors.insert({tx, *ret});
-            else m_ancestors.erase(tx);
-            return ret;
+            m_ancestors.insert({tx, m_pool->CalculateMemPoolAncestors(*tx)});
+            return m_ancestors[tx];
         }
 
         /**
@@ -759,7 +738,6 @@ private:
     // lack of CValidationInterface::TransactionAddedToMempool callbacks).
     void Apply(CTxMemPool::CTxMemPoolChangeSet* changeset) EXCLUSIVE_LOCKS_REQUIRED(cs);
     void addNewTransaction(CTxMemPool::txiter it) EXCLUSIVE_LOCKS_REQUIRED(cs);
-    void addNewTransaction(CTxMemPool::txiter it, CTxMemPool::setEntries& setAncestors) EXCLUSIVE_LOCKS_REQUIRED(cs);
 };
 
 /**
