@@ -894,7 +894,7 @@ bool MemPoolAccept::PreChecks(ATMPArgs& args, Workspace& ws)
     ws.m_iters_conflicting = m_pool.GetIterSet(ws.m_conflicts);
 
     // Calculate in-mempool ancestors
-    ws.m_ancestors = m_pool.CalculateMemPoolAncestors(*entry);
+    ws.m_ancestors = m_pool.CalculateMemPoolAncestorsSlow(*entry);
     if (const auto err_string{SingleV3Checks(ws.m_ptx, ws.m_ancestors, ws.m_conflicts, ws.m_vsize)}) {
         return state.Invalid(TxValidationResult::TX_MEMPOOL_POLICY, "v3-rule-violation", *err_string);
     }
@@ -1132,7 +1132,7 @@ bool MemPoolAccept::SubmitPackage(const ATMPArgs& args, std::vector<Workspace>& 
         // Re-calculate mempool ancestors to call addUnchecked(). They may have changed since the
         // last calculation done in PreChecks, since package ancestors have already been submitted.
         {
-            ws.m_ancestors = m_pool.CalculateMemPoolAncestors(*ws.m_entry);
+            ws.m_ancestors = m_pool.CalculateMemPoolAncestorsSlow(*ws.m_entry);
         }
         // If we call LimitMempoolSize() for each individual Finalize(), the mempool will not take
         // the transaction's descendant feerate into account because it hasn't seen them yet. Also,
