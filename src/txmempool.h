@@ -366,6 +366,7 @@ public:
     std::vector<CTransactionRef> txns_randomized GUARDED_BY(cs); //!< All transactions in mapTx, in random order
 
     typedef std::set<txiter, CompareIteratorByHash> setEntries;
+    typedef std::vector<txiter> Entries;
 
     using Limits = kernel::MemPoolLimits;
 
@@ -543,7 +544,7 @@ public:
      *
      * @param[in]   entry               CTxMemPoolEntry of which all in-mempool ancestors are calculated
      * @param[in]   fSearchForParents   Whether to search a tx's vin for in-mempool parents, or look
-     *                                  up parents from mapLinks. Must be true for entries not in
+                                       up parents from mapLinks. Must be true for entries not in
      *                                  the mempool
      *
      * @return all in-mempool ancestors
@@ -625,6 +626,8 @@ public:
      *  Assumes that setDescendants includes all in-mempool descendants of anything
      *  already in it.  */
     void CalculateDescendants(txiter it, setEntries& setDescendants) const EXCLUSIVE_LOCKS_REQUIRED(cs);
+
+    std::vector<txiter> CalculateDescendants(std::vector<txiter> txs) const EXCLUSIVE_LOCKS_REQUIRED(cs);
 
     /** The minimum fee to get into the mempool, which may itself not be enough
      *  for larger-sized transactions.
