@@ -71,7 +71,7 @@ std::optional<std::string> GetEntriesForConflicts(const CTransaction& tx,
     for (CTxMemPool::txiter it : iters_conflicting) {
         // The cluster count limit ensures that we won't do too much work on a
         // single invocation of this function.
-        pool.CalculateDescendants(it, all_conflicts);
+        pool.CalculateDescendantsSlow(it, all_conflicts);
     }
     return std::nullopt;
 }
