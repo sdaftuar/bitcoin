@@ -98,4 +98,13 @@ std::optional<std::string> PaysForRBF(CAmount original_fees,
                                       CFeeRate relay_fee,
                                       const uint256& txid);
 
+struct FeeSizePoint {
+    int64_t size;
+    CAmount fee;
+};
+
+// returns true if the new_diagram is strictly better than the old one; false
+// otherwise.
+bool CompareFeeSizeDiagram(std::vector<FeeSizePoint> old_diagram, std::vector<FeeSizePoint> new_diagram);
+
 #endif // BITCOIN_POLICY_RBF_H
