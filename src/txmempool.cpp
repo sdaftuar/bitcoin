@@ -460,38 +460,190 @@ CTxMemPool::setEntries CTxMemPool::AssumeCalculateMemPoolAncestors(
     return std::move(result).value_or(CTxMemPool::setEntries{});
 }
 
-util::Result<CFeeRate> CTxMemPool::CalculateMiningScoreOfReplacementTx(CTxMemPoolEntry& entry, CAmount modified_fee, const setEntries& all_conflicts, const Limits& limits)
+bool CTxMemPool::CalculateFeerateDiagramsForRBF(CTxMemPoolEntry& entry, CAmount modified_fee, const setEntries& direct_conflicts, const setEntries& all_conflicts, std::vector<FeeSizePoint>& old_diagram, std::vector<FeeSizePoint>& new_diagram)
 {
-    Cluster temp_cluster(0, this);
+    // Gather the old clusters, which consists of the cluster(s) that the new
+    // transaction might merge, along with the clusters of all conflicting
+    // transactions.
+    CalculateParents(entry);
+    const CTxMemPoolEntry::Parents& parents = entry.GetMemPoolParentsConst();
 
-    // We sort based on the modified fee.
-    entry.UpdateModifiedFee(modified_fee - entry.GetFee());
-    if (!BuildClusterForTransaction(entry, all_conflicts, limits, temp_cluster)) {
-        // Check to see which limit was violated.
-        if (temp_cluster.m_tx_count > limits.cluster_count) {
-            return util::Error{Untranslated(strprintf("too many unconfirmed transactions in the cluster [limit: %ld]", limits.cluster_count))};
-        } else if (temp_cluster.m_tx_size > limits.cluster_size_vbytes) {
-            return util::Error{Untranslated(strprintf("exceeds cluster size limit [limit: %ld]", limits.cluster_size_vbytes))};
-        } else {
-            return util::Error{Untranslated("unknown error")};
+    std::vector<Cluster *> old_clusters;
+    {
+        WITH_FRESH_EPOCH(m_epoch);
+        for (auto iter : direct_conflicts) {
+            if (!visited(iter->m_cluster)) {
+                old_clusters.emplace_back(iter->m_cluster);
+            }
         }
-    }
-    entry.UpdateModifiedFee(entry.GetFee() - modified_fee);
-
-    // Return the feerate we calculated.
-    CAmount chunk_fees{0};
-    int64_t chunk_size{0};
-
-    for (const auto& chunk : temp_cluster.m_chunks) {
-        for (auto& txentry : chunk.txs) {
-            if (&(txentry.get()) == &entry) {
-                chunk_fees = chunk.fee;
-                chunk_size = chunk.size;
-                break;
+        for (auto p : parents) {
+            if (!visited(p.get().m_cluster)) {
+                old_clusters.emplace_back(p.get().m_cluster);
             }
         }
     }
-    return CFeeRate(chunk_fees, chunk_size);
+
+    GetFeerateDiagram(old_clusters, old_diagram);
+
+    std::vector<Cluster *> new_clusters;
+    if (!CalculateClustersForTransactions(entry, modified_fee, all_conflicts, old_clusters, new_clusters)) {
+        entry.GetMemPoolParents().clear();
+        return false;
+    }
+    entry.GetMemPoolParents().clear();
+
+    GetFeerateDiagram(new_clusters, new_diagram);
+
+    // Delete all the new clusters
+    for (Cluster * cluster : new_clusters) {
+        delete cluster;
+    }
+
+    return true;
+}
+
+bool CTxMemPool::CalculateClustersForTransactions(CTxMemPoolEntry& entry, CAmount modified_fee, const setEntries& all_conflicts, const std::vector<Cluster*>& old_clusters, std::vector<Cluster*>& new_clusters)
+{
+    new_clusters.clear();
+
+    entry.UpdateModifiedFee(modified_fee - entry.GetFee());
+
+    std::map<uint256, Cluster*> tx_to_new_cluster;
+
+    // First cluster is special
+    Cluster *first_cluster = new Cluster(0, this);
+    new_clusters.emplace_back(first_cluster);
+
+    // Start by figuring out which transactions would be clustered with the new
+    // transaction, breaking early if limits are hit.
+    if (!BuildClusterForTransaction(entry, all_conflicts, m_limits, *first_cluster)) {
+        entry.UpdateModifiedFee(-modified_fee + entry.GetFee());
+        delete first_cluster;
+        return false;
+    }
+    entry.UpdateModifiedFee(-modified_fee + entry.GetFee());
+
+    // If we succeeded, then label all these transactions.
+    for (auto &chunk: first_cluster->m_chunks) {
+        for (auto &tx: chunk.txs) {
+            tx_to_new_cluster[tx.get().GetTx().GetHash()] = first_cluster;
+        }
+    }
+
+    // Now go through all transactions and figure out what cluster they belong to.
+    for (auto& cluster : old_clusters) {
+        for (auto& chunk : cluster->m_chunks) {
+            for (auto tx : chunk.txs) {
+                if (all_conflicts.count(mapTx.iterator_to(tx.get()))) {
+                    continue;
+                }
+                if (!tx_to_new_cluster.count(tx.get().GetTx().GetHash())) {
+                    new_clusters.emplace_back(new Cluster(0, this));
+                    tx_to_new_cluster[tx.get().GetTx().GetHash()] = new_clusters.back();
+                } else if (tx_to_new_cluster[tx.get().GetTx().GetHash()] == first_cluster) {
+                    // If the transaction is already in the first cluster, then
+                    // we don't need to do anything, that cluster is done.
+                    continue;
+                }
+                // Add the transaction to the end of the existing cluster.
+                // We can't call Cluster::AddTransaction because that would change the existing pointer, which would break everything.
+                Cluster *c = tx_to_new_cluster[tx.get().GetTx().GetHash()];
+                c->m_chunks.emplace_back(tx.get().GetModifiedFee(), tx.get().GetTxSize());
+                c->m_chunks.back().txs.emplace_back(tx);
+                c->m_tx_count++;
+                c->m_tx_size += tx.get().GetTxSize();
+
+                // Now we have to mark all the connected transactions as being
+                // in the same cluster.
+                {
+                    WITH_FRESH_EPOCH(m_epoch);
+                    auto children = tx.get().GetMemPoolChildrenConst();
+                    std::vector<CTxMemPoolEntry::CTxMemPoolEntryRef> work_queue;
+                    for (auto& entry : children) {
+                        visited(entry.get());
+                        if (all_conflicts.count(mapTx.iterator_to(entry.get()))) {
+                            continue;
+                        }
+                        work_queue.push_back(entry);
+                    }
+
+                    while (!work_queue.empty()) {
+                        auto next_entry = work_queue.back();
+                        work_queue.pop_back();
+                        tx_to_new_cluster[next_entry.get().GetTx().GetHash()] = c;
+
+                        auto next_children = next_entry.get().GetMemPoolChildrenConst();
+                        for (auto& descendant : next_children) {
+                            if (!visited(descendant.get())) {
+                                if (all_conflicts.count(mapTx.iterator_to(descendant.get()))) {
+                                    continue;
+                                }
+                                work_queue.push_back(descendant);
+                            }
+                        }
+                        auto next_parents = next_entry.get().GetMemPoolParentsConst();
+                        for (auto& ancestor : next_parents) {
+                            if (!visited(ancestor.get())) {
+                                if (all_conflicts.count(mapTx.iterator_to(ancestor.get()))) {
+                                    continue;
+                                }
+                                work_queue.push_back(ancestor);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Now sort all the clusters, other than the first which is done.
+    for (size_t i=1; i<new_clusters.size(); i++) {
+        new_clusters[i]->Sort(false);
+    }
+
+    return true;
+}
+
+void CTxMemPool::GetFeerateDiagram(std::vector<Cluster *> clusters, std::vector<FeeSizePoint>& diagram) const
+{
+    diagram.clear();
+    diagram.emplace_back(FeeSizePoint{0, 0});
+
+    std::vector<Cluster::HeapEntry> heap_chunks;
+
+    // TODO: refactor so that we're not just copying this from the miner or the rpc code.
+    // Initialize the heap with the best entry from each cluster
+    for (auto& cluster : clusters) {
+        if (!cluster->m_chunks.empty()) {
+            heap_chunks.emplace_back(cluster->m_chunks.begin(), cluster);
+        }
+    }
+    // Define comparison operator on our heap entries (using feerate of chunks).
+    auto cmp = [](const Cluster::HeapEntry& a, const Cluster::HeapEntry& b) {
+        return a.first->fee*b.first->size < b.first->fee*a.first->size;
+    };
+    std::make_heap(heap_chunks.begin(), heap_chunks.end(), cmp);
+
+    CAmount accum_fee{0};
+    int64_t accum_size{0};
+    while (!heap_chunks.empty()) {
+        auto best_chunk = heap_chunks.front();
+        std::pop_heap(heap_chunks.begin(), heap_chunks.end(), cmp);
+        heap_chunks.pop_back();
+
+        accum_size += best_chunk.first->size;
+        accum_fee += best_chunk.first->fee;
+
+        diagram.emplace_back(FeeSizePoint{accum_size, accum_fee});
+
+        ++best_chunk.first;
+        if (best_chunk.first != best_chunk.second->m_chunks.end()) {
+            heap_chunks.emplace_back(best_chunk);
+            std::push_heap(heap_chunks.begin(), heap_chunks.end(), cmp);
+        }
+    }
+
+    return;
 }
 
 void CTxMemPool::UpdateAncestorsOf(bool add, txiter it, setEntries &setAncestors)
