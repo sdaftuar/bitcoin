@@ -52,6 +52,12 @@ static const uint32_t MEMPOOL_HEIGHT = 0x7FFFFFFF;
  */
 bool TestLockPointValidity(CChain& active_chain, const LockPoints& lp) EXCLUSIVE_LOCKS_REQUIRED(cs_main);
 
+// XXX: duplicative with FeeFrac, but leaving for now to avoid signed/unsigned issue.
+struct FeeSizePoint {
+    int64_t size;
+    CAmount fee;
+};
+
 /**
  * Data structure for managing clusters of transactions in the mempool.
  *
@@ -685,10 +691,55 @@ public:
 
     void CalculateParents(CTxMemPoolEntry &entry) const EXCLUSIVE_LOCKS_REQUIRED(cs);
 
+private:
+    /**
+     * Temporarily construct the cluster that would correspond to a
+     * hypothetical new mempool transaction ("entry"). Take into account the
+     * removal of all transactions in "all_conflicts" for the purposes of
+     * determining which transactions would be in the hypothetical cluster.
+     * Sort the cluster as well so that the mining score of the transaction can
+     * be determined by the caller.
+     */
     bool BuildClusterForTransaction(CTxMemPoolEntry& entry, const setEntries& all_conflicts, const Limits& limits, Cluster& temp_cluster) EXCLUSIVE_LOCKS_REQUIRED(cs);
 
-    util::Result<CFeeRate> CalculateMiningScoreOfReplacementTx(CTxMemPoolEntry& entry, CAmount modified_fee,
-                                                 const setEntries& all_conflicts, const Limits& limits) EXCLUSIVE_LOCKS_REQUIRED(cs);
+    /**
+     * Calculate the new clusters that would occur if a new transaction
+     * ("entry") with in-mempool conflicts were to be added to the mempool.
+     *
+     * @param[in] entry               The new transaction to be added.
+     * @param[in] modified_fee        The fee of the new transaction, if it were to be added to the mempool.
+     * @param[in] all_conflicts       All transactions that would be removed
+     * @param[in] old_clusters        The set of current mempool clusters that contain the conflicting transactions.
+     * @param[out] new_clusters       The set of new clusters that would result from adding the new transaction.
+     * @return true if the new clusters would not exceed the cluster size limit.
+     */
+    bool CalculateClustersForTransactions(CTxMemPoolEntry& entry, CAmount modified_fee, const setEntries& all_conflicts, const std::vector<Cluster*>& old_clusters, std::vector<Cluster*>& new_clusters) EXCLUSIVE_LOCKS_REQUIRED(cs);
+
+    /**
+     * Return the feerate diagram of the given clusters (consisting of a set of
+     * (size, fee) points corresponding to the accumulated size and accumulated
+     * fee as the chunks from the given clusters are traversed in descending
+     * feerate order).
+     *
+     * @param[in] clusters            The clusters to calculate the feerate diagram for.
+     * @param[out] diagram            The feerate diagram of the given clusters.
+     */
+    void GetFeerateDiagram(std::vector<Cluster *> clusters, std::vector<FeeSizePoint>& diagram) const;
+
+public:
+    /**
+     * Calculate the old and new mempool feerate diagrams relating to the
+     * clusters that would be affected by a potential replacement transaction.
+     *
+     * @param[in] entry               The new transaction to be added.
+     * @param[in] modified_fee        The fee of the new transaction, if it were to be added to the mempool.
+     * @param[in] direct_conflicts    All transactions that would be removed directly (not via descendants)
+     * @param[in] all_conflicts       All transactions that would be removed
+     * @param[out] old_diagram        The feerate diagram of the relevant clusters before accepting the new tx
+     * @param[out] new_diagram        The feerate diagram of the relevant clusters after accepting the new tx
+     * @return false if the new transaction would violate a cluster size limit
+     */
+    bool CalculateFeerateDiagramsForRBF(CTxMemPoolEntry& entry, CAmount modified_fee, const setEntries& direct_conflicts, const setEntries& all_conflicts, std::vector<FeeSizePoint>& old_diagram, std::vector<FeeSizePoint>& new_diagram) EXCLUSIVE_LOCKS_REQUIRED(cs);
 
     /** Collect the entire cluster of connected transactions for each transaction in txids.
      * All txids must correspond to transaction entries in the mempool, otherwise this returns an

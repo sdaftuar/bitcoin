@@ -92,32 +92,6 @@ std::optional<std::string> EntriesAndTxidsDisjoint(const CTxMemPool::setEntries&
     return std::nullopt;
 }
 
-std::optional<std::string> PaysMoreThanConflicts(const CTxMemPool::setEntries& iters_conflicting,
-                                                 CFeeRate replacement_feerate,
-                                                 const uint256& txid)
-{
-    for (const auto& mi : iters_conflicting) {
-        // Don't allow the replacement to reduce the feerate of the mempool.
-        //
-        // We usually don't want to accept replacements with lower feerates than what they replaced
-        // as that would lower the feerate of the next block. Requiring that the feerate always be
-        // increased is also an easy-to-reason about way to prevent DoS attacks via replacements.
-        //
-        // We only need to consider the chunk feerates of transactions being
-        // directly replaced, because descendant transactions which pay for the
-        // parent will be reflected in the parent's chunk feerate.
-        Cluster::Chunk &chunk = mi->m_cluster->m_chunks[mi->m_loc.first];
-        CFeeRate original_feerate(chunk.fee, chunk.size);
-        if (replacement_feerate <= original_feerate) {
-            return strprintf("rejecting replacement %s; new feerate %s <= old feerate %s",
-                             txid.ToString(),
-                             replacement_feerate.ToString(),
-                             original_feerate.ToString());
-        }
-    }
-    return std::nullopt;
-}
-
 std::optional<std::string> PaysForRBF(CAmount original_fees,
                                       CAmount replacement_fees,
                                       size_t replacement_vsize,
@@ -221,14 +195,22 @@ bool CompareFeeSizeDiagram(std::vector<FeeSizePoint> old_diagram, std::vector<Fe
     return false;
 }
 
-std::optional<std::string> ImprovesFeeSizeDiagram()
+std::optional<std::string> ImprovesFeerateDiagram(CTxMemPool& pool,
+                                                const CTxMemPool::setEntries& direct_conflicts,
+                                                const CTxMemPool::setEntries& all_conflicts,
+                                                CTxMemPoolEntry& entry,
+                                                CAmount modified_fee)
 {
     // Require that the replacement strictly improve the mempool's fee vs. size diagram.
-    // Gather relevant chunks from the current mempool.
+    std::vector<FeeSizePoint> old_diagram, new_diagram;
 
-    // Gather relevant chunks from the new mempool.
+    if (!pool.CalculateFeerateDiagramsForRBF(entry, modified_fee, direct_conflicts, all_conflicts, old_diagram, new_diagram)) {
+        return strprintf("rejecting replacement %s, cluster size limit exceeded", entry.GetTx().GetHash().ToString());
+    }
 
-    // Check that the fee diagram has improved.
-
+    if (!CompareFeeSizeDiagram(old_diagram, new_diagram)) {
+        return strprintf("rejecting replacement %s, mempool not strictly improved",
+                         entry.GetTx().GetHash().ToString());
+    }
     return std::nullopt;
 }

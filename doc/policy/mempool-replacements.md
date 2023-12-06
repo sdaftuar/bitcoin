@@ -38,21 +38,23 @@ other consensus and policy rules, each of the following conditions are met:
    *Rationale*: Try to prevent DoS attacks where an attacker causes the network to repeatedly relay
    transactions each paying a tiny additional amount in fees, e.g. just 1 satoshi.
 
-4. The number of original transactions does not exceed 100. More precisely, the sum of all
-   directly conflicting transactions' descendant counts (number of transactions inclusive of itself
-   and its descendants) must not exceed 100; it is possible that this overestimates the true number
-   of original transactions.
+4. The number of conflicting transactions does not exceed 100. This only counts
+   direct conflicts, and not their descendants.
 
-   *Rationale*: Try to prevent DoS attacks where an attacker is able to easily occupy and flush out
-   significant portions of the node's mempool using replacements with multiple directly conflicting
-   transactions, each with large descendant sets.
+   *Rationale*: This bound the number of clusters that might need to be
+   relinearized due to accepting a single replacement transaction.
 
-5. The replacement transaction's mining score is greater than the mining score of all directly conflicting
-   transactions.
+5. The mempool's feerate diagram must improve as a result of accepting the
+   replacement. That is, at every size, the amount of total fee that would be
+   available if a block of that size were to be mined from the mempool, must
+   be the same or greater if we accept the replacement (and there must be at
+   least one size at which the new mempool has strictly more fee than before).
+   Note: to ignore the tail effects of packing a block, we treat the mempool
+   chunks as having a single feerate that is smoothed over the full size of
+   the chunk.
 
-   *Rationale*: Ensure that the new transaction is more appealing to mine than those being evicted.
-
-This set of rules is similar but distinct from BIP125.
+   *Rationale*: This is a conservative way to ensure that we never accept a
+   transaction that is somehow worse for miners than what was available before.
 
 ## History
 
