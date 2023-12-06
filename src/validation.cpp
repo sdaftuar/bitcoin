@@ -978,16 +978,6 @@ bool MemPoolAccept::ReplacementChecks(Workspace& ws)
                              "too many potential replacements", *err_string);
     }
 
-    auto replacement_feerate{m_pool.CalculateMiningScoreOfReplacementTx(*ws.m_entry, ws.m_modified_fees, ws.m_all_conflicting, m_pool.m_limits)};
-    if (!replacement_feerate) {
-        // If we can't calculate a feerate, it's because the cluster size limits were hit.
-        return state.Invalid(TxValidationResult::TX_MEMPOOL_POLICY, "too-large-cluster", util::ErrorString(replacement_feerate).original);
-    }
-
-    if (const auto err_string{PaysMoreThanConflicts(ws.m_all_conflicting, *replacement_feerate, hash)}) {
-        return state.Invalid(TxValidationResult::TX_MEMPOOL_POLICY, "insufficient fee", *err_string);
-    }
-
     // Check if it's economically rational to mine this transaction rather than the ones it
     // replaces and pays for its own relay fees. Enforce Rules #3 and #4.
     for (CTxMemPool::txiter it : ws.m_all_conflicting) {
@@ -1001,6 +991,11 @@ bool MemPoolAccept::ReplacementChecks(Workspace& ws)
         // TX_RECONSIDERABLE, because it cannot be bypassed using package validation.
         // This must be changed if package RBF is enabled.
         return state.Invalid(TxValidationResult::TX_MEMPOOL_POLICY, "insufficient fee", *err_string);
+    }
+
+    if (const auto err_string{ImprovesFeerateDiagram(m_pool, ws.m_iters_conflicting, ws.m_all_conflicting, *ws.m_entry, ws.m_modified_fees)}) {
+        // If we can't calculate a feerate, it's because the cluster size limits were hit.
+        return state.Invalid(TxValidationResult::TX_MEMPOOL_POLICY, "replacement-failed", *err_string);
     }
 
     return true;

@@ -276,7 +276,7 @@ class ReplaceByFeeTest(BitcoinTestFramework):
         )["hex"]
 
         # This will raise an exception due to insufficient fee
-        assert_raises_rpc_error(-26, "insufficient fee", self.nodes[0].sendrawtransaction, tx1b_hex, 0)
+        assert_raises_rpc_error(-26, "not strictly improved", self.nodes[0].sendrawtransaction, tx1b_hex, 0)
 
     def test_spends_of_conflicting_outputs(self):
         """Replacements that spend conflicting tx outputs are rejected"""
@@ -547,7 +547,7 @@ class ReplaceByFeeTest(BitcoinTestFramework):
         )["hex"]
 
         # Verify tx1b cannot replace tx1a.
-        assert_raises_rpc_error(-26, "insufficient fee", self.nodes[0].sendrawtransaction, tx1b_hex, 0)
+        assert_raises_rpc_error(-26, "not strictly improved", self.nodes[0].sendrawtransaction, tx1b_hex, 0)
 
         # Use prioritisetransaction to set tx1a's fee to 0.
         self.nodes[0].prioritisetransaction(txid=tx1a_txid, fee_delta=int(-0.1 * COIN))
