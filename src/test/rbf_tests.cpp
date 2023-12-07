@@ -206,9 +206,11 @@ BOOST_FIXTURE_TEST_CASE(rbf_helper_functions, TestChain100Setup)
     BOOST_CHECK_EQUAL(all_conflicts.size(), 100);
     all_conflicts.clear();
 
-    // Exceeds maximum number of conflicts.
+    // If we treat all_conflicts as being direct conflicts, then we should exceed the replacement limit.
     add_descendants(tx8, 1, pool);
-    BOOST_CHECK(GetEntriesForConflicts(*conflicts_with_parents.get(), pool, all_parents, all_conflicts).has_value());
+    BOOST_CHECK(GetEntriesForConflicts(*conflicts_with_parents.get(), pool, all_parents, all_conflicts) == std::nullopt);
+    CTxMemPool::setEntries dummy;
+    BOOST_CHECK(GetEntriesForConflicts(*conflicts_with_parents.get(), pool, all_conflicts, dummy).has_value());
 }
 
 BOOST_AUTO_TEST_CASE(feerate_diagram_utilities)
