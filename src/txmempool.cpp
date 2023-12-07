@@ -1470,7 +1470,7 @@ std::vector<CTxMemPoolEntryRef> CTxMemPool::entryAll() const
 
     std::vector<CTxMemPoolEntryRef> ret;
     ret.reserve(mapTx.size());
-    for (const auto& it : GetSortedDepthAndScore()) {
+    for (indexed_transaction_set::const_iterator it = mapTx.begin(); it != mapTx.end(); it++) {
         ret.emplace_back(*it);
     }
     return ret;
