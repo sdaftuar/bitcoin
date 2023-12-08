@@ -497,6 +497,7 @@ void CTxMemPool::GetFeerateDiagram(std::vector<Cluster *> clusters, std::vector<
     }
     // Define comparison operator on our heap entries (using feerate of chunks).
     auto cmp = [](const Cluster::HeapEntry& a, const Cluster::HeapEntry& b) {
+        return FeeSizePoint{a.first->size, a.first->fee} < FeeSizePoint{b.first->size, b.first->fee};
         return a.first->fee*b.first->size < b.first->fee*a.first->size;
     };
     std::make_heap(heap_chunks.begin(), heap_chunks.end(), cmp);
@@ -1154,10 +1155,10 @@ bool CTxMemPool::CompareMiningScore(txiter a, txiter b) const
     CAmount b_fee = b->m_cluster->m_chunks[b->m_loc.first].fee;
     int64_t b_size = b->m_cluster->m_chunks[b->m_loc.first].size;
 
-    int64_t a_score = a_fee * b_size;
-    int64_t b_score = b_fee * a_size;
-    if (a_score != b_score) {
-        return a_score > b_score;
+    FeeSizePoint a_frac{a_size, a_fee};
+    FeeSizePoint b_frac{b_size, b_fee};
+    if (a_frac != b_frac) {
+        return a_frac > b_frac;
     } else if (a->m_cluster != b->m_cluster) {
         // Equal scores in different clusters; sort by cluster id.
         return a->m_cluster->m_id < b->m_cluster->m_id;
@@ -1875,13 +1876,11 @@ void Cluster::RechunkFromLinearization(std::vector<CTxMemPoolEntry::CTxMemPoolEn
         while (m_chunks.size() >= 2) {
             auto cur_iter = std::prev(m_chunks.end());
             auto prev_iter = std::prev(cur_iter);
-            double feerate_prev = prev_iter->fee*cur_iter->size;
-            double feerate_cur = cur_iter->fee*prev_iter->size;
             // We only combine chunks if the feerate would go up; if two
             // chunks have equal feerate, we prefer to keep the smaller
             // chunksize (which is generally better for both mining and
             // eviction).
-            if (feerate_cur > feerate_prev) {
+            if (FeeSizePoint{prev_iter->size, prev_iter->fee} < FeeSizePoint{cur_iter->size, cur_iter->fee}) {
                 prev_iter->fee += cur_iter->fee;
                 prev_iter->size += cur_iter->size;
                 prev_iter->txs.splice(prev_iter->txs.end(), cur_iter->txs, cur_iter->txs.begin(), cur_iter->txs.end());
@@ -2039,6 +2038,7 @@ void Cluster::Merge(std::vector<Cluster*>::iterator first, std::vector<Cluster*>
     auto cmp = [](const Cluster::HeapEntry& a, const Cluster::HeapEntry& b) {
         // TODO: branch on size of fee to do this as 32-bit calculation
         // instead? etc
+        return FeeSizePoint{a.first->size, a.first->fee} < FeeSizePoint{b.first->size, b.first->fee};
         return a.first->fee*b.first->size < b.first->fee*a.first->size;
     };
 
