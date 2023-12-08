@@ -56,6 +56,52 @@ bool TestLockPointValidity(CChain& active_chain, const LockPoints& lp) EXCLUSIVE
 struct FeeSizePoint {
     int64_t size;
     CAmount fee;
+
+    friend inline bool operator<(const FeeSizePoint& a, const FeeSizePoint& b) noexcept
+    {
+        if (a.fee > std::numeric_limits<int32_t>::max() ||
+                b.fee > std::numeric_limits<int32_t>::max() ||
+                a.fee < std::numeric_limits<int32_t>::min() ||
+                b.fee < std::numeric_limits<int32_t>::min())
+        {
+            // Avoid overflow by sacrificing precision?
+            double a_val = double(a.fee) * double(b.size);
+            double b_val = double(b.fee) * double(a.size);
+            if (a_val != b_val) return a_val < b_val;
+            return a.size > b.size;
+        } else {
+            int64_t a_val = a.fee * b.size;
+            int64_t b_val = b.fee * a.size;
+            if (a_val != b_val) return a_val < b_val;
+            return a.size > b.size;
+        }
+    }
+
+    friend inline bool operator>(const FeeSizePoint& a, const FeeSizePoint& b) noexcept
+    {
+        if (a.fee > std::numeric_limits<int32_t>::max() ||
+                b.fee > std::numeric_limits<int32_t>::max() ||
+                a.fee < std::numeric_limits<int32_t>::min() ||
+                b.fee < std::numeric_limits<int32_t>::min())
+        {
+            // Avoid overflow by sacrificing precision?
+            double a_val = double(a.fee) * double(b.size);
+            double b_val = double(b.fee) * double(a.size);
+            if (a_val != b_val) return a_val > b_val;
+            return a.size < b.size;
+        } else {
+            int64_t a_val = a.fee * b.size;
+            int64_t b_val = b.fee * a.size;
+            if (a_val != b_val) return a_val > b_val;
+            return a.size < b.size;
+        }
+    }
+
+    friend inline bool operator!=(const FeeSizePoint& a, const FeeSizePoint& b) noexcept
+    {
+        return a.fee != b.fee || a.size != b.size;
+    }
+
 };
 
 /**
