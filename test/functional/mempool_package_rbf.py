@@ -5,6 +5,7 @@
 
 from decimal import Decimal
 
+from test_framework.blocktools import COINBASE_MATURITY
 from test_framework.messages import (
     COIN,
     MAX_BIP125_RBF_SEQUENCE,
@@ -14,6 +15,9 @@ from test_framework.util import (
     assert_greater_than_or_equal,
     assert_raises_rpc_error,
     assert_equal,
+    assert_greater_than,
+    create_lots_of_big_transactions,
+    gen_return_txouts,
 )
 from test_framework.wallet import (
     DEFAULT_FEE,
@@ -24,6 +28,55 @@ class PackageRBFTest(BitcoinTestFramework):
     def set_test_params(self):
         self.num_nodes = 1
         self.setup_clean_chain = True
+        # Required for fill_mempool()
+        self.extra_args = [[
+            "-datacarriersize=100000",
+            "-maxmempool=5",
+        ]]
+
+    def fill_mempool(self):
+        """Fill mempool until eviction."""
+        self.log.info("Fill the mempool until eviction is triggered and the mempoolminfee rises")
+        txouts = gen_return_txouts()
+        node = self.nodes[0]
+        miniwallet = self.wallet
+        relayfee = node.getnetworkinfo()['relayfee']
+
+        tx_batch_size = 1
+        num_of_batches = 75
+        # Generate UTXOs to flood the mempool
+        # 1 to create a tx initially that will be evicted from the mempool later
+        # 75 transactions each with a fee rate higher than the previous one
+        # And 1 more to verify that this tx does not get added to the mempool with a fee rate less than the mempoolminfee
+        # And 2 more for the package cpfp test
+        self.generate(miniwallet, 1 + (num_of_batches * tx_batch_size))
+
+        # Mine 99 blocks so that the UTXOs are allowed to be spent
+        self.generate(node, COINBASE_MATURITY - 1)
+
+        self.log.debug("Create a mempool tx that will be evicted")
+        tx_to_be_evicted_id = miniwallet.send_self_transfer(from_node=node, fee_rate=relayfee)["txid"]
+
+        # Increase the tx fee rate to give the subsequent transactions a higher priority in the mempool
+        # The tx has an approx. vsize of 65k, i.e. multiplying the previous fee rate (in sats/kvB)
+        # by 130 should result in a fee that corresponds to 2x of that fee rate
+        base_fee = relayfee * 130
+
+        self.log.debug("Fill up the mempool with txs with higher fee rate")
+        with node.assert_debug_log(["rolling minimum fee bumped"]):
+            for batch_of_txid in range(num_of_batches):
+                fee = (batch_of_txid + 1) * base_fee
+                create_lots_of_big_transactions(miniwallet, node, fee, tx_batch_size, txouts)
+
+        self.log.debug("The tx should be evicted by now")
+        # The number of transactions created should be greater than the ones present in the mempool
+        assert_greater_than(tx_batch_size * num_of_batches, len(node.getrawmempool()))
+        # Initial tx created should not be present in the mempool anymore as it had a lower fee rate
+        assert tx_to_be_evicted_id not in node.getrawmempool()
+
+        self.log.debug("Check that mempoolminfee is larger than minrelaytxfee")
+        assert_equal(node.getmempoolinfo()['minrelaytxfee'], Decimal('0.00001000'))
+        assert_greater_than(node.getmempoolinfo()['mempoolminfee'], Decimal('0.00001000'))
 
     def assert_mempool_contents(self, expected=None, unexpected=None):
         """Assert that all transactions in expected are in the mempool,
@@ -96,6 +149,7 @@ class PackageRBFTest(BitcoinTestFramework):
         self.test_wrong_conflict_cluster_size_linear()
         self.test_wrong_conflict_cluster_size_parents_child()
         self.test_wrong_conflict_cluster_size_parent_children()
+        self.test_child_conflicts_parent_mempool_ancestor()
 
     def test_package_rbf_basic(self):
         self.log.info("Test that a child can pay to replace its parents' conflicts")
@@ -483,6 +537,53 @@ class PackageRBFTest(BitcoinTestFramework):
         pkg_results2 = node.submitpackage(package_hex2)
         assert_equal(pkg_results2["package_msg"], 'package RBF failed: insufficient feerate')
         self.assert_mempool_contents(expected=package_txns1, unexpected=package_txns2)
+        self.generate(node, 1)
+
+    def test_child_conflicts_parent_mempool_ancestor(self):
+        self.fill_mempool()
+        # Reset coins since we filled the mempool with current coins
+        self.coins = self.wallet.get_utxos(mark_as_spent=False, confirmed_only=True)
+
+        self.log.info("Test that package RBF doesn't have issues with mempool<->package conflicts via inconsistency")
+        node = self.nodes[0]
+        coin = self.coins.pop()
+
+        # Put simple tx in mempool to chain off of
+        self.ctr += 1
+        grandparent_result = self.wallet.create_self_transfer(
+            fee_rate=0,
+            fee=DEFAULT_FEE,
+            utxo_to_spend=coin,
+            sequence=MAX_BIP125_RBF_SEQUENCE - self.ctr,
+        )
+
+        node.sendrawtransaction(grandparent_result["hex"])
+
+        # Now make package of two descendants that looks
+        # like a cpfp where the parent can't get in on its own
+        assert_greater_than(node.getmempoolinfo()["mempoolminfee"], Decimal('0.00001000'))
+
+        self.ctr += 1
+        parent_result = self.wallet.create_self_transfer(
+            fee_rate=Decimal('0.00001000'),
+            utxo_to_spend=grandparent_result["new_utxo"],
+            sequence=MAX_BIP125_RBF_SEQUENCE - self.ctr,
+        )
+        # Last tx double-spends grandparent's coin,
+        # which is not inside the current package
+        self.ctr += 1
+        child_result = self.wallet.create_self_transfer_multi(
+            fee_per_output=int(DEFAULT_FEE * 5 * COIN),
+            utxos_to_spend=[parent_result["new_utxo"], coin],
+            sequence=MAX_BIP125_RBF_SEQUENCE - self.ctr,
+        )
+
+        pkg_result = node.submitpackage([parent_result["hex"], child_result["hex"]])
+        assert_equal(pkg_result["package_msg"], 'package RBF failed: replacing cluster with ancestors not size two')
+        mempool_info = node.getrawmempool()
+        assert grandparent_result["txid"] in mempool_info
+        assert parent_result["txid"] not in mempool_info
+        assert child_result["txid"] not in mempool_info
         self.generate(node, 1)
 
 if __name__ == "__main__":
