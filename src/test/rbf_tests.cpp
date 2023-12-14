@@ -37,7 +37,7 @@ static inline CTransactionRef make_tx(const std::vector<CTransactionRef>& inputs
     return MakeTransactionRef(tx);
 }
 
-static void add_descendants(const CTransactionRef& tx, int32_t num_descendants, CTxMemPool& pool)
+static CTransactionRef add_descendants(const CTransactionRef& tx, int32_t num_descendants, CTxMemPool& pool)
     EXCLUSIVE_LOCKS_REQUIRED(::cs_main, pool.cs)
 {
     AssertLockHeld(::cs_main);
@@ -50,6 +50,8 @@ static void add_descendants(const CTransactionRef& tx, int32_t num_descendants, 
         pool.addUnchecked(entry.FromTx(next_tx));
         tx_to_spend = next_tx;
     }
+    // Return last created tx
+    return tx_to_spend;
 }
 
 BOOST_FIXTURE_TEST_CASE(rbf_helper_functions, TestChain100Setup)
@@ -89,6 +91,14 @@ BOOST_FIXTURE_TEST_CASE(rbf_helper_functions, TestChain100Setup)
     const auto tx8 = make_tx(/*inputs=*/ {m_coinbase_txns[4]}, /*output_values=*/ {999 * CENT});
     pool.addUnchecked(entry.Fee(high_fee).FromTx(tx8));
 
+    // Normal txs, will chain txns right before CheckConflictTopology test
+    const auto tx9 = make_tx(/*inputs=*/ {m_coinbase_txns[5]}, /*output_values=*/ {995 * CENT});
+    pool.addUnchecked(entry.Fee(normal_fee).FromTx(tx9));
+    const auto tx10 = make_tx(/*inputs=*/ {m_coinbase_txns[6]}, /*output_values=*/ {995 * CENT});
+    pool.addUnchecked(entry.Fee(normal_fee).FromTx(tx10));
+    const auto tx11 = make_tx(/*inputs=*/ {m_coinbase_txns[7]}, /*output_values=*/ {995 * CENT});
+    pool.addUnchecked(entry.Fee(normal_fee).FromTx(tx11));
+
     const auto entry1_normal = pool.GetIter(tx1->GetHash()).value();
     const auto entry2_normal = pool.GetIter(tx2->GetHash()).value();
     const auto entry3_low = pool.GetIter(tx3->GetHash()).value();
@@ -97,6 +107,9 @@ BOOST_FIXTURE_TEST_CASE(rbf_helper_functions, TestChain100Setup)
     const auto entry6_low_prioritised = pool.GetIter(tx6->GetHash()).value();
     const auto entry7_high = pool.GetIter(tx7->GetHash()).value();
     const auto entry8_high = pool.GetIter(tx8->GetHash()).value();
+    const auto entry9_unchained = pool.GetIter(tx9->GetHash()).value();
+    const auto entry10_unchained = pool.GetIter(tx10->GetHash()).value();
+    const auto entry11_unchained = pool.GetIter(tx9->GetHash()).value();
 
     BOOST_CHECK_EQUAL(entry1_normal->GetFee(), normal_fee);
     BOOST_CHECK_EQUAL(entry2_normal->GetFee(), normal_fee);
@@ -110,6 +123,7 @@ BOOST_FIXTURE_TEST_CASE(rbf_helper_functions, TestChain100Setup)
     CTxMemPool::setEntries set_12_normal{entry1_normal, entry2_normal};
     CTxMemPool::setEntries set_34_cpfp{entry3_low, entry4_high};
     CTxMemPool::setEntries set_56_low{entry5_low, entry6_low_prioritised};
+    CTxMemPool::setEntries set_78_high{entry7_high, entry8_high};
     CTxMemPool::setEntries all_entries{entry1_normal, entry2_normal, entry3_low, entry4_high,
                                        entry5_low, entry6_low_prioritised, entry7_high, entry8_high};
     CTxMemPool::setEntries empty_set;
@@ -228,6 +242,33 @@ BOOST_FIXTURE_TEST_CASE(rbf_helper_functions, TestChain100Setup)
     const auto spends_conflicting_confirmed = make_tx({m_coinbase_txns[0], m_coinbase_txns[1]}, {45 * CENT});
     BOOST_CHECK(HasNoNewUnconfirmed(*spends_conflicting_confirmed.get(), pool, {entry1_normal, entry3_low}) == std::nullopt);
 
+    // Tests for CheckConflictTopology
+
+    // Tx4 has 23 descendants
+    BOOST_CHECK(pool.CheckConflictTopology(set_34_cpfp).has_value());
+
+    // No descendants yet
+    BOOST_CHECK(pool.CheckConflictTopology({entry9_unchained}) == std::nullopt);
+
+    // Add 1 descendant, still ok
+    add_descendants(tx9, 1, pool);
+    BOOST_CHECK(pool.CheckConflictTopology({entry9_unchained}) == std::nullopt);
+
+    // N direct conflicts; ok
+    BOOST_CHECK(pool.CheckConflictTopology({entry9_unchained, entry10_unchained, entry11_unchained}) == std::nullopt);
+
+    // Add 1 descendant, still ok, even if it's considered a direct conflict as well
+    const auto child_tx = add_descendants(tx10, 1, pool);
+    const auto entry10_child = pool.GetIter(child_tx->GetHash()).value();
+    BOOST_CHECK(pool.CheckConflictTopology({entry9_unchained, entry10_unchained, entry11_unchained}) == std::nullopt);
+    BOOST_CHECK(pool.CheckConflictTopology({entry9_unchained, entry10_unchained, entry11_unchained, entry10_child}) == std::nullopt);
+
+    // One more, size 3 cluster too much
+    const auto child_tx2 = add_descendants(tx10, 1, pool);
+    const auto entry10_child2 = pool.GetIter(child_tx2->GetHash()).value();
+    BOOST_CHECK(pool.CheckConflictTopology({entry9_unchained, entry10_unchained, entry11_unchained}).has_value());
+    // even if direct conflict is descendent itself
+    BOOST_CHECK(pool.CheckConflictTopology({entry9_unchained, entry10_child2, entry11_unchained}).has_value());
 }
 
 BOOST_AUTO_TEST_CASE(feerate_diagram_utilities)
