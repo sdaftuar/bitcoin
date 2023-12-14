@@ -9,6 +9,7 @@
 #include <primitives/transaction.h>
 #include <threadsafety.h>
 #include <txmempool.h>
+#include <util/feefrac.h>
 
 #include <cstddef>
 #include <cstdint>
@@ -105,5 +106,9 @@ std::optional<std::string> PaysForRBF(CAmount original_fees,
                                       size_t replacement_vsize,
                                       CFeeRate relay_fee,
                                       const uint256& txid);
+
+// returns true if the new_diagram is strictly better than the old one; false
+// otherwise.
+bool CompareFeerateDiagram(std::vector<FeeFrac>& old_diagram, std::vector<FeeFrac>& new_diagram);
 
 #endif // BITCOIN_POLICY_RBF_H
