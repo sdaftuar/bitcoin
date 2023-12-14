@@ -230,4 +230,51 @@ BOOST_FIXTURE_TEST_CASE(rbf_helper_functions, TestChain100Setup)
 
 }
 
+BOOST_AUTO_TEST_CASE(feerate_diagram_utilities)
+{
+    // Sanity check the correctness of the feerate diagram comparison.
+
+    // A strictly better case.
+    std::vector<FeeFrac> old_diagram{{FeeFrac{0, 0}, FeeFrac{950, 300}, FeeFrac{1050, 400}}};
+    std::vector<FeeFrac> new_diagram{{FeeFrac{0, 0}, FeeFrac{1000, 300}, FeeFrac{1050, 400}}};
+
+    BOOST_CHECK(CompareFeerateDiagram(old_diagram, new_diagram));
+    BOOST_CHECK(!CompareFeerateDiagram(new_diagram, old_diagram));
+
+    // Incomparable diagrams
+    old_diagram = {FeeFrac{0, 0}, FeeFrac{950, 300}, FeeFrac{1050, 400}};
+    new_diagram = {FeeFrac{0, 0}, FeeFrac{1000, 300}, FeeFrac{1000, 400}};
+
+    BOOST_CHECK(!CompareFeerateDiagram(old_diagram, new_diagram));
+    BOOST_CHECK(!CompareFeerateDiagram(new_diagram, old_diagram));
+
+    // Strictly better but smaller size.
+    old_diagram = {FeeFrac{0, 0}, FeeFrac{950, 300}, FeeFrac{1050, 400}};
+    new_diagram = {FeeFrac{0, 0}, FeeFrac{1100, 300}};
+
+    BOOST_CHECK(CompareFeerateDiagram(old_diagram, new_diagram));
+    BOOST_CHECK(!CompareFeerateDiagram(new_diagram, old_diagram));
+
+    // Feerate of first chunk is sufficiently better, but second chunk is worse.
+    old_diagram = {FeeFrac{0, 0}, FeeFrac{950, 300}, FeeFrac{1050, 400}};
+    new_diagram = {FeeFrac{0, 0}, FeeFrac{1100, 100}, FeeFrac{1100, 200}};
+
+    BOOST_CHECK(CompareFeerateDiagram(old_diagram, new_diagram));
+    BOOST_CHECK(!CompareFeerateDiagram(new_diagram, old_diagram));
+
+    // Feerate of first chunk is better, but second chunk is worse
+    old_diagram = {FeeFrac{0, 0}, FeeFrac{950, 300}, FeeFrac{1050, 400}};
+    new_diagram = {FeeFrac{0, 0}, FeeFrac{750, 100}, FeeFrac{999, 350}, FeeFrac{1150, 500}};
+
+    BOOST_CHECK(!CompareFeerateDiagram(old_diagram, new_diagram));
+    BOOST_CHECK(!CompareFeerateDiagram(new_diagram, old_diagram));
+
+    // If we make the second chunk slightly better, the new diagram now wins.
+    old_diagram = {FeeFrac{0, 0}, FeeFrac{950, 300}, FeeFrac{1050, 400}};
+    new_diagram = {FeeFrac{0, 0}, FeeFrac{750, 100}, FeeFrac{1000, 350}, FeeFrac{1150, 500}};
+
+    BOOST_CHECK(CompareFeerateDiagram(old_diagram, new_diagram));
+    BOOST_CHECK(!CompareFeerateDiagram(new_diagram, old_diagram));
+}
+
 BOOST_AUTO_TEST_SUITE_END()
