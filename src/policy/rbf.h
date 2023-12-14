@@ -107,6 +107,23 @@ std::optional<std::string> PaysForRBF(CAmount original_fees,
                                       CFeeRate relay_fee,
                                       const uint256& txid);
 
+/**
+ * The replacement transaction must improve the feerate diagram of the mempool.
+ * @param[in]   pool                The mempool.
+ * @param[in]   direct_conflicts    Set of txids corresponding to the direct conflicts
+ * @param[in]   all_conflicts       Set of mempool entries corresponding to all conflicts
+ * @param[in]   replacement_vsize   Size of replacement package
+ * @param[in]   replacement_fees    Fees of replacement package
+ * @returns error string if mempool diagram doesn't improve, otherwise std::nullopt.
+ */
+
+std::optional<std::string> ImprovesFeerateDiagram(CTxMemPool& pool,
+                                                const CTxMemPool::setEntries& direct_conflicts,
+                                                const CTxMemPool::setEntries& all_conflicts,
+                                                int64_t replacement_vsize,
+                                                CAmount replacement_fees)
+                                                EXCLUSIVE_LOCKS_REQUIRED(pool.cs);
+
 // returns true if the new_diagram is strictly better than the old one; false
 // otherwise.
 bool CompareFeerateDiagram(std::vector<FeeFrac>& old_diagram, std::vector<FeeFrac>& new_diagram);

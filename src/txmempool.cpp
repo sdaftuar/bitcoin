@@ -1254,3 +1254,119 @@ std::vector<CTxMemPool::txiter> CTxMemPool::GatherClusters(const std::vector<uin
     }
     return clustered_txs;
 }
+
+void BuildDiagramFromUnsortedChunks(std::vector<FeeFrac>& chunks, std::vector<FeeFrac>& diagram)
+{
+    diagram.clear();
+    // Finish by sorting the chunks we calculated, and then accumulating them.
+    std::sort(chunks.begin(), chunks.end(), [](const FeeFrac& a, const FeeFrac& b) { return a > b; });
+
+    // And now build the diagram for these chunks.
+    diagram.emplace_back(FeeFrac{0, 0});
+    for (auto& chunk : chunks) {
+        FeeFrac& last = diagram.back();
+        diagram.emplace_back(FeeFrac{last.fee+chunk.fee, last.size+chunk.size});
+    }
+    return;
+}
+
+std::optional<std::string> CTxMemPool::CheckConflictTopology(const setEntries& direct_conflicts)
+{
+    for (const auto& direct_conflict : direct_conflicts) {
+        const auto desc_count = direct_conflict->GetCountWithDescendants() - 1;
+        if (desc_count == 0) {
+            // It should be by itself, or be a child in a parent-child cluster
+            if (direct_conflict->GetCountWithAncestors() > 2) {
+                return strprintf("Child transaction has too many ancestors");
+            }
+            if (direct_conflict->GetCountWithAncestors() == 2) {
+                const auto& parent = direct_conflict->GetMemPoolParentsConst().begin();
+                if (parent->get().GetCountWithDescendants() > 2) {
+                    return strprintf("Parent in package rbf should not have multiple descendants");
+                }
+            }
+        } else if (desc_count == 1) {
+            // It should be the parent in a parent-child cluster
+            const auto& parent = direct_conflict;
+            if (parent->GetCountWithAncestors() > 1) {
+                return strprintf("Parent in package rbf should not have any ancestors");
+            }
+            const auto& child = parent->GetMemPoolChildrenConst().begin();
+            if (child->get().GetCountWithAncestors() != 2) {
+                return strprintf("Child in package RBF has too many ancestors");
+            }
+        } else {
+            return strprintf("Too many descendants of direct conflict: %zu", desc_count);
+        }
+    }
+    return std::nullopt;
+}
+
+std::optional<std::string> CTxMemPool::CalculateFeerateDiagramsForRBF(CAmount replacement_fees, int64_t replacement_vsize, const setEntries& direct_conflicts, const setEntries& all_conflicts, std::vector<FeeFrac>& old_diagram, std::vector<FeeFrac>& new_diagram)
+{
+    const auto err_string{CheckConflictTopology(direct_conflicts)};
+    if (err_string.has_value()) {
+        // Unsupported topology for calculating a feerate diagram
+        return err_string;
+    }
+
+    // new_diagram will have chunks that consist of each ancestor of
+    // direct_conflicts that is at its own fee/size, along with the replacement
+    // tx/package at its own fee/size
+
+    // old diagram will consist of each element of direct_conflicts either at
+    // its own feerate (followed by any descendant at its own feerate) or as a
+    // single chunk at its descendant's ancestor feerate.
+
+    std::vector<FeeFrac> old_chunks;
+    // Step 1: build the old diagram.
+    for (auto txiter : all_conflicts) {
+        // Does this transaction have descendants?
+        if (txiter->GetCountWithDescendants() > 1) {
+            // Consider this tx when we consider the descendant.
+            continue;
+        }
+        // Does this transaction have ancestors?
+        FeeFrac individual{txiter->GetModifiedFee(), txiter->GetTxSize()};
+        if (txiter->GetCountWithAncestors() > 1) {
+            // We'll add chunks for either the ancestor by itself and this tx
+            // by itself, or for a combined package.
+            FeeFrac package{txiter->GetModFeesWithAncestors(), int32_t(txiter->GetSizeWithAncestors())};
+            if (individual > package) {
+                // The individual feerate is higher than the package, and
+                // therefore higher than the parent's fee. Chunk these
+                // together.
+                old_chunks.emplace_back(package);
+            } else {
+                // Add two points, one for the parent and one for this child.
+                old_chunks.emplace_back(package-individual);
+                old_chunks.emplace_back(individual);
+            }
+        } else {
+            old_chunks.emplace_back(individual);
+        }
+    }
+
+    BuildDiagramFromUnsortedChunks(old_chunks, old_diagram);
+
+    std::vector<FeeFrac> new_chunks;
+
+    // Step 2: build the new diagram
+    for (auto direct_conflict : direct_conflicts) {
+        // If a direct conflict has an ancestor that is not in all_conflicts,
+        // it can be affected by the replacement of the child.
+        if (direct_conflict->GetMemPoolParentsConst().size() > 0) {
+            // Grab the parent.
+            const CTxMemPoolEntry& parent = direct_conflict->GetMemPoolParentsConst().begin()->get();
+            if (!all_conflicts.count(mapTx.iterator_to(parent))) {
+                // This transaction would be left over, so add to the new
+                // diagram.
+                new_chunks.emplace_back(FeeFrac{parent.GetModifiedFee(), parent.GetTxSize()});
+            }
+        }
+    }
+    new_chunks.emplace_back(FeeFrac{replacement_fees, int32_t(replacement_vsize)});
+
+    BuildDiagramFromUnsortedChunks(new_chunks, new_diagram);
+    return std::nullopt;
+}

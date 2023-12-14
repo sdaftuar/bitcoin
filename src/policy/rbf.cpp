@@ -257,3 +257,24 @@ bool CompareFeerateDiagram(std::vector<FeeFrac>& old_diagram, std::vector<FeeFra
 
     return false;
 }
+
+std::optional<std::string> ImprovesFeerateDiagram(CTxMemPool& pool,
+                                                const CTxMemPool::setEntries& direct_conflicts,
+                                                const CTxMemPool::setEntries& all_conflicts,
+                                                int64_t replacement_vsize,
+                                                CAmount replacement_fees)
+{
+    // Require that the replacement strictly improve the mempool's fee vs. size diagram.
+    std::vector<FeeFrac> old_diagram, new_diagram;
+
+    const auto err_string{pool.CalculateFeerateDiagramsForRBF(replacement_fees, replacement_vsize, direct_conflicts, all_conflicts, old_diagram, new_diagram)};
+
+    if (err_string.has_value()) {
+        return strprintf("unable to compute mining score");
+    }
+
+    if (!CompareFeerateDiagram(old_diagram, new_diagram)) {
+        return strprintf("insufficient feerate");
+    }
+    return std::nullopt;
+}
