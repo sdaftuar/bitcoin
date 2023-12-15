@@ -103,6 +103,13 @@ struct FeeFrac
     /** Check if a FeeFrac object is worse than another. */
     friend inline bool operator<(const FeeFrac& a, const FeeFrac& b) noexcept
     {
+        if (a.fee > INT32_MAX || a.fee < INT32_MIN || b.fee > INT32_MAX || b.fee < INT32_MIN) {
+            // Use double arithmetic to avoid overflow
+            double a_val = double(a.fee) * b.size;
+            double b_val = double(b.fee) * a.size;
+            if (a_val != b_val) return a_val < b_val;
+            return a.size > b.size;
+        }
         int64_t a_val = a.fee * b.size;
         int64_t b_val = b.fee * a.size;
         if (a_val != b_val) return a_val < b_val;
@@ -112,6 +119,13 @@ struct FeeFrac
     /** Check if a FeeFrac object is worse or equal than another. */
     friend inline bool operator<=(const FeeFrac& a, const FeeFrac& b) noexcept
     {
+        if (a.fee > INT32_MAX || a.fee < INT32_MIN || b.fee > INT32_MAX || b.fee < INT32_MIN) {
+            // Use double arithmetic to avoid overflow
+            double a_val = double(a.fee) * b.size;
+            double b_val = double(b.fee) * a.size;
+            if (a_val != b_val) return a_val < b_val;
+            return a.size >= b.size;
+        }
         int64_t a_val = a.fee * b.size;
         int64_t b_val = b.fee * a.size;
         if (a_val != b_val) return a_val < b_val;
@@ -121,6 +135,13 @@ struct FeeFrac
     /** Check if a FeeFrac object is better than another. */
     friend inline bool operator>(const FeeFrac& a, const FeeFrac& b) noexcept
     {
+        if (a.fee > INT32_MAX || a.fee < INT32_MIN || b.fee > INT32_MAX || b.fee < INT32_MIN) {
+            // Use double arithmetic to avoid overflow
+            double a_val = double(a.fee) * b.size;
+            double b_val = double(b.fee) * a.size;
+            if (a_val != b_val) return a_val > b_val;
+            return a.size < b.size;
+        }
         int64_t a_val = a.fee * b.size;
         int64_t b_val = b.fee * a.size;
         if (a_val != b_val) return a_val > b_val;
@@ -130,6 +151,13 @@ struct FeeFrac
     /** Check if a FeeFrac object is better or equal than another. */
     friend inline bool operator>=(const FeeFrac& a, const FeeFrac& b) noexcept
     {
+        if (a.fee > INT32_MAX || a.fee < INT32_MIN || b.fee > INT32_MAX || b.fee < INT32_MIN) {
+            // Use double arithmetic to avoid overflow
+            double a_val = double(a.fee) * b.size;
+            double b_val = double(b.fee) * a.size;
+            if (a_val != b_val) return a_val > b_val;
+            return a.size <= b.size;
+        }
         int64_t a_val = a.fee * b.size;
         int64_t b_val = b.fee * a.size;
         if (a_val != b_val) return a_val > b_val;
@@ -139,12 +167,24 @@ struct FeeFrac
     /** Check if a FeeFrac object has strictly lower feerate than another. */
     friend inline bool operator<<(const FeeFrac& a, const FeeFrac& b) noexcept
     {
+        if (a.fee > INT32_MAX || a.fee < INT32_MIN || b.fee > INT32_MAX || b.fee < INT32_MIN) {
+            // Use double arithmetic to avoid overflow
+            double a_val = double(a.fee) * b.size;
+            double b_val = double(b.fee) * a.size;
+            return a_val < b_val;
+        }
         return a.fee * b.size < b.fee * a.size;
     }
 
     /** Check if a FeeFrac object has strictly higher feerate than another. */
     friend inline bool operator>>(const FeeFrac& a, const FeeFrac& b) noexcept
     {
+        if (a.fee > INT32_MAX || a.fee < INT32_MIN || b.fee > INT32_MAX || b.fee < INT32_MIN) {
+            // Use double arithmetic to avoid overflow
+            double a_val = double(a.fee) * b.size;
+            double b_val = double(b.fee) * a.size;
+            return a_val > b_val;
+        }
         return a.fee * b.size > b.fee * a.size;
     }
 
