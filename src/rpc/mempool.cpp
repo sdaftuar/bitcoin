@@ -909,7 +909,7 @@ static RPCHelpMan submitpackage()
                 case PackageValidationResult::PCKG_TX:
                 {
                     // Package-wide error we want to return, but we also want to return individual responses
-                    package_msg = package_result.m_state.GetRejectReason();
+                    package_msg = package_result.m_state.ToString();
                     CHECK_NONFATAL(package_result.m_tx_results.size() == txns.size() ||
                             package_result.m_tx_results.empty());
                     break;
