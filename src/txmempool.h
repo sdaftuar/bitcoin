@@ -117,61 +117,6 @@ struct FeeSizePoint {
 
 class CTxMemPool;
 
-class Cluster {
-public:
-    Cluster(int64_t id, CTxMemPool* mempool) : m_id(id), m_mempool(mempool) {}
-
-    void Clear() {
-        m_chunks.clear();
-        m_tx_count = 0;
-    }
-
-    // Add a transaction and update the sort.
-    void AddTransaction(const CTxMemPoolEntry& entry, bool sort);
-    void RemoveTransaction(const CTxMemPoolEntry& entry);
-
-    // Sort the cluster and partition into chunks.
-    void Sort(bool reassign_locations = true);
-
-    // Just rechunk the cluster using its existing linearization.
-    void Rechunk();
-
-    // Helper function
-    void RechunkFromLinearization(std::vector<CTxMemPoolEntry::CTxMemPoolEntryRef>& txs, bool reassign_locations);
-
-    void Merge(std::vector<Cluster *>::iterator first, std::vector<Cluster*>::iterator last, bool this_cluster_first);
-
-    uint64_t GetMemoryUsage() const {
-        return memusage::DynamicUsage(m_chunks) + m_tx_count * sizeof(void*) * 3;
-    }
-
-    CTxMemPoolEntry::CTxMemPoolEntryRef GetLastTransaction();
-
-    // The chunks of transactions which will be added to blocks or
-    // evicted from the mempool.
-    struct Chunk {
-        Chunk(CAmount _fee, int64_t _size) : fee(_fee), size(_size) {}
-        Chunk(Chunk&& other) = default;
-        Chunk& operator=(Cluster::Chunk&& other) = default;
-        Chunk& operator=(const Cluster::Chunk& other) = delete;
-
-        CAmount fee{0};
-        int64_t size{0};
-        std::list<CTxMemPoolEntry::CTxMemPoolEntryRef> txs;
-    };
-
-    typedef std::vector<Chunk>::iterator ChunkIter;
-    typedef std::pair<ChunkIter, Cluster*> HeapEntry;
-
-    std::vector<Chunk> m_chunks;
-    int64_t m_tx_count{0};
-    int64_t m_tx_size{0};
-
-    const int64_t m_id;
-    CTxMemPool* m_mempool;
-    mutable Epoch::Marker m_epoch_marker; //!< epoch when last touched
-};
-
 // extracts a transaction hash from CTxMemPoolEntry or CTransactionRef
 struct mempoolentry_txid
 {
@@ -404,10 +349,6 @@ public:
     mutable RecursiveMutex cs;
     indexed_transaction_set mapTx GUARDED_BY(cs);
 
-    // Clusters
-    std::unordered_map<int64_t, std::unique_ptr<Cluster>> m_cluster_map GUARDED_BY(cs);
-    int64_t m_next_cluster_id GUARDED_BY(cs){0};
-
     using txiter = indexed_transaction_set::nth_index<0>::type::const_iterator;
     std::vector<CTransactionRef> txns_randomized GUARDED_BY(cs); //!< All transactions in mapTx, in random order
 
@@ -418,13 +359,10 @@ public:
 
     bool CompareMiningScore(txiter a, txiter b) const EXCLUSIVE_LOCKS_REQUIRED(cs);
 
-    void TopoSort(std::vector<CTxMemPoolEntry::CTxMemPoolEntryRef>& to_be_sorted) const;
     void CalculateAncestorData(const CTxMemPoolEntry& entry, size_t& ancestor_count, size_t& ancestor_size, CAmount& ancestor_fees) const EXCLUSIVE_LOCKS_REQUIRED(cs);
     void CalculateDescendantData(const CTxMemPoolEntry& entry, size_t& descendant_count, size_t& descendant_size, CAmount& descendant_fees) const EXCLUSIVE_LOCKS_REQUIRED(cs);
 
 private:
-    void UpdateParent(txiter entry, txiter parent, bool add) EXCLUSIVE_LOCKS_REQUIRED(cs);
-    void UpdateChild(txiter entry, txiter child, bool add) EXCLUSIVE_LOCKS_REQUIRED(cs);
 
     std::vector<indexed_transaction_set::const_iterator> GetSortedScoreWithTopology() const EXCLUSIVE_LOCKS_REQUIRED(cs);
 
@@ -466,6 +404,8 @@ public:
     const bool m_persist_v1_dat;
 
     const Limits m_limits;
+
+    TxGraph txgraph;
 
     /** Create a new CTxMemPool.
      * Sanity checks will be off by default for performance, because otherwise
@@ -549,8 +489,6 @@ public:
      *  in a block.
      */
     void RemoveStaged(setEntries& stage, bool updateDescendants, MemPoolRemovalReason reason) EXCLUSIVE_LOCKS_REQUIRED(cs);
-    void RemoveSingleTxForBlock(txiter it) EXCLUSIVE_LOCKS_REQUIRED(cs);
-
     // Remove the given chunk (guaranteed to be last in the cluster)
     // Leave the resulting cluster otherwise unchanged (ie don't repartition/re-sort).
     void RemoveChunkForEviction(Cluster *cluster, std::list<CTxMemPoolEntry::CTxMemPoolEntryRef>& entries) EXCLUSIVE_LOCKS_REQUIRED(cs);
@@ -797,9 +735,6 @@ public:
     }
 
 private:
-    // During reorg we add transactions back to mempool, must reconnect
-    // clusters with in-mempool descendants.
-    void UpdateClusterForDescendants(txiter updateIt) EXCLUSIVE_LOCKS_REQUIRED(cs);
     /** Update parents of hash to add/remove it as a child transaction. */
     void UpdateParentsOf(bool add, txiter hash) EXCLUSIVE_LOCKS_REQUIRED(cs);
     /** For each transaction being removed, update parents and any children. */
@@ -817,8 +752,6 @@ private:
      */
     void removeUnchecked(txiter entry, MemPoolRemovalReason reason) EXCLUSIVE_LOCKS_REQUIRED(cs);
 
-    // Create a new (empty) cluster in the cluster map, and return a pointer to it.
-    Cluster* AssignCluster() EXCLUSIVE_LOCKS_REQUIRED(cs);
     // Potentially split a cluster into smaller clusters (eg after transactions are removed)
     void RecalculateClusterAndMaybeSort(Cluster *cluster, bool sort) EXCLUSIVE_LOCKS_REQUIRED(cs);
 public:

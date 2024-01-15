@@ -49,110 +49,50 @@ bool TestLockPointValidity(CChain& active_chain, const LockPoints& lp)
     return true;
 }
 
-void CTxMemPool::UpdateClusterForDescendants(txiter updateIt)
-{
-    AssertLockHeld(cs);
-    CTxMemPoolEntry::Children children = updateIt->GetMemPoolChildrenConst();
-    std::vector<Cluster *> clusters_to_merge{updateIt->m_cluster};
-    {
-        WITH_FRESH_EPOCH(m_epoch);
-        visited(updateIt->m_cluster);
-        cachedInnerUsage -= updateIt->m_cluster->GetMemoryUsage();
-        for (auto child : children) {
-            if (!visited(child.get().m_cluster)) {
-                clusters_to_merge.push_back(child.get().m_cluster);
-                cachedInnerUsage -= child.get().m_cluster->GetMemoryUsage();
-            }
-        }
-    }
-    if (clusters_to_merge.size() > 1) {
-        // Merge the other clusters into this one, but keep this cluster as
-        // first so that it's topologically sound.
-        clusters_to_merge[0]->Merge(clusters_to_merge.begin()+1, clusters_to_merge.end(), true);
-        // Need to delete the other clusters.
-        for (auto it=clusters_to_merge.begin()+1; it!= clusters_to_merge.end(); ++it) {
-            m_cluster_map.erase((*it)->m_id);
-        }
-        // Note: we cannot re-sort the cluster here, because (a) we are not yet
-        // finished merging connected clusters together, so some parents may be
-        // missing, and (b) the cluster may be too large. Sorting should happen
-        // only after all clustering is complete, and the clusters have been
-        // trimmed down to our cluster count limit.
-        clusters_to_merge[0]->Rechunk();
-        // Add some assertion that topology is still valid?
-    }
-    cachedInnerUsage += clusters_to_merge[0]->GetMemoryUsage();
-    return;
-}
-
 void CTxMemPool::UpdateTransactionsFromBlock(const std::vector<uint256>& vHashesToUpdate)
 {
     AssertLockHeld(cs);
 
+    std::vector<TxEntry::TxEntryRef> parent_txs;
+
     // Iterate in reverse, so that whenever we are looking at a transaction
     // we are sure that all in-mempool descendants have already been processed.
     for (const uint256 &hash : reverse_iterate(vHashesToUpdate)) {
-        // calculate children from mapNextTx
         txiter it = mapTx.find(hash);
-        if (it == mapTx.end()) {
-            continue;
-        }
-        auto iter = mapNextTx.lower_bound(COutPoint(Txid::FromUint256(hash), 0));
-        // First calculate the children, and update CTxMemPoolEntry::m_children to
-        // include them, and update their CTxMemPoolEntry::m_parents to include this tx.
-        // we cache the in-mempool children to avoid duplicate updates
-        {
-            WITH_FRESH_EPOCH(m_epoch);
-            for (; iter != mapNextTx.end() && iter->first->hash == hash; ++iter) {
-                const uint256 &childHash = iter->second->GetHash();
-                txiter childIter = mapTx.find(childHash);
-                assert(childIter != mapTx.end());
-                // We can skip updating entries we've encountered before or that
-                // are in the block (which are already accounted for).
-                if (!visited(childIter)) {
-                    UpdateChild(it, childIter, true);
-                    UpdateParent(childIter, it, true);
-                }
-            }
+        if (it != mapTx.end()) {
+            parent_txs.push_back(*it);
         }
     }
 
-    // Fix clusters - start by merging, then re-sort after merges are complete.
-    for (const uint256& hash : reverse_iterate(vHashesToUpdate)) {
-        txiter it = mapTx.find(hash);
-        if (it == mapTx.end()) continue;
-        UpdateClusterForDescendants(it);
-    }
-    std::vector<Cluster *> unique_clusters_from_block;
-    {
-        WITH_FRESH_EPOCH(m_epoch);
-        for (const uint256& hash : reverse_iterate(vHashesToUpdate)) {
-            txiter it = mapTx.find(hash);
-            if (it == mapTx.end()) continue;
-            if (!visited(it->m_cluster)) {
-                unique_clusters_from_block.push_back(it->m_cluster);
-            }
-        }
-    }
-    for (Cluster *cluster : unique_clusters_from_block) {
-        // If the cluster is too big, then we need to limit it by
-        // evicting transactions and then re-calculate the cluster (it
-        // may have split).  Otherwise, just sort.
-        if (cluster->m_tx_count > m_limits.cluster_count || cluster->m_tx_size > m_limits.cluster_size_vbytes) {
-            // Remove the last transaction in the cluster.
-            cachedInnerUsage -= cluster->GetMemoryUsage();
-            while (cluster->m_tx_count > m_limits.cluster_count ||
-                    cluster->m_tx_size > m_limits.cluster_size_vbytes) {
-                UpdateForRemoveFromMempool({mapTx.iterator_to(cluster->GetLastTransaction())});
-                removeUnchecked(mapTx.iterator_to(cluster->GetLastTransaction()), MemPoolRemovalReason::SIZELIMIT);
-            }
-            RecalculateClusterAndMaybeSort(cluster, true);
-        } else {
-            // Sort() can change the memory usage of the cluster
-            cachedInnerUsage -= cluster->GetMemoryUsage();
-            cluster->Sort();
-            cachedInnerUsage += cluster->GetMemoryUsage();
-        }
+    std::vector<TxEntry::TxEntryRef> txs_to_remove;
+
+    tx_graph.AddParentTxs(parent_txs, m_limits, 
+            [this](const TxEntry::TxEntryRef& tx) {
+                std::vector<TxEntry::TxEntryRef> children;
+                const uint256& hash = dynamic_cast<CTxMemPoolEntry&>(tx.get()).GetTx().GetHash();
+
+                auto iter = this->mapNextTx.lower_bound(COutPoint(Txid::FromUint256(hash), 0));
+                // First calculate the children, and update CTxMemPoolEntry::m_children to
+                // include them, and update their CTxMemPoolEntry::m_parents to include this tx.
+                // we cache the in-mempool children to avoid duplicate updates
+                {
+                    WITH_FRESH_EPOCH(m_epoch);
+                    for (; iter != this->mapNextTx.end() && iter->first->hash == hash; ++iter) {
+                        const uint256 &childHash = iter->second->GetHash();
+                        txiter childIter = this->mapTx.find(childHash);
+                        assert(childIter != this->mapTx.end());
+                        // We can skip updating entries we've encountered before or that
+                        // are in the block (which are already accounted for).
+                        if (!this->visited(childIter)) {
+                            children.emplace_back(*childIter);
+                        }
+                    }
+                }
+                return children;
+            },
+            txs_to_remove);
+    for (auto& tx : txs_to_remove) {
+        removeUnchecked(mapTx.iterator_to(dynamic_cast<CTxMemPoolEntry&>(tx.get())), MemPoolRemovalReason::SIZELIMIT);
     }
 }
 
@@ -524,32 +464,6 @@ void CTxMemPool::GetFeerateDiagram(std::vector<Cluster *> clusters, std::vector<
     return;
 }
 
-void CTxMemPool::UpdateParentsOf(bool add, txiter it)
-{
-    const CTxMemPoolEntry::Parents& parents = it->GetMemPoolParentsConst();
-    // add or remove this tx as a child of each parent
-    for (const CTxMemPoolEntry& parent : parents) {
-        UpdateChild(mapTx.iterator_to(parent), it, add);
-    }
-}
-
-void CTxMemPool::UpdateChildrenForRemoval(txiter it)
-{
-    const CTxMemPoolEntry::Children& children = it->GetMemPoolChildrenConst();
-    for (const CTxMemPoolEntry& updateIt : children) {
-        UpdateParent(mapTx.iterator_to(updateIt), it, false);
-    }
-}
-
-void CTxMemPool::UpdateForRemoveFromMempool(const setEntries &entriesToRemove)
-{
-    // Sever the parent/child links for transactions we're removing
-    for (txiter removeIt : entriesToRemove) {
-        UpdateParentsOf(false, removeIt);
-        UpdateChildrenForRemoval(removeIt);
-    }
-}
-
 CTxMemPool::CTxMemPool(const Options& opts)
     : m_check_ratio{opts.check_ratio},
       m_max_size_bytes{opts.max_size_bytes},
@@ -562,7 +476,8 @@ CTxMemPool::CTxMemPool(const Options& opts)
       m_require_standard{opts.require_standard},
       m_full_rbf{opts.full_rbf},
       m_persist_v1_dat{opts.persist_v1_dat},
-      m_limits{opts.limits}
+      m_limits{opts.limits},
+      txgraph(this)
 {
 }
 
@@ -616,13 +531,10 @@ void CTxMemPool::addUnchecked(const CTxMemPoolEntry &entry)
     // In that case, our disconnect block logic will call UpdateTransactionsFromBlock
     // to clean up the mess we're leaving here.
 
-    // Add parents to parent set for this transaction.
+    std::vector<TxEntryRef> parents;
     for (const auto& pit : GetIterSet(setParentTransactions)) {
-        UpdateParent(newit, pit, true);
+        parents.emplace_back(*pit);
     }
-    // Update this transaction's in-mempool parents with information about this
-    // tx
-    UpdateParentsOf(true, newit);
 
     nTransactionsUpdated++;
     totalTxSize += entry.GetTxSize();
@@ -631,41 +543,7 @@ void CTxMemPool::addUnchecked(const CTxMemPoolEntry &entry)
     txns_randomized.emplace_back(newit->GetSharedTx());
     newit->idx_randomized = txns_randomized.size() - 1;
 
-    // Figure out which cluster this transaction belongs to.
-    auto iterset = GetIterSet(setParentTransactions);
-    std::vector<Cluster*> clusters_to_merge;
-    {
-        WITH_FRESH_EPOCH(m_epoch);
-        for (auto parentit : iterset) {
-            if (!visited(parentit->m_cluster)) {
-                clusters_to_merge.push_back(parentit->m_cluster);
-            }
-        }
-    }
-
-    // Merge all the clusters together.
-    if (clusters_to_merge.size() == 0) {
-        // No parents, make a new cluster.
-        newit->m_cluster = AssignCluster();
-        newit->m_cluster->AddTransaction(*newit, true);
-        cachedInnerUsage += newit->m_cluster->GetMemoryUsage();
-    } else if (clusters_to_merge.size() == 1) {
-        cachedInnerUsage -= clusters_to_merge[0]->GetMemoryUsage();
-        // Only one parent cluster: add to it.
-        clusters_to_merge[0]->AddTransaction(*newit, true);
-        cachedInnerUsage += clusters_to_merge[0]->GetMemoryUsage();
-    } else {
-        cachedInnerUsage -= clusters_to_merge[0]->GetMemoryUsage();
-        clusters_to_merge[0]->Merge(clusters_to_merge.begin()+1, clusters_to_merge.end(), false);
-        // Add this transaction to the cluster.
-        clusters_to_merge[0]->AddTransaction(*newit, true);
-        // Need to delete the other clusters.
-        for (auto it=clusters_to_merge.begin()+1; it != clusters_to_merge.end(); ++it) {
-            cachedInnerUsage -= (*it)->GetMemoryUsage();
-            m_cluster_map.erase((*it)->m_id);
-        }
-        cachedInnerUsage += clusters_to_merge[0]->GetMemoryUsage();
-    }
+    txgraph.AddTx(*newit, newit->GetTxSize(), newit->GetModifiedFee(), parents);
 
     TRACE3(mempool, added,
         entry.GetTx().GetHash().data(),
@@ -711,13 +589,9 @@ void CTxMemPool::removeUnchecked(txiter it, MemPoolRemovalReason reason)
     } else
         txns_randomized.clear();
 
-    // Remove this transaction from its cluster
-    it->m_cluster->RemoveTransaction(*it);
-
     totalTxSize -= it->GetTxSize();
     m_total_fee -= it->GetFee();
     cachedInnerUsage -= it->DynamicMemoryUsage();
-    cachedInnerUsage -= memusage::DynamicUsage(it->GetMemPoolParentsConst()) + memusage::DynamicUsage(it->GetMemPoolChildrenConst());
     mapTx.erase(it);
     nTransactionsUpdated++;
 }
@@ -725,46 +599,24 @@ void CTxMemPool::removeUnchecked(txiter it, MemPoolRemovalReason reason)
 // Calculates descendants of given entry and adds to setDescendants.
 void CTxMemPool::CalculateDescendantsSlow(txiter entryit, setEntries& setDescendants) const
 {
-    auto descendants = CalculateDescendants({entryit});
-    setDescendants.insert(descendants.begin(), descendants.end());
-}
-
-CTxMemPool::Entries CTxMemPool::CalculateDescendants(Entries txs) const
-{
-    Entries result{}, work_queue{};
-
-    WITH_FRESH_EPOCH(m_epoch);
-    for (auto it: txs) {
-        if (!visited(it)) {
-            work_queue.push_back(it);
-        }
+    auto descendants = GetDescendants({*entryit});
+    for (auto d : descendants) {
+        setDescendants.insert(mapTx.iterator_to(dynamic_cast<CTxMemPoolEntry&>(d)));
     }
-
-    while (!work_queue.empty()) {
-        auto it = work_queue.back();
-        work_queue.pop_back();
-        result.push_back(it);
-        for (auto& child: it->GetMemPoolChildrenConst()) {
-            if (!visited(child)) {
-                work_queue.push_back(mapTx.iterator_to(child));
-            }
-        }
-    }
-    return result;
 }
 
 void CTxMemPool::removeRecursive(const CTransaction &origTx, MemPoolRemovalReason reason)
 {
     // Remove transaction from memory pool
     AssertLockHeld(cs);
-    Entries txToRemove;
+    std::vector<TxEntryRef> txToRemove;
     txiter origit = mapTx.find(origTx.GetHash());
 
     {
         WITH_FRESH_EPOCH(m_epoch);
         if (origit != mapTx.end()) {
             visited(origit);
-            txToRemove.push_back(origit);
+            txToRemove.push_back(*origit);
         } else {
             // When recursively removing but origTx isn't in the mempool
             // be sure to remove any children that are in the pool. This can
@@ -777,116 +629,18 @@ void CTxMemPool::removeRecursive(const CTransaction &origTx, MemPoolRemovalReaso
                 txiter nextit = mapTx.find(it->second->GetHash());
                 assert(nextit != mapTx.end());
                 if (!visited(nextit)) {
-                    txToRemove.push_back(nextit);
+                    txToRemove.push_back(*nextit);
                 }
             }
         }
     }
     setEntries setAllRemoves;
-    auto all_removes = CalculateDescendants(txToRemove);
+    auto all_removes = tx_graph.CalculateDescendants(txToRemove);
 
-    setAllRemoves.insert(all_removes.begin(), all_removes.end());
-
+    for (auto d : all_removes) {
+        setAllRemoves.insert(mapTx.iterator_to(dynamic_cast<CTxMemPoolEntry&>(d)));
+    }
     RemoveStaged(setAllRemoves, false, reason);
-}
-
-Cluster* CTxMemPool::AssignCluster()
-{
-    auto new_cluster = std::make_unique<Cluster>(m_next_cluster_id++, this);
-    Cluster* ret = new_cluster.get(); // XXX No one is going to like this.
-    m_cluster_map[new_cluster->m_id] = std::move(new_cluster);
-    return ret;
-}
-
-// When transactions are removed from a cluster, the cluster might get split
-// into smaller clusters.
-void CTxMemPool::RecalculateClusterAndMaybeSort(Cluster *cluster, bool sort)
-{
-    // TODO: if the common case involves no cluster splitting, can we short
-    // circuit the work here somehow?
-
-    // Wipe cluster assignments.
-    std::vector<CTxMemPoolEntry::CTxMemPoolEntryRef> txs;
-    for (auto& chunk : cluster->m_chunks) {
-        for (auto& txentry: chunk.txs) {
-            txentry.get().m_cluster = nullptr;
-            txs.push_back(txentry);
-        }
-    }
-    cluster->Clear();
-
-    // The first transaction gets to stay in the existing cluster.
-    bool first = true;
-    for (auto& txentry : txs) {
-        if (txentry.get().m_cluster == nullptr) {
-            if (first) {
-                txentry.get().m_cluster = cluster;
-                first = false;
-            } else {
-                txentry.get().m_cluster = AssignCluster();
-            }
-            txentry.get().m_cluster->AddTransaction(txentry.get(), false);
-            // We need to label all transactions connected to this one as
-            // being in the same cluster.
-            {
-                WITH_FRESH_EPOCH(m_epoch);
-                auto children = txentry.get().GetMemPoolChildrenConst();
-                std::vector<CTxMemPoolEntry::CTxMemPoolEntryRef> work_queue;
-                for (auto entry : children) {
-                    work_queue.push_back(entry);
-                    visited(entry.get());
-                }
-
-                while (!work_queue.empty()) {
-                    auto next_entry = work_queue.back();
-                    work_queue.pop_back();
-                    next_entry.get().m_cluster = txentry.get().m_cluster;
-
-                    auto next_children = next_entry.get().GetMemPoolChildrenConst();
-                    for (auto& descendant : next_children) {
-                        if (!visited(descendant.get())) {
-                            work_queue.push_back(descendant);
-                        }
-                    }
-                    auto next_parents = next_entry.get().GetMemPoolParentsConst();
-                    for (auto& ancestor : next_parents) {
-                        if (!visited(ancestor.get())) {
-                            work_queue.push_back(ancestor);
-                        }
-                    }
-                }
-            }
-        } else {
-            // If we already have a cluster assignment, we need to just add
-            // ourselves to the cluster. Doing the addition here preserves
-            // the topology and sort order from the original cluster.
-            txentry.get().m_cluster->AddTransaction(txentry.get(), false);
-        }
-    }
-
-    // After all assignments are made, either re-sort or re-chunk each cluster.
-    std::vector<Cluster *> clusters_to_fix;
-    {
-        WITH_FRESH_EPOCH(m_epoch);
-        for (auto it : txs) {
-            if (!visited(it.get().m_cluster)) {
-                clusters_to_fix.push_back(it.get().m_cluster);
-            }
-        }
-    }
-    for (auto cluster : clusters_to_fix) {
-        if (sort) {
-            cluster->Sort();
-        } else {
-            cluster->Rechunk();
-        }
-        cachedInnerUsage += cluster->GetMemoryUsage();
-    }
-
-    // Sanity check that all transactions are where they should be.
-    for (auto it : txs) {
-        assert(it.get().GetTx().GetHash() == it.get().m_loc.second->get().GetTx().GetHash());
-    }
 }
 
 void CTxMemPool::removeForReorg(CChain& chain, std::function<bool(txiter)> check_final_and_mature)
@@ -895,14 +649,16 @@ void CTxMemPool::removeForReorg(CChain& chain, std::function<bool(txiter)> check
     AssertLockHeld(cs);
     AssertLockHeld(::cs_main);
 
-    Entries txToRemove;
+    std::vector<TxEntryRef> txToRemove;
     for (indexed_transaction_set::const_iterator it = mapTx.begin(); it != mapTx.end(); it++) {
-        if (check_final_and_mature(it)) txToRemove.push_back(it);
+        if (check_final_and_mature(it)) txToRemove.push_back(*it);
     }
-    auto descendants = CalculateDescendants(txToRemove);
+    auto descendants = tx_graph.CalculateDescendants(txToRemove);
 
     setEntries setAllRemoves;
-    setAllRemoves.insert(descendants.begin(), descendants.end());
+    for (auto d : descendants) {
+        setAllRemoves.insert(mapTx.iterator_to(dynamic_cast<CTxMemPoolEntry&>(d)));
+    }
 
     RemoveStaged(setAllRemoves, false, MemPoolRemovalReason::REORG);
     for (indexed_transaction_set::const_iterator it = mapTx.begin(); it != mapTx.end(); it++) {
@@ -935,7 +691,7 @@ void CTxMemPool::removeForBlock(const std::vector<CTransactionRef>& vtx, unsigne
     AssertLockHeld(cs);
     std::vector<RemovedMempoolTransactionInfo> txs_removed_for_block;
     txs_removed_for_block.reserve(vtx.size());
-    std::vector<txiter> entry_iters;
+    std::vector<TxEntry::TxEntryRef> txs_to_remove;
 
     // Look up all iterators, and grab the transaction data that we'll need for
     // the callback later.
@@ -943,52 +699,19 @@ void CTxMemPool::removeForBlock(const std::vector<CTransactionRef>& vtx, unsigne
     {
         txiter it = mapTx.find(tx->GetHash());
         if (it != mapTx.end()) {
+            txs_to_remove.emplace_back(*it);
             txs_removed_for_block.emplace_back(*it);
-            entry_iters.push_back(it);
         }
     }
 
-    static std::vector<Cluster *> cluster_clean_up;
-    cluster_clean_up.clear();
-    // Caclulate the set of clusters affected by the block, so that we can
-    // clean them up later in one pass (rather than
-    // re-partitioning/re-clustering as each transaction is deleted).
-    {
-        WITH_FRESH_EPOCH(m_epoch);
-        for (auto it : entry_iters)
-        {
-            bool delete_now{false};
-            Cluster *cluster = it->m_cluster;
+    // Remove these transactions from the tx graph
+    tx_graph.RemoveBatch(vtx);
 
-            // Single transaction clusters can be deleted immediately without
-            // any additional work.  Clusters with more than one transaction
-            // need to be cleaned up later, even if they are ultimately fully
-            // cleared by the block, since we've left the pointer to the cluster
-            // in the cluster_clean_up structure (so don't want to delete it and
-            // invalidate the pointer).
-            if (!visited(cluster)) {
-                if (cluster->m_tx_count > 1) {
-                    cluster_clean_up.push_back(cluster);
-                } else {
-                    delete_now = true;
-                }
-                cachedInnerUsage -= cluster->GetMemoryUsage();
-            }
-            RemoveSingleTxForBlock(it);
-            if (delete_now) {
-                m_cluster_map.erase(cluster->m_id);
-            }
-        }
+    // Remove the transactions from the mempool
+    for (auto tx : txs_to_remove) 
+        removeUnchecked(mapTx.iterator_to(dynamic_cast<CTxMemPoolEntry&>(*tx)), MemPoolRemovalReason::BLOCK);
     }
-    // After all transactions have been removed, delete the empty clusters and
-    // repartition/re-sort the remaining clusters (which could have split).
-    for (auto c : cluster_clean_up) {
-        if (c->m_tx_count == 0) {
-            m_cluster_map.erase(c->m_id);
-        } else {
-            RecalculateClusterAndMaybeSort(c, true);
-        }
-    }
+
     for (const auto& tx : vtx) {
         removeConflicts(*tx);
         ClearPrioritisation(tx->GetHash());
@@ -1176,58 +899,6 @@ bool CTxMemPool::CompareMiningScore(txiter a, txiter b) const
     }
     Assume(false); // this should not be reachable.
     return true;
-}
-
-void CTxMemPool::TopoSort(std::vector<CTxMemPoolEntry::CTxMemPoolEntryRef>& to_be_sorted) const
-{
-    LOCK(cs);
-    std::vector<CTxMemPoolEntry::CTxMemPoolEntryRef> sorted;
-    sorted.reserve(to_be_sorted.size());
-    std::vector<bool> already_added(to_be_sorted.size(), false);
-
-    WITH_FRESH_EPOCH(m_epoch);
-    for (size_t i=0; i<to_be_sorted.size(); ++i) {
-        auto tx = to_be_sorted[i];
-        // Check to see if this is already in the list.
-        if (m_epoch.is_visited(tx.get().m_epoch_marker)) continue;
-
-        // Gather the children for traversal.
-        std::vector<CTxMemPoolEntry::CTxMemPoolEntryRef> work_queue;
-        for (auto child : tx.get().GetMemPoolChildrenConst()) {
-            if (!m_epoch.is_visited(child.get().m_epoch_marker)) {
-                work_queue.push_back(child);
-
-                while (!work_queue.empty()) {
-                    auto next_entry = work_queue.back();
-                    // Check to see if this entry is already added.
-                    if (m_epoch.is_visited(next_entry.get().m_epoch_marker)) {
-                        work_queue.pop_back();
-                        continue;
-                    }
-                    // Otherwise, check to see if all children have been walked.
-                    bool children_visited_already = true;
-                    for (auto child : next_entry.get().GetMemPoolChildrenConst()) {
-                        if (!m_epoch.is_visited(child.get().m_epoch_marker)) {
-                            children_visited_already = false;
-                            work_queue.push_back(child);
-                        }
-                    }
-                    // If children have all been walked, we can remove this entry and
-                    // add it to the list
-                    if (children_visited_already) {
-                        work_queue.pop_back();
-                        sorted.push_back(next_entry);
-                        visited(next_entry);
-                    }
-                }
-            }
-        }
-        // Now that the descendants are added, we can add this entry.
-        sorted.push_back(tx);
-        visited(tx);
-    }
-    std::reverse(sorted.begin(), sorted.end());
-    to_be_sorted.swap(sorted);
 }
 
 bool CTxMemPool::CompareMiningScoreWithTopology(const uint256& hasha, const uint256& hashb, bool wtxid)
@@ -1504,59 +1175,21 @@ void CTxMemPool::RemoveUnbroadcastTx(const uint256& txid, const bool unchecked) 
     }
 }
 
-void CTxMemPool::RemoveChunkForEviction(Cluster *cluster, std::list<CTxMemPoolEntry::CTxMemPoolEntryRef>& entries)
-{
-    AssertLockHeld(cs);
-
-    cachedInnerUsage -= cluster->GetMemoryUsage();
-
-    setEntries entriesToRemove;
-    for (auto entry_ref : entries) {
-        entriesToRemove.insert(mapTx.iterator_to(entry_ref.get()));
-    }
-    UpdateForRemoveFromMempool(entriesToRemove);
-    for (auto it : entriesToRemove) {
-        removeUnchecked(it, MemPoolRemovalReason::SIZELIMIT);
-    }
-
-    cachedInnerUsage += cluster->GetMemoryUsage();
-    // Note: at this point the clusters will still be sorted, but they may need
-    // to be split.
-}
-
-void CTxMemPool::RemoveSingleTxForBlock(txiter it)
-{
-    UpdateParentsOf(false, it);
-    UpdateChildrenForRemoval(it);
-
-    removeUnchecked(it, MemPoolRemovalReason::BLOCK);
-}
-
 void CTxMemPool::RemoveStaged(setEntries &stage, bool updateDescendants, MemPoolRemovalReason reason) {
     AssertLockHeld(cs);
-    UpdateForRemoveFromMempool(stage);
 
-    std::vector<Cluster *> clusters;
-    {
-        WITH_FRESH_EPOCH(m_epoch);
-        for (txiter it : stage) {
-            if (!visited(it->m_cluster)) {
-                cachedInnerUsage -= it->m_cluster->GetMemoryUsage();
-                clusters.push_back(it->m_cluster);
-            }
-            removeUnchecked(it, reason);
-        }
+    // TODO: avoid going back and forth between maps and vectors
+    std::vector<TxEntry::TxEntryRef> txs_to_remove;
+    for (auto iter : stage) {
+        txs_to_remove.push_back(*iter);
     }
 
-    // Cluster removals need to be cleaned up.
-    for (Cluster *cluster : clusters) {
-        if (cluster->m_tx_count == 0) {
-            m_cluster_map.erase(cluster->m_id);
-        } else {
-            // Potentially split clusters and re-sort.
-            // TODO: we can avoid re-sorting in the case of eviction.
-            RecalculateClusterAndMaybeSort(cluster, true);
-        }
+    // Remove this group of transactions from the tx graph
+    tx_graph.RemoveBatch(txs_to_remove);
+
+    // Now remove them from the mempool
+    for (txiter it : stage) {
+        removeUnchecked(it, reason);
     }
 }
 
@@ -1638,67 +1271,37 @@ void CTxMemPool::TrimToSize(size_t sizelimit, std::vector<COutPoint>* pvNoSpends
     unsigned nTxnRemoved = 0;
     CFeeRate maxFeeRateRemoved(0);
 
-    // Use a heap to determine which chunks to evict, but only make the heap if
-    // we're actually above the size limit.
-    std::vector<Cluster::HeapEntry> heap_chunks;
-    std::set<Cluster*> clusters_with_evictions;
+    if (DynamicMemoryUsage() <= sizelimit) return;
+
+    Trimmer tx_graph_trimmer(&tx_graph);
+
     while (!mapTx.empty() && DynamicMemoryUsage() > sizelimit) {
+        std::vector<TxEntry::TxEntryRef> txs_to_remove;
 
-        // Define comparison operator on our heap entries (using feerate of chunks).
-        auto cmp = [](const Cluster::HeapEntry& a, const Cluster::HeapEntry& b) {
-            // TODO: branch on size of fee to do this as 32-bit calculation
-            // instead? etc
-            return a.first->fee*b.first->size > b.first->fee*a.first->size;
-        };
-
-        if (heap_chunks.empty()) {
-            for (const auto & [id, cluster] : m_cluster_map) {
-                if (!cluster->m_chunks.empty()) {
-                    heap_chunks.emplace_back(cluster->m_chunks.end()-1, cluster.get());
-                }
-            }
-
-            std::make_heap(heap_chunks.begin(), heap_chunks.end(), cmp);
-        }
-
-        // Remove the top element (lowest feerate) and evict.
-        auto worst_chunk = heap_chunks.front();
-
-        assert(worst_chunk.first->size > 0);
-
-        std::pop_heap(heap_chunks.begin(), heap_chunks.end(), cmp);
-        heap_chunks.pop_back();
-        if (worst_chunk.first != worst_chunk.second->m_chunks.begin()) {
-            // If we're not at the beginning of the cluster's chunk list, we can
-            // just decrement the iterator to get the next-lowest feerate chunk.
-            heap_chunks.emplace_back(worst_chunk.first-1, worst_chunk.second);
-            std::push_heap(heap_chunks.begin(), heap_chunks.end(), cmp);
-        }
-
-        clusters_with_evictions.insert(worst_chunk.second);
+        CFeeRate removed = tx_graph_trimmer.RemoveWorstChunk(txs_to_remove);
 
         // We set the new mempool min fee to the feerate of the removed set, plus the
         // "minimum reasonable fee rate" (ie some value under which we consider txn
         // to have 0 fee). This way, we don't allow txn to enter mempool with feerate
         // equal to txn which were removed with no block in between.
-        CFeeRate removed(worst_chunk.first->fee, worst_chunk.first->size);
         removed += m_incremental_relay_feerate;
         trackPackageRemoved(removed);
         maxFeeRateRemoved = std::max(maxFeeRateRemoved, removed);
 
-        nTxnRemoved += worst_chunk.first->txs.size();
+        nTxnRemoved += txs_to_remove.size();
 
         std::vector<CTransaction> txn;
         if (pvNoSpendsRemaining) {
             txn.reserve(worst_chunk.first->txs.size());
-            for (auto tx_entry_ref : worst_chunk.first->txs)
+            for (auto tx_entry_ref : txs_to_remove)
                 txn.push_back(tx_entry_ref.get().GetTx());
         }
 
-        // We'll remove this chunk without otherwise updating the cluster (ie
-        // without trying to re-sort, and without trying to re-partition/split
-        // the cluster if it's no longer connected).
-        RemoveChunkForEviction(worst_chunk.second, worst_chunk.first->txs);
+        // Remove these transactions from the mempool.
+        for (auto tx: txs_to_remove) {
+            removeUnchecked(mapTx.iterator_to(dynamic_cast<CTxMemPoolEntry&>(tx.get()), MemPoolRemovalReason::SIZELIMIT);
+        }
+
         if (pvNoSpendsRemaining) {
             for (const CTransaction& tx : txn) {
                 for (const CTxIn& txin : tx.vin) {
@@ -1706,21 +1309,6 @@ void CTxMemPool::TrimToSize(size_t sizelimit, std::vector<COutPoint>* pvNoSpends
                     pvNoSpendsRemaining->push_back(txin.prevout);
                 }
             }
-        }
-    }
-
-    // Before we can return, we have to clean up the clusters that saw
-    // evictions, because they will have stray chunks and may need to be
-    // re-partitioned.
-    // However, these clusters do not need to be re-sorted, because evicted
-    // chunks at the end can never change the relative ordering of transactions
-    // that come before them.
-    for (Cluster* cluster : clusters_with_evictions) {
-        cachedInnerUsage -= cluster->GetMemoryUsage();
-        if (cluster->m_tx_count == 0) {
-            m_cluster_map.erase(cluster->m_id);
-        } else {
-            RecalculateClusterAndMaybeSort(cluster, false);
         }
     }
 
@@ -1827,251 +1415,4 @@ std::vector<CTxMemPool::txiter> CTxMemPool::GatherClusters(const std::vector<uin
         }
     }
     return clustered_txs;
-}
-
-CTxMemPoolEntry::CTxMemPoolEntryRef Cluster::GetLastTransaction()
-{
-    assert(m_tx_count > 0);
-    for (auto chunkit = m_chunks.rbegin(); chunkit != m_chunks.rend(); ++chunkit) {
-        if (!chunkit->txs.empty()) return chunkit->txs.back();
-    }
-    // Unreachable
-    assert(false);
-}
-
-void Cluster::AddTransaction(const CTxMemPoolEntry& entry, bool sort)
-{
-    m_chunks.emplace_back(entry.GetModifiedFee(), entry.GetTxSize());
-    m_chunks.back().txs.emplace_back(entry);
-    entry.m_cluster = this;
-    ++m_tx_count;
-    m_tx_size += entry.GetTxSize();
-    if (sort) Sort();
-    return;
-}
-
-void Cluster::RemoveTransaction(const CTxMemPoolEntry& entry)
-{
-    m_chunks[entry.m_loc.first].txs.erase(entry.m_loc.second);
-
-    // Chunk (or cluster) may now be empty, but this will get cleaned up
-    // when the cluster is re-sorted (or when the cluster is deleted) Note:
-    // if we cleaned up empty chunks here, then this would break the
-    // locations of other entries in the cluster. Since we would like to be
-    // able to do multiple removals in a row and then clean up the sort, we
-    // can't clean up empty chunks here.
-    --m_tx_count;
-    m_tx_size -= entry.GetTxSize();
-    return;
-}
-
-void Cluster::RechunkFromLinearization(std::vector<CTxMemPoolEntry::CTxMemPoolEntryRef>& txs, bool reassign_locations)
-{
-    m_chunks.clear();
-    m_tx_size = 0;
-
-    for (auto txentry : txs) {
-        m_chunks.emplace_back(txentry.get().GetModifiedFee(), txentry.get().GetTxSize());
-        m_chunks.back().txs.emplace_back(txentry);
-        while (m_chunks.size() >= 2) {
-            auto cur_iter = std::prev(m_chunks.end());
-            auto prev_iter = std::prev(cur_iter);
-            // We only combine chunks if the feerate would go up; if two
-            // chunks have equal feerate, we prefer to keep the smaller
-            // chunksize (which is generally better for both mining and
-            // eviction).
-            if (FeeSizePoint{prev_iter->size, prev_iter->fee} < FeeSizePoint{cur_iter->size, cur_iter->fee}) {
-                prev_iter->fee += cur_iter->fee;
-                prev_iter->size += cur_iter->size;
-                prev_iter->txs.splice(prev_iter->txs.end(), cur_iter->txs, cur_iter->txs.begin(), cur_iter->txs.end());
-                m_chunks.erase(cur_iter);
-            } else {
-                break;
-            }
-        }
-        m_tx_size += txentry.get().GetTxSize();
-    }
-
-    if (reassign_locations) {
-        // Update locations of all transactions
-        for (size_t i=0; i<m_chunks.size(); ++i) {
-            for (auto it = m_chunks[i].txs.begin(); it != m_chunks[i].txs.end(); ++it) {
-                it->get().m_loc = {i, it};
-            }
-        }
-    }
-}
-
-namespace {
-
-template <typename SetType>
-std::vector<CTxMemPoolEntry::CTxMemPoolEntryRef> InvokeSort(size_t tx_count, const std::vector<Cluster::Chunk>& chunks)
-{
-    std::vector<CTxMemPoolEntry::CTxMemPoolEntryRef> txs;
-    cluster_linearize::Cluster<SetType> cluster;
-    const auto time_1{SteadyClock::now()};
-
-    std::vector<CTxMemPoolEntry::CTxMemPoolEntryRef> orig_txs;
-    std::vector<std::pair<const CTxMemPoolEntry*, unsigned>> entry_to_index;
-    cluster_linearize::LinearizationResult result;
-
-    cluster.reserve(tx_count);
-    entry_to_index.reserve(tx_count);
-    cluster.clear();
-    for (auto &chunk : chunks) {
-        for (auto tx : chunk.txs) {
-            orig_txs.emplace_back(tx);
-            cluster.emplace_back(FeeFrac(uint64_t(tx.get().GetModifiedFee()+1000000*int64_t(tx.get().GetTxSize())), tx.get().GetTxSize()), SetType{});
-            entry_to_index.emplace_back(&(tx.get()), cluster.size() - 1);
-        }
-    }
-    std::sort(entry_to_index.begin(), entry_to_index.end());
-    for (size_t i=0; i<orig_txs.size(); ++i) {
-        for (auto& parent : orig_txs[i].get().GetMemPoolParentsConst()) {
-            auto it = std::lower_bound(entry_to_index.begin(), entry_to_index.end(), &(parent.get()),
-                    [&](const auto& a, const auto& b) { return std::less<const CTxMemPoolEntry*>()(a.first, b); });
-            assert(it != entry_to_index.end());
-            assert(it->first == &(parent.get()));
-            cluster[i].second.Set(it->second);
-        }
-    }
-    result = cluster_linearize::LinearizeCluster(cluster, 0, 0);
-    txs.clear();
-    for (auto index : result.linearization) {
-        txs.push_back(orig_txs[index]);
-    }
-
-    const auto time_2{SteadyClock::now()};
-    if (tx_count >= 10) {
-        double time_millis = Ticks<MillisecondsDouble>(time_2-time_1);
-
-        LogPrint(BCLog::BENCH, "InvokeSort linearize cluster: %zu txs, %.4fms, %u iter, %.1fns/iter, %u comps, %.1fns/comp, encoding: %s\n",
-                tx_count,
-                time_millis,
-                result.iterations,
-                time_millis * 1000000.0 / (result.iterations > 0 ? result.iterations : result.iterations+1),
-                result.comparisons,
-                time_millis * 1000000.0 / (result.comparisons > 0 ? result.comparisons : result.comparisons+1),
-                HexStr(cluster_linearize::DumpCluster(cluster)));
-    }
-    return txs;
-}
-
-} // namespace
-
-void Cluster::Sort(bool reassign_locations)
-{
-    std::vector<CTxMemPoolEntry::CTxMemPoolEntryRef> txs;
-    if (m_tx_count <= 32) {
-        txs = InvokeSort<BitSet<32>>(m_tx_count, m_chunks);
-    } else if (m_tx_count <= 64) {
-        txs = InvokeSort<BitSet<64>>(m_tx_count, m_chunks);
-    } else if (m_tx_count <= 128) {
-        txs = InvokeSort<BitSet<128>>(m_tx_count, m_chunks);
-    } else if (m_tx_count <= 192) {
-        txs = InvokeSort<BitSet<192>>(m_tx_count, m_chunks);
-    } else if (m_tx_count <= 256) {
-        txs = InvokeSort<BitSet<256>>(m_tx_count, m_chunks);
-    } else if (m_tx_count <= 320) {
-        txs = InvokeSort<BitSet<320>>(m_tx_count, m_chunks);
-    } else if (m_tx_count <= 384) {
-        txs = InvokeSort<BitSet<384>>(m_tx_count, m_chunks);
-    } else if (m_tx_count <= 1280) {
-        txs = InvokeSort<BitSet<1280>>(m_tx_count, m_chunks);
-    } else {
-        // Only do the topological sort for big clusters
-        for (auto &chunk : m_chunks) {
-            for (auto chunk_tx : chunk.txs) {
-                txs.emplace_back(chunk_tx.get());
-            }
-        }
-        m_mempool->TopoSort(txs);
-    }
-    RechunkFromLinearization(txs, reassign_locations);
-}
-
-void Cluster::Rechunk()
-{
-    std::vector<CTxMemPoolEntry::CTxMemPoolEntryRef> txs;
-
-    // Insert all transactions from the cluster into txs
-    for (auto &chunk : m_chunks) {
-        for (auto chunk_tx : chunk.txs) {
-            txs.push_back(chunk_tx);
-        }
-    }
-
-    RechunkFromLinearization(txs, true);
-}
-
-// Merge the clusters from [first, last) into this cluster.
-void Cluster::Merge(std::vector<Cluster*>::iterator first, std::vector<Cluster*>::iterator last, bool this_cluster_first)
-{
-    // Check to see if we have anything to do.
-    if (first == last) return;
-
-    std::vector<Chunk> new_chunks;
-    std::vector<Cluster::HeapEntry> heap_chunks;
-
-    int64_t total_txs = m_tx_count;
-
-    // Make a heap of all the best chunks.
-    for (auto it = first; it != last; ++it) {
-        if ((*it)->m_chunks.size() > 0) {
-            heap_chunks.emplace_back((*it)->m_chunks.begin(), *it);
-        }
-        total_txs += (*it)->m_tx_count;
-    }
-
-    // During a reorg, we want to merge clusters corresponding to descendants
-    // so that they appear after the cluster with their parent. This allows us
-    // to trim megaclusters down to our cluster size limit in a way that
-    // respects topology but still preferences higher feerate chunks over lower
-    // feerate chunks.
-    if (this_cluster_first) {
-        new_chunks = std::move(m_chunks);
-        m_chunks.clear();
-    } else {
-        heap_chunks.emplace_back(m_chunks.begin(), this);
-    }
-    // Define comparison operator on our heap entries (using feerate of chunks).
-    auto cmp = [](const Cluster::HeapEntry& a, const Cluster::HeapEntry& b) {
-        // TODO: branch on size of fee to do this as 32-bit calculation
-        // instead? etc
-        return FeeSizePoint{a.first->size, a.first->fee} < FeeSizePoint{b.first->size, b.first->fee};
-        return a.first->fee*b.first->size < b.first->fee*a.first->size;
-    };
-
-    std::make_heap(heap_chunks.begin(), heap_chunks.end(), cmp);
-
-    while (!heap_chunks.empty()) {
-        // Take the best chunk from the heap.
-        auto best_chunk = heap_chunks.front();
-        new_chunks.emplace_back(std::move(*(best_chunk.first)));
-        // Remove the best chunk from the heap.
-        std::pop_heap(heap_chunks.begin(), heap_chunks.end(), cmp);
-        heap_chunks.pop_back();
-        // If the cluster has more chunks, add the next best chunk to the heap.
-        ++best_chunk.first;
-        if (best_chunk.first != best_chunk.second->m_chunks.end()) {
-            heap_chunks.emplace_back(best_chunk.first, best_chunk.second);
-            std::push_heap(heap_chunks.begin(), heap_chunks.end(), cmp);
-        }
-    }
-
-    // At this point we've merged the clusters into new_chunks.
-    m_chunks = std::move(new_chunks);
-
-    m_tx_count=0;
-
-    // Update the cluster and location information for each transaction.
-    for (size_t i=0; i<m_chunks.size(); ++i) {
-        for (auto it = m_chunks[i].txs.begin(); it != m_chunks[i].txs.end(); ++it) {
-            it->get().m_cluster = this;
-            it->get().m_loc = {i, it};
-            ++m_tx_count;
-        }
-    }
-
-    assert(m_tx_count == total_txs);
 }

@@ -8,6 +8,7 @@
 #include <consensus/amount.h>
 #include <consensus/validation.h>
 #include <core_memusage.h>
+#include <kernel/txgraph.h>
 #include <policy/policy.h>
 #include <policy/settings.h>
 #include <primitives/transaction.h>
@@ -23,7 +24,6 @@
 #include <stdint.h>
 
 class CBlockIndex;
-class Cluster;
 
 struct LockPoints {
     // Will be set to the blockchain height and median time past
@@ -64,13 +64,10 @@ struct CompareIteratorByHash {
  *
  */
 
-class CTxMemPoolEntry
+class CTxMemPoolEntry : public TxEntry
 {
 public:
     typedef std::reference_wrapper<const CTxMemPoolEntry> CTxMemPoolEntryRef;
-    // two aliases, should the types ever diverge
-    typedef std::set<CTxMemPoolEntryRef, CompareIteratorByHash> Parents;
-    typedef std::set<CTxMemPoolEntryRef, CompareIteratorByHash> Children;
 
 private:
     CTxMemPoolEntry(const CTxMemPoolEntry&) = default;
@@ -79,8 +76,6 @@ private:
     };
 
     const CTransactionRef tx;
-    mutable Parents m_parents;
-    mutable Children m_children;
     const CAmount nFee;             //!< Cached to avoid expensive parent-transaction lookups
     const int32_t nTxWeight;         //!< ... and avoid recomputing tx weight (also used for GetTxSize())
     const size_t nUsageSize;        //!< ... and total memory usage
@@ -89,7 +84,6 @@ private:
     const unsigned int entryHeight; //!< Chain height when entering the mempool
     const bool spendsCoinbase;      //!< keep track of transactions that spend a coinbase
     const int64_t sigOpCost;        //!< Total sigop cost
-    CAmount m_modified_fee;         //!< Used for determining the priority of the transaction for mining in a block
     mutable LockPoints lockPoints;  //!< Track the height and time at which tx was final
 
 public:
@@ -97,7 +91,8 @@ public:
                     int64_t time, unsigned int entry_height, uint64_t entry_sequence,
                     bool spends_coinbase,
                     int64_t sigops_cost, LockPoints lp)
-        : tx{tx},
+        : TxEntry(GetVirtualTransactionSize(GetTransactionWeight(*tx), sigops_cost, ::nBytesPerSigOp), fee),
+          tx{tx},
           nFee{fee},
           nTxWeight{GetTransactionWeight(*tx)},
           nUsageSize{RecursiveDynamicUsage(tx)},
@@ -106,7 +101,6 @@ public:
           entryHeight{entry_height},
           spendsCoinbase{spends_coinbase},
           sigOpCost{sigops_cost},
-          m_modified_fee{nFee},
           lockPoints{lp} {}
 
     CTxMemPoolEntry(ExplicitCopyTag, const CTxMemPoolEntry& entry) : CTxMemPoolEntry(entry) {}
@@ -119,16 +113,11 @@ public:
     const CTransaction& GetTx() const { return *this->tx; }
     CTransactionRef GetSharedTx() const { return this->tx; }
     const CAmount& GetFee() const { return nFee; }
-    int32_t GetTxSize() const
-    {
-        return GetVirtualTransactionSize(nTxWeight, sigOpCost, ::nBytesPerSigOp);
-    }
     int32_t GetTxWeight() const { return nTxWeight; }
     std::chrono::seconds GetTime() const { return std::chrono::seconds{nTime}; }
     unsigned int GetHeight() const { return entryHeight; }
     uint64_t GetSequence() const { return entry_sequence; }
     int64_t GetSigOpCost() const { return sigOpCost; }
-    CAmount GetModifiedFee() const { return m_modified_fee; }
     size_t DynamicMemoryUsage() const { return nUsageSize; }
     const LockPoints& GetLockPoints() const { return lockPoints; }
 
@@ -153,10 +142,6 @@ public:
 
     mutable size_t idx_randomized; //!< Index in mempool's txns_randomized
     mutable Epoch::Marker m_epoch_marker; //!< epoch when last touched, useful for graph algorithms
-
-    // TODO: is there a better way to refer back to the cluster?
-    mutable Cluster* m_cluster{nullptr}; //! The cluster this entry belongs to
-    mutable std::pair<size_t, std::list<CTxMemPoolEntryRef>::iterator> m_loc; //!< Location within a cluster
 };
 
 using CTxMemPoolEntryRef = CTxMemPoolEntry::CTxMemPoolEntryRef;
