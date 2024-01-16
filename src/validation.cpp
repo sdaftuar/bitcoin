@@ -922,11 +922,7 @@ bool MemPoolAccept::ClusterSizeChecks(Workspace& ws)
     const CTxMemPool::setEntries& ancestors = ws.m_ancestors;
     TxValidationState& state = ws.m_state;
 
-    CTxMemPoolEntry::Parents parents;
-    for (auto ancestor : ancestors) {
-        parents.insert(*ancestor);
-    }
-    auto result{m_pool.CheckClusterSizeLimit(entry.GetTxSize(), 1, m_pool.m_limits, parents)};
+    auto result{m_pool.CheckClusterSizeLimit(entry.GetTxSize(), 1, m_pool.m_limits, ancestors)};
     if (!result) {
         return state.Invalid(TxValidationResult::TX_MEMPOOL_POLICY, "too-large-cluster", util::ErrorString(result).original);
     }
@@ -1085,7 +1081,7 @@ bool MemPoolAccept::Finalize(const ATMPArgs& args, Workspace& ws)
         );
         ws.m_replaced_transactions.push_back(it->GetSharedTx());
     }
-    m_pool.RemoveStaged(ws.m_all_conflicting, false, MemPoolRemovalReason::REPLACED);
+    m_pool.RemoveStaged(ws.m_all_conflicting, MemPoolRemovalReason::REPLACED);
     // Store transaction in memory
     m_pool.addUnchecked(*entry);
 

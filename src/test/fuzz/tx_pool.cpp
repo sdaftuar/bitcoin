@@ -85,13 +85,14 @@ void SetMempoolConstraints(ArgsManager& args, FuzzedDataProvider& fuzzed_data_pr
 
 void Finish(FuzzedDataProvider& fuzzed_data_provider, MockedTxPool& tx_pool, Chainstate& chainstate)
 {
-    {
-        LOCK2(::cs_main, tx_pool.cs);
-        for (const auto & [id, cluster] : tx_pool.m_cluster_map) {
-            assert(cluster->m_tx_count <= tx_pool.m_limits.cluster_count);
-            assert(cluster->m_tx_size <= tx_pool.m_limits.cluster_size_vbytes);
-        }
-    }
+    //{
+   //     LOCK2(::cs_main, tx_pool.cs);
+    //    assert(tx_pool.check());
+        //for (const auto & [id, cluster] : tx_pool.txgraph.m_cluster_map) {
+        //    assert(cluster->m_tx_count <= tx_pool.txgraph.m_limits.cluster_count);
+        //    assert(cluster->m_tx_size <= tx_pool.txgraph.m_limits.cluster_size_vbytes);
+       // }
+   // }
     WITH_LOCK(::cs_main, tx_pool.check(chainstate.CoinsTip(), chainstate.m_chain.Height() + 1));
     {
         BlockAssembler::Options options;

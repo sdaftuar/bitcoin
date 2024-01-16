@@ -39,8 +39,8 @@ RBFTransactionState IsRBFOptIn(const CTransaction& tx, const CTxMemPool& pool)
     const auto& entry{*Assert(pool.GetEntry(tx.GetHash()))};
     auto ancestors{pool.CalculateMemPoolAncestors(entry, /*fSearchForParents=*/false)};
 
-    for (CTxMemPool::txiter it : ancestors) {
-        if (SignalsOptInRBF(it->GetTx())) {
+    for (auto& entry : ancestors) {
+        if (SignalsOptInRBF(entry.get().GetTx())) {
             return RBFTransactionState::REPLACEABLE_BIP125;
         }
     }
@@ -122,7 +122,7 @@ std::optional<std::string> PaysForRBF(CAmount original_fees,
 // existing points in a feerate diagram.
 // Return 1 if the interpolated point is greater than fee_compare; 0 if they
 // are equal; -1 otherwise.
-int InterpolateValueAndCompare(int64_t eval_size, const FeeSizePoint& p1, const FeeSizePoint& p2, CAmount fee_compare)
+int InterpolateValueAndCompare(int64_t eval_size, const FeeFrac& p1, const FeeFrac& p2, CAmount fee_compare)
 {
     // Interpolate between two points using the formula:
     // y = y1 + (x - x1) * (y2 - y1) / (x2 - x1)
@@ -142,7 +142,7 @@ int InterpolateValueAndCompare(int64_t eval_size, const FeeSizePoint& p1, const 
 
 // returns true if the new_diagram is strictly better than the old one; false
 // otherwise.
-bool CompareFeeSizeDiagram(std::vector<FeeSizePoint> old_diagram, std::vector<FeeSizePoint> new_diagram)
+bool CompareFeeSizeDiagram(std::vector<FeeFrac> old_diagram, std::vector<FeeFrac> new_diagram)
 {
     size_t old_index=0;
     size_t new_index=0;
@@ -161,9 +161,9 @@ bool CompareFeeSizeDiagram(std::vector<FeeSizePoint> old_diagram, std::vector<Fe
     // negative numbers or overflow in the calculations?), then the tail
     // feerate would need to be transformed as well.
     if (old_diagram.back().size < new_diagram.back().size) {
-        old_diagram.push_back({new_diagram.back().size, old_diagram.back().fee});
+        old_diagram.push_back({old_diagram.back().fee, new_diagram.back().size});
     } else if (old_diagram.back().size > new_diagram.back().size) {
-        new_diagram.push_back({old_diagram.back().size, new_diagram.back().fee});
+        new_diagram.push_back({new_diagram.back().fee, old_diagram.back().size});
     }
 
     while (old_index < old_diagram.size() && new_index < new_diagram.size()) {
@@ -201,7 +201,7 @@ std::optional<std::string> ImprovesFeerateDiagram(CTxMemPool& pool,
                                                 CAmount modified_fee)
 {
     // Require that the replacement strictly improve the mempool's fee vs. size diagram.
-    std::vector<FeeSizePoint> old_diagram, new_diagram;
+    std::vector<FeeFrac> old_diagram, new_diagram;
 
     if (!pool.CalculateFeerateDiagramsForRBF(entry, modified_fee, direct_conflicts, all_conflicts, old_diagram, new_diagram)) {
         return strprintf("rejecting replacement %s, cluster size limit exceeded", entry.GetTx().GetHash().ToString());
