@@ -13,6 +13,7 @@
 #include <primitives/transaction.h>
 #include <util/epochguard.h>
 #include <util/overflow.h>
+#include <kernel/txgraph.h>
 
 #include <chrono>
 #include <functional>
@@ -23,7 +24,6 @@
 #include <stdint.h>
 
 class CBlockIndex;
-class Cluster;
 
 struct LockPoints {
     // Will be set to the blockchain height and median time past
@@ -64,13 +64,10 @@ struct CompareIteratorByHash {
  *
  */
 
-class CTxMemPoolEntry
+class CTxMemPoolEntry : public TxEntry
 {
 public:
     typedef std::reference_wrapper<const CTxMemPoolEntry> CTxMemPoolEntryRef;
-    // two aliases, should the types ever diverge
-    typedef std::set<CTxMemPoolEntryRef, CompareIteratorByHash> Parents;
-    typedef std::set<CTxMemPoolEntryRef, CompareIteratorByHash> Children;
 
 private:
     CTxMemPoolEntry(const CTxMemPoolEntry&) = default;
@@ -79,8 +76,6 @@ private:
     };
 
     const CTransactionRef tx;
-    mutable Parents m_parents;
-    mutable Children m_children;
     const CAmount nFee;             //!< Cached to avoid expensive parent-transaction lookups
     const int32_t nTxWeight;         //!< ... and avoid recomputing tx weight (also used for GetTxSize())
     const size_t nUsageSize;        //!< ... and total memory usage
@@ -89,15 +84,17 @@ private:
     const unsigned int entryHeight; //!< Chain height when entering the mempool
     const bool spendsCoinbase;      //!< keep track of transactions that spend a coinbase
     const int64_t sigOpCost;        //!< Total sigop cost
-    CAmount m_modified_fee;         //!< Used for determining the priority of the transaction for mining in a block
     mutable LockPoints lockPoints;  //!< Track the height and time at which tx was final
+public:
+    mutable Epoch::Marker mempool_epoch_marker; //!< epoch when last touched
 
 public:
     CTxMemPoolEntry(const CTransactionRef& tx, CAmount fee,
                     int64_t time, unsigned int entry_height, uint64_t entry_sequence,
                     bool spends_coinbase,
                     int64_t sigops_cost, LockPoints lp)
-        : tx{tx},
+        : TxEntry(GetVirtualTransactionSize(GetTransactionWeight(*tx), sigops_cost, ::nBytesPerSigOp), fee), 
+          tx{tx},
           nFee{fee},
           nTxWeight{GetTransactionWeight(*tx)},
           nUsageSize{RecursiveDynamicUsage(tx)},
@@ -106,7 +103,6 @@ public:
           entryHeight{entry_height},
           spendsCoinbase{spends_coinbase},
           sigOpCost{sigops_cost},
-          m_modified_fee{nFee},
           lockPoints{lp} {}
 
     CTxMemPoolEntry(ExplicitCopyTag, const CTxMemPoolEntry& entry) : CTxMemPoolEntry(entry) {}
@@ -119,19 +115,32 @@ public:
     const CTransaction& GetTx() const { return *this->tx; }
     CTransactionRef GetSharedTx() const { return this->tx; }
     const CAmount& GetFee() const { return nFee; }
-    int32_t GetTxSize() const
-    {
-        return GetVirtualTransactionSize(nTxWeight, sigOpCost, ::nBytesPerSigOp);
-    }
     int32_t GetTxWeight() const { return nTxWeight; }
     std::chrono::seconds GetTime() const { return std::chrono::seconds{nTime}; }
     unsigned int GetHeight() const { return entryHeight; }
     uint64_t GetSequence() const { return entry_sequence; }
     int64_t GetSigOpCost() const { return sigOpCost; }
-    CAmount GetModifiedFee() const { return m_modified_fee; }
     size_t DynamicMemoryUsage() const { return nUsageSize; }
     const LockPoints& GetLockPoints() const { return lockPoints; }
 
+    // XXX: we should move all topology calculations into the mempool, and
+    // eliminate this accessor.
+    int64_t GetNumChildren() const { return children.size(); }
+    std::vector<CTxMemPoolEntry::CTxMemPoolEntryRef> GetChildren() const {
+        std::vector<CTxMemPoolEntry::CTxMemPoolEntryRef> ret;
+        for (auto & child : children) {
+            ret.push_back(static_cast<const CTxMemPoolEntry&>(child.get()));
+        }
+        return ret;
+    }
+
+    std::vector<CTxMemPoolEntry::CTxMemPoolEntryRef> GetParents() const {
+        std::vector<CTxMemPoolEntry::CTxMemPoolEntryRef> ret;
+        for (auto & parent : parents) {
+            ret.push_back(static_cast<const CTxMemPoolEntry&>(parent.get()));
+        }
+        return ret;
+    }
     // Updates the modified fees with descendants/ancestors.
     void UpdateModifiedFee(CAmount fee_diff)
     {
@@ -146,17 +155,7 @@ public:
 
     bool GetSpendsCoinbase() const { return spendsCoinbase; }
 
-    const Parents& GetMemPoolParentsConst() const { return m_parents; }
-    const Children& GetMemPoolChildrenConst() const { return m_children; }
-    Parents& GetMemPoolParents() const { return m_parents; }
-    Children& GetMemPoolChildren() const { return m_children; }
-
     mutable size_t idx_randomized; //!< Index in mempool's txns_randomized
-    mutable Epoch::Marker m_epoch_marker; //!< epoch when last touched, useful for graph algorithms
-
-    // TODO: is there a better way to refer back to the cluster?
-    mutable Cluster* m_cluster{nullptr}; //! The cluster this entry belongs to
-    mutable std::pair<size_t, std::list<CTxMemPoolEntryRef>::iterator> m_loc; //!< Location within a cluster
 };
 
 using CTxMemPoolEntryRef = CTxMemPoolEntry::CTxMemPoolEntryRef;

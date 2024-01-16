@@ -200,6 +200,7 @@ BITCOIN_CORE_H = \
   kernel/messagestartchars.h \
   kernel/notifications_interface.h \
   kernel/validation_cache_sizes.h \
+  kernel/txgraph.h \
   key.h \
   key_io.h \
   logging.h \
@@ -414,6 +415,7 @@ libbitcoin_node_a_SOURCES = \
   kernel/disconnected_transactions.cpp \
   kernel/mempool_persist.cpp \
   kernel/mempool_removal_reason.cpp \
+  kernel/txgraph.cpp \
   mapport.cpp \
   net.cpp \
   net_processing.cpp \

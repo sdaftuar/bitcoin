@@ -110,6 +110,6 @@ std::optional<std::string> ImprovesFeerateDiagram(CTxMemPool& pool,
 
 // returns true if the new_diagram is strictly better than the old one; false
 // otherwise.
-bool CompareFeeSizeDiagram(std::vector<FeeSizePoint> old_diagram, std::vector<FeeSizePoint> new_diagram);
+bool CompareFeeSizeDiagram(std::vector<FeeFrac> old_diagram, std::vector<FeeFrac> new_diagram);
 
 #endif // BITCOIN_POLICY_RBF_H

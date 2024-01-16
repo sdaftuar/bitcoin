@@ -136,12 +136,12 @@ void CheckMempoolV3Invariants(const CTxMemPool& tx_pool)
             if (anc_count > 1) {
                 Assert(entry.GetTxSize() <= V3_CHILD_MAX_VSIZE);
                 // All v3 transactions must only have v3 unconfirmed parents.
-                const auto& parents = entry.GetMemPoolParentsConst();
+                const auto& parents = entry.GetParents();
                 Assert(parents.begin()->get().GetSharedTx()->nVersion == 3);
             }
         } else if (anc_count > 1) {
             // All non-v3 transactions must only have non-v3 unconfirmed parents.
-            for (const auto& parent : entry.GetMemPoolParentsConst()) {
+            for (const auto& parent : entry.GetParents()) {
                 Assert(parent.get().GetSharedTx()->nVersion != 3);
             }
         }
