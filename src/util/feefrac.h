@@ -7,6 +7,30 @@
 
 #include <assert.h>
 #include <stdint.h>
+#include <algorithm>
+#include <compare>
+#include <vector>
+
+namespace {
+
+inline std::pair<int64_t, uint64_t> Mul128(int64_t a, int64_t b)
+{
+#ifdef __SIZEOF_INT128__
+    __int128 ret = (__int128)a * b;
+    return {ret >> 64, ret};
+#else
+    uint64_t ll = (uint64_t)(uint32_t)a * (uint32_t)b;
+    int64_t lh = (uint32_t)a * (b >> 32);
+    int64_t hl = (a >> 32) * (uint32_t)b;
+    int64_t hh = (a >> 32) * (b >> 32);
+    uint64_t mid34 = (ll >> 32) + (uint32_t)lh + (uint32_t)hl;
+    int64_t hi = hh + (lh >> 32) + (hl >> 32) + (mid34 >> 32);
+    uint64_t lo = (mid34 << 32) + (uint32_t)ll;
+    return {hi, lo};
+#endif
+}
+
+} // namespace
 
 /** Data structure storing a fee and size, ordered by increasing fee/size.
  *
@@ -26,27 +50,24 @@
  * - fee=0 size=0 (undefined feerate)
  *
  * A FeeFrac is considered "better" if it sorts after another, by this ordering. All standard
- * comparison operators (==, !=, >, <, >=, <=) respect this ordering.
+ * comparison operators (==, !=, >, <, >=, <=, <=>) respect this ordering.
  *
  * The >> and << operators only compare feerate and treat equal feerate but different size as
  * equivalent. The empty FeeFrac is neither lower or higher in feerate than any other.
- *
- * These comparisons are only guaranteed to be correct when the product of the highest fee and
- * highest size does not exceed 2^64-1. If the fee is a number in sats, and size in bytes, then
- * this allows up to 46116.86 BTC at size 4M, and 1844674.4 BTC at size 100k).
+ * The FeeRateCompare function returns the three-way comparison for this order.
  */
 struct FeeFrac
 {
     /** Fee. */
-    uint64_t fee;
+    int64_t fee;
     /** Size. */
-    uint32_t size;
+    int32_t size;
 
     /** Construct an IsEmpty() FeeFrac. */
     inline FeeFrac() noexcept : fee{0}, size{0} {}
 
     /** Construct a FeeFrac with specified fee and size. */
-    inline FeeFrac(uint64_t s, uint32_t b) noexcept : fee{s}, size{b}
+    inline FeeFrac(int64_t s, int32_t b) noexcept : fee{s}, size{b}
     {
         // If size==0, fee must be 0 as well.
         assert(size != 0 || fee == 0);
@@ -93,58 +114,36 @@ struct FeeFrac
         return a.fee == b.fee && a.size == b.size;
     }
 
-    /** Check if two FeeFrac objects are different (not both same and same size). */
-    friend inline bool operator!=(const FeeFrac& a, const FeeFrac& b) noexcept
+    friend inline std::strong_ordering FeeRateCompare(const FeeFrac& a, const FeeFrac& b) noexcept
     {
-        return a.fee != b.fee || a.size != b.size;
+        if (a.fee > INT32_MAX || a.fee < INT32_MIN || b.fee > INT32_MAX || b.fee < INT32_MIN) {
+            auto a_cross = Mul128(a.fee, b.size);
+            auto b_cross = Mul128(b.fee, a.size);
+            return a_cross <=> b_cross;
+        } else {
+            auto a_cross = a.fee * b.size;
+            auto b_cross = b.fee * a.size;
+            return a_cross <=> b_cross;
+        }
     }
 
-    /** Check if a FeeFrac object is worse than another. */
-    friend inline bool operator<(const FeeFrac& a, const FeeFrac& b) noexcept
+    friend inline std::strong_ordering operator<=>(const FeeFrac& a, const FeeFrac& b) noexcept
     {
-        uint64_t a_val = a.fee * b.size;
-        uint64_t b_val = b.fee * a.size;
-        if (a_val != b_val) return a_val < b_val;
-        return a.size > b.size;
-    }
-
-    /** Check if a FeeFrac object is worse or equal than another. */
-    friend inline bool operator<=(const FeeFrac& a, const FeeFrac& b) noexcept
-    {
-        uint64_t a_val = a.fee * b.size;
-        uint64_t b_val = b.fee * a.size;
-        if (a_val != b_val) return a_val < b_val;
-        return a.size >= b.size;
-    }
-
-    /** Check if a FeeFrac object is better than another. */
-    friend inline bool operator>(const FeeFrac& a, const FeeFrac& b) noexcept
-    {
-        uint64_t a_val = a.fee * b.size;
-        uint64_t b_val = b.fee * a.size;
-        if (a_val != b_val) return a_val > b_val;
-        return a.size < b.size;
-    }
-
-    /** Check if a FeeFrac object is better or equal than another. */
-    friend inline bool operator>=(const FeeFrac& a, const FeeFrac& b) noexcept
-    {
-        uint64_t a_val = a.fee * b.size;
-        uint64_t b_val = b.fee * a.size;
-        if (a_val != b_val) return a_val > b_val;
-        return a.size <= b.size;
+        auto feerate_cmp = FeeRateCompare(a, b);
+        if (feerate_cmp != 0) return feerate_cmp; // NOLINT(modernize-use-nullptr)
+        return b.size <=> a.size;
     }
 
     /** Check if a FeeFrac object has strictly lower feerate than another. */
     friend inline bool operator<<(const FeeFrac& a, const FeeFrac& b) noexcept
     {
-        return a.fee * b.size < b.fee * a.size;
+        return FeeRateCompare(a, b) < 0; // NOLINT(modernize-use-nullptr)
     }
 
     /** Check if a FeeFrac object has strictly higher feerate than another. */
     friend inline bool operator>>(const FeeFrac& a, const FeeFrac& b) noexcept
     {
-        return a.fee * b.size > b.fee * a.size;
+        return FeeRateCompare(a, b) > 0; // NOLINT(modernize-use-nullptr)
     }
 
     friend inline void swap(FeeFrac& a, FeeFrac& b) noexcept
@@ -153,5 +152,7 @@ struct FeeFrac
         std::swap(a.size, b.size);
     }
 };
+
+void BuildDiagramFromUnsortedChunks(std::vector<FeeFrac>& chunks, std::vector<FeeFrac>& diagram);
 
 #endif // BITCOIN_UTIL_FEEFRAC_H
