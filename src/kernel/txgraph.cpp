@@ -5,7 +5,7 @@
 #include <reverse_iterator.h>
 #include <util/strencodings.h>
 
-void Cluster::AddTransaction(const TxEntry& entry, bool sort)
+void TxGraphCluster::AddTransaction(const TxEntry& entry, bool sort)
 {
     m_chunks.emplace_back(entry.GetModifiedFee(), entry.GetTxSize());
     m_chunks.back().txs.emplace_back(entry);
@@ -16,7 +16,7 @@ void Cluster::AddTransaction(const TxEntry& entry, bool sort)
     return;
 }
 
-void Cluster::RemoveTransaction(const TxEntry& entry)
+void TxGraphCluster::RemoveTransaction(const TxEntry& entry)
 {
     m_chunks[entry.m_loc.first].txs.erase(entry.m_loc.second);
 
@@ -31,17 +31,7 @@ void Cluster::RemoveTransaction(const TxEntry& entry)
     return;
 }
 
-void Cluster::RemoveLastChunk()
-{
-    assert(m_tx_count > 0);
-    assert(m_chunks.back().size > 0);
-    m_tx_size -= m_chunks.back().size;
-    m_tx_count -= m_chunks.back().txs.size();
-    m_chunks.pop_back();
-    return;
-}
-
-void Cluster::RechunkFromLinearization(std::vector<TxEntry::TxEntryRef>& txs, bool reassign_locations)
+void TxGraphCluster::RechunkFromLinearization(std::vector<TxEntry::TxEntryRef>& txs, bool reassign_locations)
 {
     m_chunks.clear();
     m_tx_size = 0;
@@ -78,7 +68,7 @@ void Cluster::RechunkFromLinearization(std::vector<TxEntry::TxEntryRef>& txs, bo
     }
 }
 
-TxEntry::TxEntryRef Cluster::GetLastTransaction()
+TxEntry::TxEntryRef TxGraphCluster::GetLastTransaction()
 {
     assert(m_tx_count > 0);
     for (auto chunkit = m_chunks.rbegin(); chunkit != m_chunks.rend(); ++chunkit) {
@@ -88,10 +78,40 @@ TxEntry::TxEntryRef Cluster::GetLastTransaction()
     assert(false);
 }
 
+bool TxGraphCluster::Check()
+{
+    // First check that the metadata is correct.
+    int64_t tx_count = 0;
+    int64_t tx_size = 0;
+    for (auto &chunk : m_chunks) { 
+        for (auto &tx : chunk.txs) {
+            ++tx_count;
+            tx_size += tx.get().GetTxSize();
+        }
+    }
+    if (tx_count != m_tx_count) return false;
+    if (tx_size != m_tx_size) return false;
+
+    // Check topology.
+    std::set<TxEntry::TxEntryRef, TxEntry::CompareById> seen_elements;
+    for (auto &chunk : m_chunks) {
+        for (auto tx : chunk.txs) {
+            for (auto parent : tx.get().parents) {
+                if (seen_elements.count(parent) == 0) return false;
+            }
+            seen_elements.insert(tx);
+            if (tx.get().m_cluster != this) return false;
+            if (&m_chunks[tx.get().m_loc.first] != &chunk) return false;
+            if (tx.get().m_loc.second->get().unique_id != tx.get().unique_id) return false;
+        }
+    }
+    return true;
+}
+
 namespace {
 
 template <typename SetType>
-std::vector<TxEntry::TxEntryRef> InvokeSort(size_t tx_count, const std::vector<Cluster::Chunk>& chunks)
+std::vector<TxEntry::TxEntryRef> InvokeSort(size_t tx_count, const std::vector<TxGraphCluster::Chunk>& chunks)
 {
     std::vector<TxEntry::TxEntryRef> txs;
     cluster_linearize::Cluster<SetType> cluster;
@@ -145,7 +165,7 @@ std::vector<TxEntry::TxEntryRef> InvokeSort(size_t tx_count, const std::vector<C
 
 } // namespace
 
-void Cluster::Sort(bool reassign_locations)
+void TxGraphCluster::Sort(bool reassign_locations)
 {
     std::vector<TxEntry::TxEntryRef> txs;
     if (m_tx_count <= 32) {
@@ -176,7 +196,7 @@ void Cluster::Sort(bool reassign_locations)
     RechunkFromLinearization(txs, reassign_locations);
 }
 
-void Cluster::Rechunk()
+void TxGraphCluster::Rechunk()
 {
     std::vector<TxEntry::TxEntryRef> txs;
 
@@ -191,13 +211,13 @@ void Cluster::Rechunk()
 }
 
 // Merge the clusters from [first, last) into this cluster.
-void Cluster::Merge(std::vector<Cluster*>::iterator first, std::vector<Cluster*>::iterator last, bool this_cluster_first)
+void TxGraphCluster::Merge(std::vector<TxGraphCluster*>::iterator first, std::vector<TxGraphCluster*>::iterator last, bool this_cluster_first)
 {
     // Check to see if we have anything to do.
     if (first == last) return;
 
     std::vector<Chunk> new_chunks;
-    std::vector<Cluster::HeapEntry> heap_chunks;
+    std::vector<TxGraphCluster::HeapEntry> heap_chunks;
 
     int64_t total_txs = m_tx_count;
 
@@ -221,7 +241,7 @@ void Cluster::Merge(std::vector<Cluster*>::iterator first, std::vector<Cluster*>
         heap_chunks.emplace_back(m_chunks.begin(), this);
     }
     // Define comparison operator on our heap entries (using feerate of chunks).
-    auto cmp = [](const Cluster::HeapEntry& a, const Cluster::HeapEntry& b) {
+    auto cmp = [](const TxGraphCluster::HeapEntry& a, const TxGraphCluster::HeapEntry& b) {
         // TODO: branch on size of fee to do this as 32-bit calculation
         // instead? etc
         return FeeFrac(a.first->fee, a.first->size) < FeeFrac(b.first->fee, b.first->size);
@@ -265,8 +285,10 @@ void Cluster::Merge(std::vector<Cluster*>::iterator first, std::vector<Cluster*>
 void TxGraph::AddTx(TxEntry *new_tx, int32_t vsize, CAmount modified_fee, const std::vector<TxEntry::TxEntryRef>& parents)
 {
     LOCK(cs);
+    new_tx->m_virtual_size = vsize;
+    new_tx->m_modified_fee = modified_fee;
     // Figure out which cluster this transaction belongs to.
-    std::vector<Cluster*> clusters_to_merge;
+    std::vector<TxGraphCluster*> clusters_to_merge;
     {
         WITH_FRESH_EPOCH(m_epoch);
         for (auto p : parents) {
@@ -281,7 +303,7 @@ void TxGraph::AddTx(TxEntry *new_tx, int32_t vsize, CAmount modified_fee, const 
     // Merge all the clusters together.
     if (clusters_to_merge.size() == 0) {
         // No parents, make a new cluster.
-        new_tx->m_cluster = AssignCluster();
+        new_tx->m_cluster = AssignTxGraphCluster();
         new_tx->m_cluster->AddTransaction(*new_tx, true);
         cachedInnerUsage += new_tx->m_cluster->GetMemoryUsage();
     } else if (clusters_to_merge.size() == 1) {
@@ -341,17 +363,40 @@ std::vector<TxEntry::TxEntryRef> TxGraph::GetDescendants(const TxEntry& tx)
     return result;
 }
 
-Cluster* TxGraph::AssignCluster()
+std::vector<TxEntry::TxEntryRef> TxGraph::GetAncestors(const TxEntry& tx)
 {
-    auto new_cluster = std::make_unique<Cluster>(m_next_cluster_id++, this);
-    Cluster* ret = new_cluster.get(); // XXX No one is going to like this.
+    std::vector<TxEntry::TxEntryRef> result{}, work_queue{};
+
+    LOCK(cs);
+
+    WITH_FRESH_EPOCH(m_epoch);
+    visited(tx);
+    work_queue.push_back(tx);
+
+    while (!work_queue.empty()) {
+        auto it = work_queue.back();
+        work_queue.pop_back();
+        result.push_back(it);
+        for (auto& parent: it.get().parents) {
+            if (!visited(parent.get())) {
+                work_queue.push_back(parent);
+            }
+        }
+    }
+    return result;
+}
+
+TxGraphCluster* TxGraph::AssignTxGraphCluster()
+{
+    auto new_cluster = std::make_unique<TxGraphCluster>(m_next_cluster_id++, this);
+    TxGraphCluster* ret = new_cluster.get(); // XXX No one is going to like this.
     m_cluster_map[new_cluster->m_id] = std::move(new_cluster);
     return ret;
 }
 
 // When transactions are removed from a cluster, the cluster might get split
 // into smaller clusters.
-void TxGraph::RecalculateClusterAndMaybeSort(Cluster *cluster, bool sort)
+void TxGraph::RecalculateTxGraphClusterAndMaybeSort(TxGraphCluster *cluster, bool sort)
 {
     // TODO: if the common case involves no cluster splitting, can we short
     // circuit the work here somehow?
@@ -374,7 +419,7 @@ void TxGraph::RecalculateClusterAndMaybeSort(Cluster *cluster, bool sort)
                 txentry.get().m_cluster = cluster;
                 first = false;
             } else {
-                txentry.get().m_cluster = AssignCluster();
+                txentry.get().m_cluster = AssignTxGraphCluster();
             }
             txentry.get().m_cluster->AddTransaction(txentry.get(), false);
             // We need to label all transactions connected to this one as
@@ -413,7 +458,7 @@ void TxGraph::RecalculateClusterAndMaybeSort(Cluster *cluster, bool sort)
     }
 
     // After all assignments are made, either re-sort or re-chunk each cluster.
-    std::vector<Cluster *> clusters_to_fix;
+    std::vector<TxGraphCluster *> clusters_to_fix;
     {
         WITH_FRESH_EPOCH(m_epoch);
         for (auto it : txs) {
@@ -440,16 +485,16 @@ void TxGraph::RecalculateClusterAndMaybeSort(Cluster *cluster, bool sort)
 void TxGraph::RemoveBatch(std::vector<TxEntry::TxEntryRef> &txs_removed)
 {
     LOCK(cs);
-    static std::vector<Cluster *> cluster_clean_up;
+    static std::vector<TxGraphCluster *> cluster_clean_up;
     cluster_clean_up.clear();
     {
         WITH_FRESH_EPOCH(m_epoch);
         for (auto t : txs_removed) {
             bool delete_now{false};
-            Cluster *cluster = t.get().m_cluster;
+            TxGraphCluster *cluster = t.get().m_cluster;
 
             // Single transaction clusters can be deleted immediately without
-            // any additional work.  Clusters with more than one transaction
+            // any additional work.  TxGraphClusters with more than one transaction
             // need to be cleaned up later, even if they are ultimately fully
             // cleared, since we've left the pointer to the cluster
             // in the cluster_clean_up structure (so don't want to delete it and
@@ -467,27 +512,35 @@ void TxGraph::RemoveBatch(std::vector<TxEntry::TxEntryRef> &txs_removed)
                 m_cluster_map.erase(cluster->m_id);
             }
         }
-        // After all transactions have been removed, delete the empty clusters and
-        // repartition/re-sort the remaining clusters (which could have split).
-        for (auto c : cluster_clean_up) {
-            if (c->m_tx_count == 0) {
-                m_cluster_map.erase(c->m_id);
-            } else {
-                RecalculateClusterAndMaybeSort(c, true);
-            }
+    }
+    // After all transactions have been removed, delete the empty clusters and
+    // repartition/re-sort the remaining clusters (which could have split).
+    for (auto c : cluster_clean_up) {
+        if (c->m_tx_count == 0) {
+            m_cluster_map.erase(c->m_id);
+        } else {
+            RecalculateTxGraphClusterAndMaybeSort(c, true);
         }
     }
 }
 
-void TxGraph::RemoveChunkForEviction(Cluster *cluster, Cluster::ChunkIter iter)
+// Remove the last chunk from the cluster.
+void TxGraph::RemoveChunkForEviction(TxGraphCluster *cluster)
 {
     AssertLockHeld(cs);
 
     cachedInnerUsage -= cluster->GetMemoryUsage();
 
-    for (auto& tx : iter->txs) {
+    std::vector<TxEntry::TxEntryRef> txs;
+    for (auto& tx : cluster->m_chunks.back().txs) {
+        txs.emplace_back(tx);
+    }
+
+    for (auto& tx : txs) {
         RemoveTx(tx);
     }
+
+    cluster->m_chunks.pop_back();
 
     cachedInnerUsage += cluster->GetMemoryUsage();
     // Note: at this point the clusters will still be sorted, but they may need
@@ -585,9 +638,9 @@ void TxGraph::AddParentTxs(std::vector<TxEntry::TxEntryRef> parent_txs, GraphLim
 
     // Start by merging, then re-sort after merges are complete.
     for (const auto& tx : reverse_iterate(parent_txs)) {
-        UpdateClusterForDescendants(tx);
+        UpdateTxGraphClusterForDescendants(tx);
     }
-    std::vector<Cluster *> unique_clusters_from_block;
+    std::vector<TxGraphCluster *> unique_clusters_from_block;
     {
         WITH_FRESH_EPOCH(m_epoch);
         for (const auto& tx : reverse_iterate(parent_txs)) {
@@ -596,7 +649,7 @@ void TxGraph::AddParentTxs(std::vector<TxEntry::TxEntryRef> parent_txs, GraphLim
             }
         }
     }
-    for (Cluster *cluster : unique_clusters_from_block) {
+    for (TxGraphCluster *cluster : unique_clusters_from_block) {
         // If the cluster is too big, then we need to limit it by
         // evicting transactions and then re-calculate the cluster (it
         // may have split).  Otherwise, just sort.
@@ -609,7 +662,7 @@ void TxGraph::AddParentTxs(std::vector<TxEntry::TxEntryRef> parent_txs, GraphLim
                 RemoveTx(last_tx);
                 txs_removed.emplace_back(last_tx);
             }
-            RecalculateClusterAndMaybeSort(cluster, true);
+            RecalculateTxGraphClusterAndMaybeSort(cluster, true);
         } else {
             // Sort() can change the memory usage of the cluster
             cachedInnerUsage -= cluster->GetMemoryUsage();
@@ -619,11 +672,11 @@ void TxGraph::AddParentTxs(std::vector<TxEntry::TxEntryRef> parent_txs, GraphLim
     }
 }
 
-void TxGraph::UpdateClusterForDescendants(const TxEntry& tx)
+void TxGraph::UpdateTxGraphClusterForDescendants(const TxEntry& tx)
 {
     AssertLockHeld(cs);
     TxEntry::TxEntryChildren children = tx.children;
-    std::vector<Cluster *> clusters_to_merge{tx.m_cluster};
+    std::vector<TxGraphCluster *> clusters_to_merge{tx.m_cluster};
     {
         WITH_FRESH_EPOCH(m_epoch);
         visited(tx.m_cluster);
@@ -655,9 +708,24 @@ void TxGraph::UpdateClusterForDescendants(const TxEntry& tx)
     return;
 }
 
+bool TxGraph::Check()
+{
+    // TODO: add checks on cachedInnerUsage
+
+    LOCK(cs);
+    // Run sanity checks on each cluster.
+    for (const auto & [id, cluster] : m_cluster_map) {
+        if (!cluster->Check()) {
+            return false;
+        }
+    }
+    return true;
+}
+
 Trimmer::Trimmer(TxGraph* tx_graph)
     : m_tx_graph(tx_graph)
 {
+    // TODO: we don't need the chunk in the heap, just the cluster.
     for (const auto & [id, cluster] : tx_graph->m_cluster_map) {
         if (!cluster->m_chunks.empty()) {
             heap_chunks.emplace_back(cluster->m_chunks.end()-1, cluster.get());
@@ -680,10 +748,8 @@ CFeeRate Trimmer::RemoveWorstChunk(std::vector<TxEntry::TxEntryRef>& txs_to_remo
         txs_to_remove.emplace_back(tx);
     }
 
-    m_tx_graph->cachedInnerUsage -= worst_chunk.second->GetMemoryUsage();
     // Remove the worst chunk from the cluster.
-    worst_chunk.second->RemoveLastChunk();
-    m_tx_graph->cachedInnerUsage += worst_chunk.second->GetMemoryUsage();
+    m_tx_graph->RemoveChunkForEviction(worst_chunk.second);
 
     // Check to see if there are more eviction candidates in this cluster.
     if (worst_chunk.second->m_tx_count > 0) {
@@ -705,12 +771,12 @@ Trimmer::~Trimmer()
     // However, these clusters do not need to be re-sorted, because evicted
     // chunks at the end can never change the relative ordering of transactions
     // that come before them.
-    for (Cluster* cluster : clusters_with_evictions) {
+    for (TxGraphCluster* cluster : clusters_with_evictions) {
         m_tx_graph->cachedInnerUsage -= cluster->GetMemoryUsage();
         if (cluster->m_tx_count == 0) {
             m_tx_graph->m_cluster_map.erase(cluster->m_id);
         } else {
-            m_tx_graph->RecalculateClusterAndMaybeSort(cluster, false);
+            m_tx_graph->RecalculateTxGraphClusterAndMaybeSort(cluster, false);
         }
     }
 }
