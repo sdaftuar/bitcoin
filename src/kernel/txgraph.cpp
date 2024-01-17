@@ -780,3 +780,50 @@ Trimmer::~Trimmer()
         }
     }
 }
+
+TxSelector::TxSelector(TxGraph* tx_graph)
+    : m_tx_graph(tx_graph)
+{
+    LOCK(m_tx_graph->cs);
+    for (const auto & [id, cluster] : tx_graph->m_cluster_map) {
+        if (!cluster->m_chunks.empty()) {
+            heap_chunks.emplace_back(cluster->m_chunks.begin(), cluster.get());
+        }
+    }
+
+    std::make_heap(heap_chunks.begin(), heap_chunks.end(), ChunkCompare);
+}
+
+TxSelector::~TxSelector() {}
+    
+void TxSelector::SelectNextChunk(std::vector<TxEntry::TxEntryRef>& txs)
+{
+    LOCK(m_tx_graph->cs);
+    // Remove the top element (highest feerate) that matches the maximum vsize.
+
+    if (heap_chunks.size() > 0) {
+        m_last_entry_selected = heap_chunks.front();
+        std::pop_heap(heap_chunks.begin(), heap_chunks.end(), TxSelector::ChunkCompare);
+        heap_chunks.pop_back();
+
+        // Copy the txs being selected.
+        for (auto& tx : m_last_entry_selected.first->txs) {
+            txs.emplace_back(tx);
+        }
+    }
+
+    return;
+}
+
+void TxSelector::Success()
+{
+    if (m_last_entry_selected.second != nullptr) {
+        ++m_last_entry_selected.first;
+        if (m_last_entry_selected.first != m_last_entry_selected.second->m_chunks.end()) {
+            // Add the next chunk from this cluster back to the heap.
+            heap_chunks.emplace_back(m_last_entry_selected);
+            std::push_heap(heap_chunks.begin(), heap_chunks.end(), TxSelector::ChunkCompare);
+        }
+        m_last_entry_selected.second = nullptr;
+    }
+}

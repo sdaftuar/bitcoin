@@ -126,6 +126,26 @@ private:
     TxGraph *m_tx_graph{nullptr};
 };
 
+class TxSelector {
+public:
+    TxSelector(TxGraph *tx_graph);
+    ~TxSelector();
+    // Return the next chunk in the mempool that is at most max_vsize in size.
+    void SelectNextChunk(std::vector<TxEntry::TxEntryRef>& txs);
+    // If the transactions were successfully used, then notify the TxSelector
+    // to keep selecting transactions from the same cluster.
+    void Success();
+
+private:
+    static bool ChunkCompare(const TxGraphCluster::HeapEntry& a, const TxGraphCluster::HeapEntry& b) {
+        return FeeFrac(a.first->fee, a.first->size) < FeeFrac(b.first->fee, b.first->size);
+    }
+    std::vector<TxGraphCluster::HeapEntry> heap_chunks;
+
+    TxGraph *m_tx_graph{nullptr};
+    TxGraphCluster::HeapEntry m_last_entry_selected{TxGraphCluster::ChunkIter(), nullptr};
+};
+
 struct GraphLimits {
     int64_t cluster_count{100};
     int64_t cluster_size_vbytes{101000};
@@ -191,6 +211,7 @@ private:
 
     friend class Trimmer;
     friend class TxGraphCluster;
+    friend class TxSelector;
 };
 
 #endif // TXGRAPH_H

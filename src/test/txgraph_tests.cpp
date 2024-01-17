@@ -252,7 +252,7 @@ BOOST_AUTO_TEST_CASE(TxGraphTest)
                     in_mempool.erase(to_remove[k].get().unique_id);
                 }
             }
-        } else if (rand_val < 98 && in_mempool.size() > 0) {
+        } else if (rand_val < 96 && in_mempool.size() > 0) {
             // Mine a "block", of 5% of the transactions.
             uint64_t num_to_remove = GetRand(in_mempool.size()+1) / 20;
             std::set<TxEntry::TxEntryRef, TxEntry::CompareById> selected_transactions;
@@ -270,6 +270,31 @@ BOOST_AUTO_TEST_CASE(TxGraphTest)
                     in_mempool.erase(selected_transactions_vec[k].get().unique_id);
                 }
             }
+        } else if (rand_val < 98 && in_mempool.size() > 0) {
+            // Test the TxSelector (mining code).
+            TxSelector txselector(&txgraph);
+
+            int64_t num_invocations = GetRand(in_mempool.size()+1) / 20;
+            std::vector<TxEntry::TxEntryRef> selected_transactions;
+            while (num_invocations > 0) {
+                txselector.SelectNextChunk(selected_transactions);
+                // TODO: add a check that the feerates never go up as we make
+                // further calls.
+                txselector.Success();
+                --num_invocations;
+            }
+            txgraph.RemoveBatch(selected_transactions);
+            for (size_t k=0; k<selected_transactions.size(); ++k) {
+                in_mempool.erase(selected_transactions[k].get().unique_id);
+            }
+            // Check that the selected transactions are topologically valid.
+            // Do this by dumping into a cluster, and running Cluster::Check
+            TxGraphCluster dummy(-1, &txgraph);
+            for (auto& tx : selected_transactions) {
+                dummy.AddTransaction(tx, false);
+            }
+            dummy.Rechunk();
+            dummy.Check();
         } else if (rand_val < 99 && in_mempool.size() > 0) {
             // Reorg a block with probability 1%
             // Generate some random transactions and pick some existing random
