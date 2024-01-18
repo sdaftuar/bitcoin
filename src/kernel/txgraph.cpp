@@ -9,7 +9,7 @@ void TxGraphCluster::AddTransaction(const TxEntry& entry, bool sort)
 {
     m_chunks.emplace_back(entry.GetModifiedFee(), entry.GetTxSize());
     m_chunks.back().txs.emplace_back(entry);
-    entry.m_cluster = this;
+    //entry.m_cluster = this; XXX do we need this? it breaks the rbf logic.
     ++m_tx_count;
     m_tx_size += entry.GetTxSize();
     if (sort) Sort();
@@ -59,11 +59,17 @@ void TxGraphCluster::RechunkFromLinearization(std::vector<TxEntry::TxEntryRef>& 
     }
 
     if (reassign_locations) {
-        // Update locations of all transactions
-        for (size_t i=0; i<m_chunks.size(); ++i) {
-            for (auto it = m_chunks[i].txs.begin(); it != m_chunks[i].txs.end(); ++it) {
-                it->get().m_loc = {i, it};
-            }
+        AssignTransactions();
+    }
+}
+
+void TxGraphCluster::AssignTransactions()
+{
+    // Update locations of all transactions
+    for (size_t i=0; i<m_chunks.size(); ++i) {
+        for (auto it = m_chunks[i].txs.begin(); it != m_chunks[i].txs.end(); ++it) {
+            it->get().m_cluster = this;
+            it->get().m_loc = {i, it};
         }
     }
 }
@@ -210,8 +216,21 @@ void TxGraphCluster::Rechunk()
     RechunkFromLinearization(txs, true);
 }
 
+void TxGraphCluster::MergeCopy(std::vector<TxGraphCluster*>::const_iterator first, std::vector<TxGraphCluster*>::const_iterator last)
+{
+    if (first == last) return;
+
+    for (auto it=first; it != last; ++it) {
+        for (auto &chunk : (*it)->m_chunks) {
+            for (auto &tx: chunk.txs) {
+                AddTransaction(tx, false);
+            }
+        }
+    }
+}
+
 // Merge the clusters from [first, last) into this cluster.
-void TxGraphCluster::Merge(std::vector<TxGraphCluster*>::iterator first, std::vector<TxGraphCluster*>::iterator last, bool this_cluster_first)
+void TxGraphCluster::Merge(std::vector<TxGraphCluster*>::iterator first, std::vector<TxGraphCluster*>::iterator last, bool this_cluster_first, bool reassign_locations)
 {
     // Check to see if we have anything to do.
     if (first == last) return;
@@ -237,7 +256,7 @@ void TxGraphCluster::Merge(std::vector<TxGraphCluster*>::iterator first, std::ve
     if (this_cluster_first) {
         new_chunks = std::move(m_chunks);
         m_chunks.clear();
-    } else {
+    } else if (m_tx_count > 0) {
         heap_chunks.emplace_back(m_chunks.begin(), this);
     }
     // Define comparison operator on our heap entries (using feerate of chunks).
@@ -270,13 +289,13 @@ void TxGraphCluster::Merge(std::vector<TxGraphCluster*>::iterator first, std::ve
 
     m_tx_count=0;
 
-    // Update the cluster and location information for each transaction.
     for (size_t i=0; i<m_chunks.size(); ++i) {
-        for (auto it = m_chunks[i].txs.begin(); it != m_chunks[i].txs.end(); ++it) {
-            it->get().m_cluster = this;
-            it->get().m_loc = {i, it};
-            ++m_tx_count;
-        }
+        m_tx_count += m_chunks[i].txs.size();
+    }
+
+    // Update the cluster and location information for each transaction.
+    if (reassign_locations) {
+        AssignTransactions();
     }
 
     assert(m_tx_count == total_txs);
@@ -309,12 +328,14 @@ void TxGraph::AddTx(TxEntry *new_tx, int32_t vsize, CAmount modified_fee, const 
     } else if (clusters_to_merge.size() == 1) {
         cachedInnerUsage -= clusters_to_merge[0]->GetMemoryUsage();
         // Only one parent cluster: add to it.
+        new_tx->m_cluster = clusters_to_merge[0];
         clusters_to_merge[0]->AddTransaction(*new_tx, true);
         cachedInnerUsage += clusters_to_merge[0]->GetMemoryUsage();
     } else {
         cachedInnerUsage -= clusters_to_merge[0]->GetMemoryUsage();
-        clusters_to_merge[0]->Merge(clusters_to_merge.begin()+1, clusters_to_merge.end(), false);
+        clusters_to_merge[0]->Merge(clusters_to_merge.begin()+1, clusters_to_merge.end(), false, true);
         // Add this transaction to the cluster.
+        new_tx->m_cluster = clusters_to_merge[0];
         clusters_to_merge[0]->AddTransaction(*new_tx, true);
         // Need to delete the other clusters.
         for (auto it=clusters_to_merge.begin()+1; it != clusters_to_merge.end(); ++it) {
@@ -691,7 +712,7 @@ void TxGraph::UpdateTxGraphClusterForDescendants(const TxEntry& tx)
     if (clusters_to_merge.size() > 1) {
         // Merge the other clusters into this one, but keep this cluster as
         // first so that it's topologically sound.
-        clusters_to_merge[0]->Merge(clusters_to_merge.begin()+1, clusters_to_merge.end(), true);
+        clusters_to_merge[0]->Merge(clusters_to_merge.begin()+1, clusters_to_merge.end(), true, true);
         // Need to delete the other clusters.
         for (auto it=clusters_to_merge.begin()+1; it!= clusters_to_merge.end(); ++it) {
             m_cluster_map.erase((*it)->m_id);
@@ -825,5 +846,279 @@ void TxSelector::Success()
             std::push_heap(heap_chunks.begin(), heap_chunks.end(), TxSelector::ChunkCompare);
         }
         m_last_entry_selected.second = nullptr;
+    }
+}
+
+TxGraphChangeSet::TxGraphChangeSet(TxGraph *tx_graph, GraphLimits limits, const std::vector<TxEntry::TxEntryRef>& to_remove)
+  : m_tx_graph(tx_graph), m_limits(limits), m_txs_to_remove(to_remove)
+{
+    // For each transaction that will be removed, copy the cluster into the
+    // changeset.
+    std::set<int64_t> removed_set;
+    LOCK(m_tx_graph->cs);
+    {
+        WITH_FRESH_EPOCH(m_tx_graph->m_epoch);
+        for (auto &tx : m_txs_to_remove) {
+            removed_set.insert(tx.get().unique_id);
+            if (!m_tx_graph->visited(tx.get().m_cluster)) {
+                m_clusters_to_delete.emplace_back(tx.get().m_cluster);
+            }
+            // Trigger a nullptr deref if we try to add a transaction to this
+            // changeset that spends a removed transaction.
+            m_tx_to_cluster_map[tx.get().unique_id] = nullptr;
+        }
+    }
+
+    {
+        for (auto &cluster : m_clusters_to_delete) {
+            for (auto& chunk : cluster->m_chunks) {
+                for (auto &tx: chunk.txs) {
+                    if (removed_set.count(tx.get().unique_id)) {
+                        // Skip the txs that will be removed
+                        continue;
+                    }
+                    if (!m_tx_to_cluster_map.count(tx.get().unique_id)) {
+                        // No cluster assignment, so create a new one.
+                        auto cluster = m_tx_graph->AssignTxGraphCluster();
+                        m_new_clusters.insert(cluster->m_id);
+                        m_tx_to_cluster_map[tx.get().unique_id] = cluster;
+                    }
+                    TxGraphCluster* c = m_tx_to_cluster_map[tx.get().unique_id];
+                    c->AddTransaction(tx.get(), false);
+                    // Now we have to mark all the connected transactions as being
+                    // in the same cluster.
+
+                    {
+                        WITH_FRESH_EPOCH(m_tx_graph->m_epoch);
+                        std::vector<TxEntry::TxEntryRef> work_queue;
+                        for (auto& entry : tx.get().children) {
+                            m_tx_graph->visited(entry.get());
+                            if (removed_set.count(entry.get().unique_id)) {
+                                continue;
+                            }
+                            work_queue.push_back(entry);
+                        }
+                        while (!work_queue.empty()) {
+                            auto next_entry = work_queue.back();
+                            work_queue.pop_back();
+                            m_tx_to_cluster_map[next_entry.get().unique_id] = c;
+
+                            for (auto& descendant : next_entry.get().children) {
+                                if (!m_tx_graph->visited(descendant.get())) {
+                                    if (removed_set.count(descendant.get().unique_id)) {
+                                        continue;
+                                    }
+                                    work_queue.push_back(descendant);
+                                }
+                            }
+                            for (auto& ancestor : next_entry.get().parents) {
+                                if (!m_tx_graph->visited(ancestor.get())) {
+                                    if (removed_set.count(ancestor.get().unique_id)) {
+                                        continue;
+                                    }
+                                    work_queue.push_back(ancestor);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+TxGraphChangeSet::~TxGraphChangeSet()
+{
+    LOCK(m_tx_graph->cs);
+    // Delete any allocated memory here.
+    // If we didn't apply the changeset, eg because validation failed, then we
+    // should delete our allocated clusters.
+    for (auto &cluster_id : m_new_clusters) {
+        m_tx_graph->m_cluster_map.erase(cluster_id);
+    }
+    m_new_clusters.clear();
+}
+
+void TxGraphChangeSet::Apply()
+{
+    LOCK(m_tx_graph->cs);
+
+    if (m_sort_new_clusters) SortNewClusters();
+
+    // Remove the transactions from the graph.
+    {
+        for (auto &tx : m_txs_to_remove) {
+            // Invoking RemoveTx() will cleanup the parent/child maps, and
+            // update memory usage.
+            m_tx_graph->RemoveTx(tx);
+        }
+    }
+    m_txs_to_remove.clear();
+
+    // Delete any clusters that are no longer needed.
+    for (auto &cluster : m_clusters_to_delete) {
+        m_tx_graph->cachedInnerUsage -= cluster->GetMemoryUsage();
+        m_tx_graph->m_cluster_map.erase(cluster->m_id);
+    }
+    m_clusters_to_delete.clear();
+
+    // Add in the clusters that were created.
+    for (auto &cluster_id : m_new_clusters) {
+        auto cluster = m_tx_graph->m_cluster_map[cluster_id].get();
+        m_tx_graph->cachedInnerUsage += cluster->GetMemoryUsage();
+        cluster->AssignTransactions();
+    }
+    m_new_clusters.clear();
+
+    // XXX: since memory isn't tracked properly for parents/children, fix that
+    // here, and also add the new transactions as children of the existing
+    // transactions.
+    TxEntry::TxEntryParents p;
+    for (auto &tx : m_txs_to_add) {
+        m_tx_graph->cachedInnerUsage += memusage::IncrementalDynamicUsage(p)*tx.get().parents.size();
+        for (auto& parent : tx.get().parents) {
+            m_tx_graph->UpdateChild(parent, tx, true);
+        }
+    }
+    m_txs_to_add.clear();
+}
+
+bool TxGraphChangeSet::AddTx(TxEntry::TxEntryRef tx, const std::vector<TxEntry::TxEntryRef> parents)
+{
+    // Register a new cluster for this transaction that merges its parents.
+    LOCK(m_tx_graph->cs);
+    
+    // Go through all the parents, and merge them into a new cluster, checking
+    // the limits.
+    {
+        // Check to see if the new cluster is within our limits.
+        int64_t new_cluster_vsize{tx.get().m_virtual_size};
+        int64_t new_cluster_count{1};
+
+        std::vector<TxGraphCluster *> clusters_to_merge;
+        WITH_FRESH_EPOCH(m_tx_graph->m_epoch);
+        for (auto& parent : parents) {
+            TxGraphCluster* parent_cluster{nullptr};
+            if (m_tx_to_cluster_map.find(parent.get().unique_id) != m_tx_to_cluster_map.end()) {
+                parent_cluster = m_tx_to_cluster_map[parent.get().unique_id];
+            } else {
+                // If it's not in the cluster map, it must be an existing
+                // transaction, so we can just look at the cluster assignment.
+                parent_cluster = parent.get().m_cluster;
+            }
+            assert(parent_cluster != nullptr);
+            if (!m_tx_graph->visited(parent_cluster)) {
+                new_cluster_vsize += parent_cluster->m_tx_size;
+                new_cluster_count += parent_cluster->m_tx_count;
+                clusters_to_merge.emplace_back(parent_cluster);
+            }
+        }
+        if (new_cluster_vsize > m_limits.cluster_size_vbytes || new_cluster_count > m_limits.cluster_count) {
+            return false;
+        }
+
+        // Otherwise, we're good to combine the needed clusters.
+        TxGraphCluster *new_cluster = m_tx_graph->AssignTxGraphCluster();
+        m_new_clusters.insert(new_cluster->m_id);
+        new_cluster->MergeCopy(clusters_to_merge.begin(), clusters_to_merge.end());
+        new_cluster->AddTransaction(tx.get(), false);
+        new_cluster->Sort(false);
+
+        // Update our index of tx -> cluster assignment.
+        for (auto& chunk : new_cluster->m_chunks) {
+            for (auto& tx : chunk.txs) {
+                m_tx_to_cluster_map[tx.get().unique_id] = new_cluster;
+            }
+        }
+
+        // If we merged any clusters that had been temporary creations in our
+        // changeset, we can just get rid of them now.
+        for (auto& c : clusters_to_merge) {
+            if (m_new_clusters.find(c->m_id) != m_new_clusters.end()) {
+                m_tx_graph->m_cluster_map.erase(c->m_id);
+                m_new_clusters.erase(c->m_id);
+            }
+        }
+    }
+    {
+        WITH_FRESH_EPOCH(m_tx_graph->m_epoch);
+        for (auto& c : m_clusters_to_delete) {
+            m_tx_graph->visited(c);
+        }
+        for (auto& p : parents) {
+            // If we're adding transactions with in-mempool parents, we must
+            // add those in-mempool parents' clusters to our "old" set.
+            if (p.get().m_cluster != nullptr && !m_tx_graph->visited(p.get().m_cluster)) {
+                m_clusters_to_delete.emplace_back(p.get().m_cluster);
+            }
+        }
+    }
+    for (auto& parent : parents) {
+        tx.get().parents.insert(parent);
+    }
+    m_txs_to_add.emplace_back(tx);
+
+    return true;
+}
+
+void TxGraphChangeSet::SortNewClusters()
+{
+    LOCK(m_tx_graph->cs);
+    // Sort every new cluster.
+    for (auto cluster_id : m_new_clusters) {
+        m_tx_graph->m_cluster_map[cluster_id]->Sort(false);
+    }
+    m_sort_new_clusters = false;
+}
+
+void TxGraphChangeSet::GetFeerateDiagramOld(std::vector<FeeFrac>& diagram)
+{
+    GetFeerateDiagram(diagram, m_clusters_to_delete);
+    return;
+}
+
+void TxGraphChangeSet::GetFeerateDiagramNew(std::vector<FeeFrac>& diagram)
+{
+    LOCK(m_tx_graph->cs);
+    std::vector<TxGraphCluster*> new_clusters;
+    for (auto cluster_id : m_new_clusters) {
+        new_clusters.emplace_back(m_tx_graph->m_cluster_map[cluster_id].get());
+    }
+    if (m_sort_new_clusters) SortNewClusters();
+    GetFeerateDiagram(diagram, new_clusters);
+    return;
+}
+
+void TxGraphChangeSet::GetFeerateDiagram(std::vector<FeeFrac>& diagram, const std::vector<TxGraphCluster*>& clusters)
+{
+    LOCK(m_tx_graph->cs);
+    diagram.clear();
+    diagram.emplace_back(FeeFrac(0, 0));
+
+    std::vector<TxGraphCluster::HeapEntry> heap_chunks;
+
+    for (auto& cluster : clusters) {
+        if (!cluster->m_chunks.empty()) {
+            heap_chunks.emplace_back(cluster->m_chunks.begin(), cluster);
+        }
+    }
+    std::make_heap(heap_chunks.begin(), heap_chunks.end(), TxSelector::ChunkCompare);
+    CAmount accum_fee{0};
+    int64_t accum_size{0};
+    while (!heap_chunks.empty()) {
+        auto best_chunk = heap_chunks.front();
+        std::pop_heap(heap_chunks.begin(), heap_chunks.end(), TxSelector::ChunkCompare);
+        heap_chunks.pop_back();
+
+        accum_size += best_chunk.first->size;
+        accum_fee += best_chunk.first->fee;
+
+        diagram.emplace_back(FeeFrac(accum_fee, accum_size));
+
+        ++best_chunk.first;
+        if (best_chunk.first != best_chunk.second->m_chunks.end()) {
+            heap_chunks.emplace_back(best_chunk);
+            std::push_heap(heap_chunks.begin(), heap_chunks.end(), TxSelector::ChunkCompare);
+        }
     }
 }

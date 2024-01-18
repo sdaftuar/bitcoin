@@ -40,6 +40,7 @@ BOOST_AUTO_TEST_CASE(TxGraphClusterAddRemoveTest)
     TxGraphCluster cluster(1, &dummy);
 
     TxEntry entry1(100, 100);
+    entry1.m_cluster = &cluster;
     cluster.AddTransaction(entry1, true);
 
     BOOST_CHECK_EQUAL(entry1.m_cluster, &cluster);
@@ -55,6 +56,7 @@ BOOST_AUTO_TEST_CASE(TxGraphClusterAddRemoveTest)
     TxEntry entry2(1, 500);
     entry1.children.insert(entry2);
     entry2.parents.insert(entry1);
+    entry2.m_cluster = &cluster;
     cluster.AddTransaction(entry2, true);
 
     BOOST_CHECK_EQUAL(entry2.m_cluster, &cluster);
@@ -91,12 +93,15 @@ BOOST_AUTO_TEST_CASE(TxGraphClusterRechunkTest)
 
     // Add some transactions in a silly order.
     TxEntry entry1(100, 100);
+    entry1.m_cluster = &cluster;
     cluster.AddTransaction(entry1, true);
 
     TxEntry entry2(1, 500);
+    entry2.m_cluster = &cluster;
     cluster.AddTransaction(entry2, false);
 
     TxEntry entry3(200, 100);
+    entry3.m_cluster = &cluster;
     cluster.AddTransaction(entry3, false);
 
     std::vector<TxEntry::TxEntryRef> expected;
@@ -145,10 +150,13 @@ BOOST_AUTO_TEST_CASE(TxGraphClusterMergeTest)
     for (int i=0; i < 30; ++i) {
         all_entries.push_back(TxEntry(GetRand(1000)+1, GetRand(1000)+1));
         if (i < 10) {
+            all_entries.back().m_cluster = &cluster1;
             cluster1.AddTransaction(all_entries.back(), true);
         } else if (i < 20) {
+            all_entries.back().m_cluster = &cluster2;
             cluster2.AddTransaction(all_entries.back(), true);
         } else {
+            all_entries.back().m_cluster = &cluster3;
             cluster3.AddTransaction(all_entries.back(), true);
         }
     }
@@ -162,7 +170,7 @@ BOOST_AUTO_TEST_CASE(TxGraphClusterMergeTest)
     // Check that the ordering of transactions within each cluster is preserved
     // under the merge.
     std::vector<TxGraphCluster*> clusters = {&cluster2, &cluster3};
-    cluster1.Merge(clusters.begin(), clusters.end(), false);
+    cluster1.Merge(clusters.begin(), clusters.end(), false, true);
     std::vector<TxEntry::TxEntryRef> linearized2;
     for (auto &chunk : cluster1.m_chunks) {
         for (auto tx : chunk.txs) {
@@ -206,6 +214,7 @@ BOOST_AUTO_TEST_CASE(TxGraphClusterSortTest)
                 all_entries[j].children.insert(all_entries[i]);
             }
         }
+        all_entries.back().m_cluster = &cluster;
         cluster.AddTransaction(all_entries.back(), false);
     }
 
@@ -230,8 +239,8 @@ BOOST_AUTO_TEST_CASE(TxGraphTest)
         // 4. Trim the worst chunk.
         // 5. Add back a set of confirmed transactions.
         int rand_val = GetRand(100);
-        if (rand_val < 90) {
-            // Add a random transaction, 90% of the time.
+        if (rand_val < 85) {
+            // Add a random transaction, 85% of the time.
             TxEntry *entry = new TxEntry(GetRand(1000)+1, GetRand(1000)+1);
             all_entries.emplace_back(entry);
             std::vector<TxEntry::TxEntryRef> parents;
@@ -242,6 +251,44 @@ BOOST_AUTO_TEST_CASE(TxGraphTest)
             }
             txgraph.AddTx(entry, entry->GetTxSize(), entry->GetModifiedFee(), parents);
             in_mempool.insert(entry->unique_id);
+        } else if (rand_val < 90 && in_mempool.size() > 0) {
+            // RBF a transaction, 5% of the time.
+            int64_t random_index = GetRand(all_entries.size());
+            if (in_mempool.count(all_entries[random_index]->unique_id)) {
+                TxEntry *entry = all_entries[random_index];
+                std::vector<TxEntry::TxEntryRef> all_conflicts = txgraph.GetDescendants(*entry);
+                GraphLimits limits{100, 1000000};
+                TxGraphChangeSet changeset(&txgraph, limits, all_conflicts);
+                TxEntry *new_entry = new TxEntry(GetRand(1000)+1, GetRand(1000)+1);
+                all_entries.emplace_back(new_entry);
+                std::vector<TxEntry::TxEntryRef> parents;
+                for (size_t j=0; j<all_entries.size(); ++j) {
+                    bool conflict{false};
+                    for (auto &c: all_conflicts) {
+                        if (c.get().unique_id == all_entries[j]->unique_id) {
+                            conflict = true;
+                            break;
+                        }
+                    }
+                    if (conflict) continue;
+                    if (GetRand(100) < 1 && in_mempool.count(all_entries[j]->unique_id)) {
+                        parents.emplace_back(*all_entries[j]);
+                    }
+                }
+                if (changeset.AddTx(*new_entry, parents)) {
+                    std::vector<FeeFrac> diagram_dummy;
+                    changeset.GetFeerateDiagramOld(diagram_dummy);
+                    changeset.GetFeerateDiagramNew(diagram_dummy);
+                    // Should do a diagram comparison here, but just apply 1/2 the time.
+                    if (GetRand(100) < 50) {
+                        in_mempool.insert(new_entry->unique_id);
+                        for (auto &c: all_conflicts) {
+                            in_mempool.erase(c.get().unique_id);
+                        }
+                        changeset.Apply();
+                    }
+                }
+            }
         } else if (rand_val < 95 && in_mempool.size() > 0) {
             // Remove a random transaction and its descendants, 5% of the time.
             int64_t random_index = GetRand(all_entries.size());
@@ -291,6 +338,7 @@ BOOST_AUTO_TEST_CASE(TxGraphTest)
             // Do this by dumping into a cluster, and running Cluster::Check
             TxGraphCluster dummy(-1, &txgraph);
             for (auto& tx : selected_transactions) {
+                tx.get().m_cluster = &dummy;
                 dummy.AddTransaction(tx, false);
             }
             dummy.Rechunk();
@@ -349,7 +397,7 @@ BOOST_AUTO_TEST_CASE(TxGraphTest)
             }
             BOOST_CHECK(feerate == CFeeRate(total_fee, total_size));
         }
-        txgraph.Check();
+        assert(txgraph.Check());
     }
 }
 

@@ -42,6 +42,23 @@ public:
     CAmount m_modified_fee;              //!< Tx fee (including prioritisetransaction effects)
     int32_t GetTxSize() const { return m_virtual_size; }
     CAmount GetModifiedFee() const { return m_modified_fee; }
+    // Note: It's a little weird to store parent and children information in
+    // the TxEntry, because the notion of which transactions are connected is
+    // one that exists at the cluster/graph level, rather than the transaction
+    // level. In particular, if a transaction is being evaluated for RBF, then
+    // it's possible that some other transaction (eg a common parent) might
+    // have two different possible descendants, depending on which transaction
+    // ultimately is accepted to the mempool.
+    // Fortunately, for now this implementation doesn't relay on child
+    // information, only parent information, for being able to invoke the
+    // cluster_linearize sorting algorithm. Since parent information is correct
+    // and currently unambiguous for RBF evaluation, this implementation should
+    // work, but this could break in the future if (eg) we wanted to implement
+    // RBF'ing a transaction with some other transaction that had the same txid
+    // (eg smaller witness replacement, where child transactions would not need
+    // to be evicted).
+    // Maybe sipa's implementation will move this information from the
+    // transaction to the cluster, and eliminate this confusion?
     mutable TxEntryParents parents;
     mutable TxEntryChildren children;
     mutable Location m_loc;              //!< Location within a cluster
@@ -68,6 +85,9 @@ public:
     // Just rechunk the cluster using its existing linearization.
     void Rechunk();
 
+    // Permanently assign transactions to this cluster
+    void AssignTransactions();
+
     // Sanity checks -- verify metadata matches and clusters are topo-sorted.
     bool Check();
 
@@ -76,7 +96,8 @@ private:
     void RechunkFromLinearization(std::vector<TxEntry::TxEntryRef>& txs, bool reassign_locations);
 
 public:
-    void Merge(std::vector<TxGraphCluster *>::iterator first, std::vector<TxGraphCluster*>::iterator last, bool this_cluster_first);
+    void Merge(std::vector<TxGraphCluster *>::iterator first, std::vector<TxGraphCluster*>::iterator last, bool this_cluster_first, bool reassign_locations);
+    void MergeCopy(std::vector<TxGraphCluster *>::const_iterator first, std::vector<TxGraphCluster*>::const_iterator last);
 
     uint64_t GetMemoryUsage() const {
         return memusage::DynamicUsage(m_chunks) + m_tx_count * sizeof(void*) * 3;
@@ -136,10 +157,10 @@ public:
     // to keep selecting transactions from the same cluster.
     void Success();
 
-private:
     static bool ChunkCompare(const TxGraphCluster::HeapEntry& a, const TxGraphCluster::HeapEntry& b) {
         return FeeFrac(a.first->fee, a.first->size) < FeeFrac(b.first->fee, b.first->size);
     }
+private:
     std::vector<TxGraphCluster::HeapEntry> heap_chunks;
 
     TxGraph *m_tx_graph{nullptr};
@@ -151,8 +172,35 @@ struct GraphLimits {
     int64_t cluster_size_vbytes{101000};
 };
 
-class TxGraph {
+class TxGraphChangeSet {
 public:
+    TxGraphChangeSet(TxGraph *tx_graph, GraphLimits limits, const std::vector<TxEntry::TxEntryRef>& to_remove);
+    ~TxGraphChangeSet();
+
+    // Returns failure if a cluster size limit would be hit.
+    bool AddTx(TxEntry::TxEntryRef tx, const std::vector<TxEntry::TxEntryRef> parents);
+
+    void GetFeerateDiagramOld(std::vector<FeeFrac> &diagram);
+    void GetFeerateDiagramNew(std::vector<FeeFrac> &diagram);
+
+    void Apply(); // Apply this changeset to the txgraph, adding/removing
+                  // transactions and clusters as needed.
+private:
+    void GetFeerateDiagram(std::vector<FeeFrac> &diagram, const std::vector<TxGraphCluster*>& clusters);
+    void SortNewClusters();
+    TxGraph *m_tx_graph{nullptr};
+    GraphLimits m_limits;
+    std::map<int64_t, TxGraphCluster *> m_tx_to_cluster_map; // map entries to their new clusters
+    std::set<int64_t> m_new_clusters; // cluster id's of the new clusters
+    std::vector<TxEntry::TxEntryRef> m_txs_to_add;
+    std::vector<TxEntry::TxEntryRef> m_txs_to_remove;
+    std::vector<TxGraphCluster *> m_clusters_to_delete;
+
+    bool m_sort_new_clusters{true};
+};
+
+class TxGraph {
+    public:
     TxGraph() {}
 
     // (lazily?) add a transaction to the graph (assume no in-mempool children?)
@@ -162,6 +210,7 @@ public:
     void RemoveTx(TxEntry::TxEntryRef remove_tx) EXCLUSIVE_LOCKS_REQUIRED(cs);
 
     void RemoveBatch(std::vector<TxEntry::TxEntryRef> &txs_removed);
+
 
     // add a group of parent transactions, but limit resulting cluster sizes.
     void AddParentTxs(std::vector<TxEntry::TxEntryRef> parent_txs, GraphLimits limits, std::function<std::vector<TxEntry::TxEntryRef>(TxEntry::TxEntryRef)> func, std::vector<TxEntry::TxEntryRef> &txs_removed);
@@ -212,6 +261,7 @@ private:
     friend class Trimmer;
     friend class TxGraphCluster;
     friend class TxSelector;
+    friend class TxGraphChangeSet;
 };
 
 #endif // TXGRAPH_H
