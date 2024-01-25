@@ -44,8 +44,6 @@ static_assert(V3_CHILD_MAX_VSIZE + MAX_STANDARD_TX_WEIGHT / WITNESS_SCALE_FACTOR
  *
  * @param[in]   mempool_ancestors       The in-mempool ancestors of ptx, including any that are only
  *                                      direct ancestors of its in-package ancestors.
- * @param[in]   num_in_pkg_ancestors    The number of ancestors not accounted for in ancestors, i.e.
- *                                      in-package parents that have not been submitted to the mempool yet.
  * @param[in]   direct_conflicts        In-mempool transactions this tx conflicts with. These conflicts
  *                                      are used to more accurately calculate the resulting descendant
  *                                      count of in-mempool ancestors.  While V3_ANCESTOR_LIMIT is 2, it
@@ -57,7 +55,6 @@ static_assert(V3_CHILD_MAX_VSIZE + MAX_STANDARD_TX_WEIGHT / WITNESS_SCALE_FACTOR
  */
 std::optional<std::string> ApplyV3Rules(const CTransactionRef& ptx,
                                         const CTxMemPool::setEntries& mempool_ancestors,
-                                        unsigned int num_in_pkg_ancestors,
                                         const std::set<Txid>& direct_conflicts,
                                         int64_t vsize);
 
@@ -80,6 +77,15 @@ std::optional<std::string> ApplyV3Rules(const CTransactionRef& ptx,
  * each connected component does not violate v3 inheritance or topology constraints within the
  * package itself. If any checks fail, an error string detailing what failed.
  * */
-util::Result<std::map<Txid, std::set<Txid>>> PackageV3Checks(const Package& package);
+//util::Result<std::map<Txid, std::set<Txid>>> PackageV3Checks(const Package& package);
+
+struct PackageWithAncestorCounts {
+    Package package;
+    std::vector<size_t> ancestor_counts; // number of in-mempool ancestors for each package transaction.
+};
+
+bool PackageV3Checks(const CTransactionRef& ptx, int64_t vsize,
+        const PackageWithAncestorCounts& package_with_ancestors,
+        const CTxMemPool::setEntries& mempool_ancestors, CTxMemPool& pool);
 
 #endif // BITCOIN_POLICY_V3_POLICY_H

@@ -965,7 +965,7 @@ bool MemPoolAccept::PreChecks(ATMPArgs& args, Workspace& ws)
     // already calculated.
     CTxMemPool::setEntries collective_ancestors = *ancestors;
     collective_ancestors.merge(ws.m_ancestors_of_in_package_ancestors);
-    if (const auto err_string{ApplyV3Rules(ws.m_ptx, collective_ancestors, ws.m_num_in_package_ancestors, ws.m_conflicts, ws.m_vsize)}) {
+    if (const auto err_string{ApplyV3Rules(ws.m_ptx, collective_ancestors, ws.m_conflicts, ws.m_vsize)}) {
         return state.Invalid(TxValidationResult::TX_MEMPOOL_POLICY, "v3-rule-violation", *err_string);
     }
 
@@ -1310,63 +1310,25 @@ PackageMempoolAcceptResult MemPoolAccept::AcceptMultipleTransactions(const std::
                    [](const auto& tx) { return Workspace(tx); });
     std::map<uint256, MempoolAcceptResult> results;
 
-    // Map from txid of a v3 transaction to its in-package ancestor set. Not MemPoolAccept-wide
-    // because ancestor sets may change due to something being accepted. Populated within PackageV3Checks.
-    std::map<Txid, std::set<Txid>> in_package_ancestors;
-
-    // Not a complete check of v3 rules, helps us detect failures early.
-    // Some data structures are only necessary if we are checking v3 rules; skip this work if those
-    // rules are not applicable.
-    if (std::any_of(txns.cbegin(), txns.cend(), [](const auto& tx){ return tx->nVersion == 3; })) {
-        const auto result{PackageV3Checks(txns)};
-        if (result) {
-            in_package_ancestors = *result;
-        } else {
-            package_state.Invalid(PackageValidationResult::PCKG_POLICY, "v3-violation", util::ErrorString(result).original);
-            return PackageMempoolAcceptResult(package_state, std::move(results));
-        }
-    }
 
     LOCK(m_pool.cs);
 
     // Do all PreChecks first and fail fast to avoid running expensive script checks when unnecessary.
     // Number of transactions that have passed PreChecks so far.
     unsigned int num_prechecks_passed{0};
+
+    PackageWithAncestorCounts package_with_ancestors;
+    package_with_ancestors.package = txns;
     for (Workspace& ws : workspaces) {
         // This process is computationally expensive, so only do it when v3 rules are applicable.
         // PackageV3Checks restricts the amount of work here by checking topology limits.
-        if (ws.m_ptx->nVersion == 3) {
-            // Populate Workspace::m_num_in_package_ancestors if applicable.
-            auto ancestor_set_iter = in_package_ancestors.find(ws.m_ptx->GetHash());
-            const bool have_ancestor_set{ancestor_set_iter != in_package_ancestors.end() && ancestor_set_iter->second.size() >= 1};
-            if (Assume(have_ancestor_set)) {
-                // If there are in-package ancestors, update m_num_in_package_ancestors.
-                // Sets in in_package_ancestors include the tx itself, so subtract 1.
-                ws.m_num_in_package_ancestors = ancestor_set_iter->second.size() - 1;
-            } else {
-                // If we fail to find this transaction's ancestor set, we use a safe (over)estimate
-                // that it is all of the preceding transactions.
-                ws.m_num_in_package_ancestors = num_prechecks_passed;
-            }
-
-            // If this tx is one of our ancestors, add all of its in-mempool ancestors to ours.
-            // If we are treating all preceding transactions as our ancestors, always add.
-            // Workspace::m_ancestors is empty for transactions that haven't passed PreChecks yet.
-            for (const auto& potential_ancestor_ws : workspaces) {
-                if (!have_ancestor_set ||
-                    ancestor_set_iter->second.count(potential_ancestor_ws.m_ptx->GetHash()) > 0) {
-                    ws.m_ancestors_of_in_package_ancestors.insert(potential_ancestor_ws.m_ancestors.cbegin(),
-                                                                  potential_ancestor_ws.m_ancestors.cend());
-                }
-            }
-        }
-
         if (!PreChecks(args, ws)) {
             package_state.Invalid(PackageValidationResult::PCKG_TX, "transaction failed");
             // Exit early to avoid doing pointless work. Update the failed tx result; the rest are unfinished.
             results.emplace(ws.m_ptx->GetWitnessHash(), MempoolAcceptResult::Failure(ws.m_state));
             return PackageMempoolAcceptResult(package_state, std::move(results));
         }
+        package_with_ancestors.ancestor_counts.push_back(ws.m_ancestors.size());
         // Make the coins created by this transaction available for subsequent transactions in the
         // package to spend. Since we already checked conflicts in the package and we don't allow
         // replacements, we don't need to track the coins spent. Note that this logic will need to be
@@ -1374,6 +1336,15 @@ PackageMempoolAcceptResult MemPoolAccept::AcceptMultipleTransactions(const std::
         assert(!args.m_allow_replacement);
         m_viewmempool.PackageAddTransaction(ws.m_ptx);
         ++num_prechecks_passed;
+    }
+
+    // At this point we have all in-mempool ancestors, and we know every transaction's vsize.
+    // Run the v3 checks on the package.
+    for (Workspace& ws : workspaces) {
+        if (!PackageV3Checks(ws.m_ptx, ws.m_vsize, package_with_ancestors, ws.m_ancestors, m_pool)) {
+            package_state.Invalid(PackageValidationResult::PCKG_POLICY, "v3-violation");
+            return PackageMempoolAcceptResult(package_state, {});
+        }
     }
 
     // Transactions must meet two minimum feerates: the mempool minimum fee and min relay fee.

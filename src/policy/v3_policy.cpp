@@ -14,6 +14,99 @@
 #include <numeric>
 #include <vector>
 
+void FindInPackageParents(const PackageWithAncestorCounts& package_with_ancestors, const CTransactionRef& ptx, std::vector<int>& in_package_parents)
+{
+    std::set<Txid> possible_parents;
+    for (auto &input : ptx->vin) {
+        possible_parents.insert(input.prevout.hash);
+    }
+
+    for (size_t i=0; i<package_with_ancestors.package.size(); ++i) {
+        const auto& tx = package_with_ancestors.package[i];
+        // We assume the package is sorted, so that we don't need to continue
+        // looking past the transaction itself.
+        if (&(*tx) == &(*ptx)) break;
+        if (possible_parents.count(tx->GetHash())) {
+            in_package_parents.push_back(i);
+        }
+    }
+}
+
+bool PackageV3Checks(const CTransactionRef& ptx, int64_t vsize,
+        const PackageWithAncestorCounts& package_with_ancestors,
+        const CTxMemPool::setEntries& mempool_ancestors,
+        CTxMemPool& pool)
+{
+    std::vector<int> in_package_parents;
+
+    FindInPackageParents(package_with_ancestors, ptx, in_package_parents);
+
+    // Now we have all ancestors, so we can start checking v3 rules.
+    if (ptx->nVersion == 3) {
+        // v3 transactions can have at most 1 unconfirmed parent
+        if (mempool_ancestors.size() + in_package_parents.size() > 1) return false;
+
+        bool has_parent = (mempool_ancestors.size() + in_package_parents.size() > 0);
+
+        if (has_parent) {
+            // Find the parent and extract the information we need for v3
+            // checks.
+            int parent_version = 0;
+            Txid parent_hash = Txid::FromUint256(uint256(0));
+            int other_descendants=0;
+
+            if (mempool_ancestors.size() > 0) {
+                // There's a parent in the mempool.
+                auto &parent = *mempool_ancestors.begin();
+                parent_version = parent->GetTx().nVersion;
+                other_descendants = parent->GetCountWithDescendants()-1;
+                parent_hash = parent->GetTx().GetHash();
+            } else { // it must be in the package
+                auto &parent_index = in_package_parents[0];
+                // If the in-package parent has mempool ancestors, then this is
+                // a v3 violation.
+                if (package_with_ancestors.ancestor_counts[parent_index] > 0) return false;
+
+                auto &parent = package_with_ancestors.package[parent_index];
+                parent_version = parent->nVersion;
+                other_descendants=0;
+                parent_hash = parent->GetHash();
+            }
+
+            // If there's a parent, it must have the right version.
+            if (parent_version != 3) return false;
+
+            // If there's a parent, it cannot have any other in-mempool children.
+            if (other_descendants > 0) return false;
+
+            // If there's a parent, then neither the parent nor this tx can
+            // have an in-package child.
+            for (const auto& tx : package_with_ancestors.package) {
+                if (&(*tx) == &(*ptx)) continue;
+                for (auto& input : tx->vin) {
+                    if (input.prevout.hash == parent_hash) return false;
+                    if (input.prevout.hash == ptx->GetHash()) return false;
+                }
+            }
+
+            // If there's a parent, this transaction cannot be too large.
+            if (vsize > V3_CHILD_MAX_VSIZE) {
+                return false;
+            }
+        }
+    } else {
+        // Non-v3 transactions cannot have v3 parents.
+        for (auto it : mempool_ancestors) {
+            if (it->GetTx().nVersion == 3) return false;
+        }
+        for (const auto& index: in_package_parents) {
+            if (package_with_ancestors.package[index]->nVersion == 3) return false;
+        }
+    }
+    return true;
+}
+
+#if 0
 util::Result<std::map<Txid, std::set<Txid>>> PackageV3Checks(const Package& package)
 {
     // Map from txid of a v3 transaction to its ancestor set, including itself.
@@ -130,10 +223,10 @@ util::Result<std::map<Txid, std::set<Txid>>> PackageV3Checks(const Package& pack
 
     return v3_ancestor_sets;
 }
+#endif
 
 std::optional<std::string> ApplyV3Rules(const CTransactionRef& ptx,
                                         const CTxMemPool::setEntries& mempool_ancestors,
-                                        unsigned int num_in_pkg_ancestors,
                                         const std::set<Txid>& direct_conflicts,
                                         int64_t vsize)
 {
@@ -156,12 +249,12 @@ std::optional<std::string> ApplyV3Rules(const CTransactionRef& ptx,
     if (ptx->nVersion != 3) return std::nullopt;
 
     // Check that V3_ANCESTOR_LIMIT would not be violated, including both in-package and in-mempool.
-    if (mempool_ancestors.size() + num_in_pkg_ancestors + 1 > V3_ANCESTOR_LIMIT) {
+    if (mempool_ancestors.size() + 1 > V3_ANCESTOR_LIMIT) {
         return strprintf("tx %s would have too many ancestors", ptx->GetWitnessHash().ToString());
     }
 
     // Remaining checks only pertain to transactions with unconfirmed ancestors.
-    if (mempool_ancestors.size() + num_in_pkg_ancestors > 0) {
+    if (mempool_ancestors.size() > 0) {
         // If this transaction spends V3 parents, it cannot be too large.
         if (vsize > V3_CHILD_MAX_VSIZE) {
             return strprintf("v3 child tx %s is too big: %u > %u virtual bytes", ptx->GetWitnessHash().ToString(), vsize, V3_CHILD_MAX_VSIZE);
