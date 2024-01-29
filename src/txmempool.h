@@ -14,6 +14,7 @@
 #include <kernel/mempool_limits.h>         // IWYU pragma: export
 #include <kernel/mempool_options.h>        // IWYU pragma: export
 #include <kernel/mempool_removal_reason.h> // IWYU pragma: export
+#include <kernel/txgraph.h>
 #include <logging.h>
 #include <policy/feerate.h>
 #include <policy/packages.h>
@@ -51,126 +52,6 @@ static const uint32_t MEMPOOL_HEIGHT = 0x7FFFFFFF;
  * Test whether the LockPoints height and time are still valid on the current chain
  */
 bool TestLockPointValidity(CChain& active_chain, const LockPoints& lp) EXCLUSIVE_LOCKS_REQUIRED(cs_main);
-
-// XXX: duplicative with FeeFrac, but leaving for now to avoid signed/unsigned issue.
-struct FeeSizePoint {
-    int64_t size;
-    CAmount fee;
-
-    friend inline bool operator<(const FeeSizePoint& a, const FeeSizePoint& b) noexcept
-    {
-        if (a.fee > std::numeric_limits<int32_t>::max() ||
-                b.fee > std::numeric_limits<int32_t>::max() ||
-                a.fee < std::numeric_limits<int32_t>::min() ||
-                b.fee < std::numeric_limits<int32_t>::min())
-        {
-            // Avoid overflow by sacrificing precision?
-            double a_val = double(a.fee) * double(b.size);
-            double b_val = double(b.fee) * double(a.size);
-            if (a_val != b_val) return a_val < b_val;
-            return a.size > b.size;
-        } else {
-            int64_t a_val = a.fee * b.size;
-            int64_t b_val = b.fee * a.size;
-            if (a_val != b_val) return a_val < b_val;
-            return a.size > b.size;
-        }
-    }
-
-    friend inline bool operator>(const FeeSizePoint& a, const FeeSizePoint& b) noexcept
-    {
-        if (a.fee > std::numeric_limits<int32_t>::max() ||
-                b.fee > std::numeric_limits<int32_t>::max() ||
-                a.fee < std::numeric_limits<int32_t>::min() ||
-                b.fee < std::numeric_limits<int32_t>::min())
-        {
-            // Avoid overflow by sacrificing precision?
-            double a_val = double(a.fee) * double(b.size);
-            double b_val = double(b.fee) * double(a.size);
-            if (a_val != b_val) return a_val > b_val;
-            return a.size < b.size;
-        } else {
-            int64_t a_val = a.fee * b.size;
-            int64_t b_val = b.fee * a.size;
-            if (a_val != b_val) return a_val > b_val;
-            return a.size < b.size;
-        }
-    }
-
-    friend inline bool operator!=(const FeeSizePoint& a, const FeeSizePoint& b) noexcept
-    {
-        return a.fee != b.fee || a.size != b.size;
-    }
-
-};
-
-/**
- * Data structure for managing clusters of transactions in the mempool.
- *
- * We can consider the graph of mempool transactions where edges connect
- * transactions that have a parent/child relationship. Then two transactions
- * are in a "cluster" if they are connected in this graph.
- *
- * Clusters are sorted for transaction selection/eviction purposes
- * independently of each other.
- */
-
-class CTxMemPool;
-
-class Cluster {
-public:
-    Cluster(int64_t id, CTxMemPool* mempool) : m_id(id), m_mempool(mempool) {}
-
-    void Clear() {
-        m_chunks.clear();
-        m_tx_count = 0;
-    }
-
-    // Add a transaction and update the sort.
-    void AddTransaction(const CTxMemPoolEntry& entry, bool sort);
-    void RemoveTransaction(const CTxMemPoolEntry& entry);
-
-    // Sort the cluster and partition into chunks.
-    void Sort(bool reassign_locations = true);
-
-    // Just rechunk the cluster using its existing linearization.
-    void Rechunk();
-
-    // Helper function
-    void RechunkFromLinearization(std::vector<CTxMemPoolEntry::CTxMemPoolEntryRef>& txs, bool reassign_locations);
-
-    void Merge(std::vector<Cluster *>::iterator first, std::vector<Cluster*>::iterator last, bool this_cluster_first);
-
-    uint64_t GetMemoryUsage() const {
-        return memusage::DynamicUsage(m_chunks) + m_tx_count * sizeof(void*) * 3;
-    }
-
-    CTxMemPoolEntry::CTxMemPoolEntryRef GetLastTransaction();
-
-    // The chunks of transactions which will be added to blocks or
-    // evicted from the mempool.
-    struct Chunk {
-        Chunk(CAmount _fee, int64_t _size) : fee(_fee), size(_size) {}
-        Chunk(Chunk&& other) = default;
-        Chunk& operator=(Cluster::Chunk&& other) = default;
-        Chunk& operator=(const Cluster::Chunk& other) = delete;
-
-        CAmount fee{0};
-        int64_t size{0};
-        std::list<CTxMemPoolEntry::CTxMemPoolEntryRef> txs;
-    };
-
-    typedef std::vector<Chunk>::iterator ChunkIter;
-    typedef std::pair<ChunkIter, Cluster*> HeapEntry;
-
-    std::vector<Chunk> m_chunks;
-    int64_t m_tx_count{0};
-    int64_t m_tx_size{0};
-
-    const int64_t m_id;
-    CTxMemPool* m_mempool;
-    mutable Epoch::Marker m_epoch_marker; //!< epoch when last touched
-};
 
 // extracts a transaction hash from CTxMemPoolEntry or CTransactionRef
 struct mempoolentry_txid
@@ -405,8 +286,7 @@ public:
     indexed_transaction_set mapTx GUARDED_BY(cs);
 
     // Clusters
-    std::unordered_map<int64_t, std::unique_ptr<Cluster>> m_cluster_map GUARDED_BY(cs);
-    int64_t m_next_cluster_id GUARDED_BY(cs){0};
+    TxGraph txgraph GUARDED_BY(cs);
 
     using txiter = indexed_transaction_set::nth_index<0>::type::const_iterator;
     std::vector<CTransactionRef> txns_randomized GUARDED_BY(cs); //!< All transactions in mapTx, in random order
@@ -418,7 +298,6 @@ public:
 
     bool CompareMiningScore(txiter a, txiter b) const EXCLUSIVE_LOCKS_REQUIRED(cs);
 
-    void TopoSort(std::vector<CTxMemPoolEntry::CTxMemPoolEntryRef>& to_be_sorted) const;
     void CalculateAncestorData(const CTxMemPoolEntry& entry, size_t& ancestor_count, size_t& ancestor_size, CAmount& ancestor_fees) const EXCLUSIVE_LOCKS_REQUIRED(cs);
     void CalculateDescendantData(const CTxMemPoolEntry& entry, size_t& descendant_count, size_t& descendant_size, CAmount& descendant_fees) const EXCLUSIVE_LOCKS_REQUIRED(cs);
 
@@ -432,17 +311,6 @@ private:
      * Track locally submitted transactions to periodically retry initial broadcast.
      */
     std::set<uint256> m_unbroadcast_txids GUARDED_BY(cs);
-
-
-    /**
-     * Helper function to calculate all in-mempool ancestors of parents
-     *
-     * @param[in]   parents    Should contain entries in the mempool.
-     *
-     * @return all in-mempool ancestors
-     */
-    Entries CalculateAncestors(const CTxMemPool::Entries &parents)
-            const EXCLUSIVE_LOCKS_REQUIRED(cs);
 
     // Helper to remove all transactions that conflict with a given
     // transaction (used for transactions appearing in a block).
@@ -551,10 +419,6 @@ public:
     void RemoveStaged(setEntries& stage, bool updateDescendants, MemPoolRemovalReason reason) EXCLUSIVE_LOCKS_REQUIRED(cs);
     void RemoveSingleTxForBlock(txiter it) EXCLUSIVE_LOCKS_REQUIRED(cs);
 
-    // Remove the given chunk (guaranteed to be last in the cluster)
-    // Leave the resulting cluster otherwise unchanged (ie don't repartition/re-sort).
-    void RemoveChunkForEviction(Cluster *cluster, std::list<CTxMemPoolEntry::CTxMemPoolEntryRef>& entries) EXCLUSIVE_LOCKS_REQUIRED(cs);
-
     /** UpdateTransactionsFromBlock is called when adding transactions from a
      * disconnected block back to the mempool, new mempool entries may have
      * children in the mempool (which is generally not the case when otherwise
@@ -567,6 +431,8 @@ public:
      *     disconnected block that have been accepted back into the mempool.
      */
     void UpdateTransactionsFromBlock(const std::vector<uint256>& vHashesToUpdate) EXCLUSIVE_LOCKS_REQUIRED(cs, cs_main) LOCKS_EXCLUDED(m_epoch);
+
+    std::vector<TxEntry::TxEntryRef> GetChildrenOf(const TxEntry& tx);
 
     /**
      * Calculate whether cluster size limits would be exceeded if a new tx were
@@ -581,9 +447,17 @@ public:
      *         exceeded
      */
     util::Result<bool> CheckClusterSizeLimit(int64_t entry_size, size_t entry_count,
-            const Limits& limits, const CTxMemPoolEntry::Parents& all_parents) const
+            const Limits& limits, setEntries all_parents) const
         EXCLUSIVE_LOCKS_REQUIRED(cs);
 
+    util::Result<bool> CheckClusterSizeLimit(const CTransactionRef& ptx) const;
+
+private:
+    util::Result<bool> CheckClusterSizeAgainstLimits(const std::vector<TxEntry::TxEntryRef>& parents,
+            int64_t count, int64_t vbytes, GraphLimits limits) const
+        EXCLUSIVE_LOCKS_REQUIRED(cs);
+
+public:
     /**
      * Calculate all in-mempool ancestors of entry.
      * (these are all calculated including the tx itself)
@@ -595,62 +469,20 @@ public:
      *
      * @return all in-mempool ancestors
      */
+
     setEntries CalculateMemPoolAncestorsSlow(const CTxMemPoolEntry& entry,
                                    bool fSearchForParents = true) const EXCLUSIVE_LOCKS_REQUIRED(cs);
-    Entries CalculateMemPoolAncestors(const CTxMemPoolEntry& entry,
-                                   bool fSearchForParents) const EXCLUSIVE_LOCKS_REQUIRED(cs);
+    std::vector<CTxMemPoolEntry::CTxMemPoolEntryRef> CalculateMemPoolAncestors(const CTxMemPoolEntry& entry,
+                                   bool fSearchForParents = true) const EXCLUSIVE_LOCKS_REQUIRED(cs);
 
-    Entries CalculateParents(const CTxMemPoolEntry &entry) const EXCLUSIVE_LOCKS_REQUIRED(cs);
+    bool HasDescendants(const Txid& txid) const;
 
 private:
-    /**
-     * Temporarily construct the cluster that would correspond to a
-     * hypothetical new mempool transaction ("entry"). Take into account the
-     * removal of all transactions in "all_conflicts" for the purposes of
-     * determining which transactions would be in the hypothetical cluster.
-     * Sort the cluster as well so that the mining score of the transaction can
-     * be determined by the caller.
-     */
-    bool BuildClusterForTransaction(CTxMemPoolEntry& entry, const setEntries& all_conflicts, const Limits& limits, Cluster& temp_cluster) EXCLUSIVE_LOCKS_REQUIRED(cs);
-
-    /**
-     * Calculate the new clusters that would occur if a new transaction
-     * ("entry") with in-mempool conflicts were to be added to the mempool.
-     *
-     * @param[in] entry               The new transaction to be added.
-     * @param[in] modified_fee        The fee of the new transaction, if it were to be added to the mempool.
-     * @param[in] all_conflicts       All transactions that would be removed
-     * @param[in] old_clusters        The set of current mempool clusters that contain the conflicting transactions.
-     * @param[out] new_clusters       The set of new clusters that would result from adding the new transaction.
-     * @return true if the new clusters would not exceed the cluster size limit.
-     */
-    bool CalculateClustersForTransactions(CTxMemPoolEntry& entry, CAmount modified_fee, const setEntries& all_conflicts, const std::vector<Cluster*>& old_clusters, std::vector<Cluster*>& new_clusters) EXCLUSIVE_LOCKS_REQUIRED(cs);
-
-    /**
-     * Return the feerate diagram of the given clusters (consisting of a set of
-     * (size, fee) points corresponding to the accumulated size and accumulated
-     * fee as the chunks from the given clusters are traversed in descending
-     * feerate order).
-     *
-     * @param[in] clusters            The clusters to calculate the feerate diagram for.
-     * @param[out] diagram            The feerate diagram of the given clusters.
-     */
-    void GetFeerateDiagram(std::vector<Cluster *> clusters, std::vector<FeeSizePoint>& diagram) const;
-
+    std::vector<TxEntry::TxEntryRef> CalculateAncestors(const CTxMemPoolEntry& entry, bool fSearchForParents) const;
 public:
-    /**
-     * Calculate the old and new mempool feerate diagrams relating to the
-     * clusters that would be affected by a potential replacement transaction.
-     *
-     * @param[in] entry               The new transaction to be added.
-     * @param[in] modified_fee        The fee of the new transaction, if it were to be added to the mempool.
-     * @param[in] direct_conflicts    All transactions that would be removed directly (not via descendants)
-     * @param[in] all_conflicts       All transactions that would be removed
-     * @param[out] old_diagram        The feerate diagram of the relevant clusters before accepting the new tx
-     * @param[out] new_diagram        The feerate diagram of the relevant clusters after accepting the new tx
-     * @return false if the new transaction would violate a cluster size limit
-     */
-    bool CalculateFeerateDiagramsForRBF(CTxMemPoolEntry& entry, CAmount modified_fee, const setEntries& direct_conflicts, const setEntries& all_conflicts, std::vector<FeeSizePoint>& old_diagram, std::vector<FeeSizePoint>& new_diagram) EXCLUSIVE_LOCKS_REQUIRED(cs);
+
+    std::vector<TxEntry::TxEntryRef> CalculateParents(const CTransaction& tx) const EXCLUSIVE_LOCKS_REQUIRED(cs);
+    std::vector<TxEntry::TxEntryRef> CalculateParents(const CTxMemPoolEntry &entry) const EXCLUSIVE_LOCKS_REQUIRED(cs);
 
     /** Collect the entire cluster of connected transactions for each transaction in txids.
      * All txids must correspond to transaction entries in the mempool, otherwise this returns an
@@ -676,6 +508,11 @@ public:
     void CalculateDescendantsSlow(txiter it, setEntries& setDescendants) const EXCLUSIVE_LOCKS_REQUIRED(cs);
 
     std::vector<txiter> CalculateDescendants(std::vector<txiter> txs) const EXCLUSIVE_LOCKS_REQUIRED(cs);
+
+    bool CalculateFeerateDiagramsForRBF(const CTxMemPoolEntry& entry, CAmount
+            modified_fee, setEntries direct_conflicts, setEntries all_conflicts,
+            std::vector<FeeFrac>& old_diagram, std::vector<FeeFrac>& new_diagram);
+
 
     /** The minimum fee to get into the mempool, which may itself not be enough
      *  for larger-sized transactions.
@@ -797,16 +634,6 @@ public:
     }
 
 private:
-    // During reorg we add transactions back to mempool, must reconnect
-    // clusters with in-mempool descendants.
-    void UpdateClusterForDescendants(txiter updateIt) EXCLUSIVE_LOCKS_REQUIRED(cs);
-    /** Update parents of hash to add/remove it as a child transaction. */
-    void UpdateParentsOf(bool add, txiter hash) EXCLUSIVE_LOCKS_REQUIRED(cs);
-    /** For each transaction being removed, update parents and any children. */
-    void UpdateForRemoveFromMempool(const setEntries &entriesToRemove) EXCLUSIVE_LOCKS_REQUIRED(cs);
-    /** Sever link between specified transaction and direct children. */
-    void UpdateChildrenForRemoval(txiter entry) EXCLUSIVE_LOCKS_REQUIRED(cs);
-
     /** Before calling removeUnchecked for a given transaction,
      *  UpdateForRemoveFromMempool must be called on the entire (dependent) set
      *  of transactions being removed at the same time.  We use each
@@ -817,10 +644,6 @@ private:
      */
     void removeUnchecked(txiter entry, MemPoolRemovalReason reason) EXCLUSIVE_LOCKS_REQUIRED(cs);
 
-    // Create a new (empty) cluster in the cluster map, and return a pointer to it.
-    Cluster* AssignCluster() EXCLUSIVE_LOCKS_REQUIRED(cs);
-    // Potentially split a cluster into smaller clusters (eg after transactions are removed)
-    void RecalculateClusterAndMaybeSort(Cluster *cluster, bool sort) EXCLUSIVE_LOCKS_REQUIRED(cs);
 public:
     /** visited marks a CTxMemPoolEntry as having been traversed
      * during the lifetime of the most recently created Epoch::Guard
@@ -844,13 +667,6 @@ public:
         assert(m_epoch.guarded()); // verify guard even when it==nullopt
         return !it || visited(*it);
     }
-
-    bool visited(Cluster *cluster) const EXCLUSIVE_LOCKS_REQUIRED(cs, m_epoch)
-    {
-        return m_epoch.visited(cluster->m_epoch_marker);
-    }
-
-    friend class Cluster;
 };
 
 /**

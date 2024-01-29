@@ -84,7 +84,7 @@ TxEntry::TxEntryRef TxGraphCluster::GetLastTransaction()
     assert(false);
 }
 
-bool TxGraphCluster::Check()
+bool TxGraphCluster::Check() const
 {
     // First check that the metadata is correct.
     int64_t tx_count = 0;
@@ -361,15 +361,18 @@ void TxGraph::RemoveTx(TxEntry::TxEntryRef remove_tx)
 }
 
 
-std::vector<TxEntry::TxEntryRef> TxGraph::GetDescendants(const TxEntry& tx)
+std::vector<TxEntry::TxEntryRef> TxGraph::GetDescendants(const std::vector<TxEntry::TxEntryRef>& txs) const
 {
     std::vector<TxEntry::TxEntryRef> result{}, work_queue{};
 
     LOCK(cs);
 
     WITH_FRESH_EPOCH(m_epoch);
-    visited(tx);
-    work_queue.push_back(tx);
+    for (auto tx : txs) {
+        if (!visited(tx)) {
+            work_queue.push_back(tx);
+        }
+    }
 
     while (!work_queue.empty()) {
         auto it = work_queue.back();
@@ -384,15 +387,17 @@ std::vector<TxEntry::TxEntryRef> TxGraph::GetDescendants(const TxEntry& tx)
     return result;
 }
 
-std::vector<TxEntry::TxEntryRef> TxGraph::GetAncestors(const TxEntry& tx)
+std::vector<TxEntry::TxEntryRef> TxGraph::GetAncestors(const std::vector<TxEntry::TxEntryRef>& parents) const
 {
     std::vector<TxEntry::TxEntryRef> result{}, work_queue{};
 
     LOCK(cs);
 
     WITH_FRESH_EPOCH(m_epoch);
-    visited(tx);
-    work_queue.push_back(tx);
+    for (auto p : parents) {
+        visited(p);
+        work_queue.push_back(p);
+    }
 
     while (!work_queue.empty()) {
         auto it = work_queue.back();
@@ -401,6 +406,24 @@ std::vector<TxEntry::TxEntryRef> TxGraph::GetAncestors(const TxEntry& tx)
         for (auto& parent: it.get().parents) {
             if (!visited(parent.get())) {
                 work_queue.push_back(parent);
+            }
+        }
+    }
+    return result;
+}
+
+std::vector<TxEntry::TxEntryRef> TxGraph::GatherAllClusterTransactions(const std::vector<TxEntry::TxEntryRef> &txs) const
+{
+    LOCK(cs);
+
+    WITH_FRESH_EPOCH(m_epoch);
+    std::vector<TxEntry::TxEntryRef> result;
+    for (auto tx : txs) {
+        if (!visited(tx.get().m_cluster)) {
+            for (auto &chunk : tx.get().m_cluster->m_chunks) {
+                for (auto &txentry : chunk.txs) {
+                    result.push_back(txentry);
+                }
             }
         }
     }
@@ -729,7 +752,7 @@ void TxGraph::UpdateTxGraphClusterForDescendants(const TxEntry& tx)
     return;
 }
 
-bool TxGraph::Check()
+bool TxGraph::Check(GraphLimits limits) const
 {
     // TODO: add checks on cachedInnerUsage
 
@@ -739,8 +762,61 @@ bool TxGraph::Check()
         if (!cluster->Check()) {
             return false;
         }
+        if (cluster->m_tx_count > limits.cluster_count || cluster->m_tx_size > limits.cluster_size_vbytes) {
+            return false;
+        }
     }
+
+    // Check that each cluster is connected.
+    for (const auto & [id, cluster] : m_cluster_map) {
+        // We'll check that if we walk to every transaction reachable from the
+        // first one, that we get every tx in the cluster.
+        auto first_tx = cluster->m_chunks.front().txs.front();
+        std::vector<TxEntry::TxEntryRef> work_queue;
+        int reachable_txs = 1; // we'll count the transactions we reach.
+
+        WITH_FRESH_EPOCH(m_epoch);
+        visited(first_tx.get());
+        assert(first_tx.get().parents.size() == 0); // first tx can never have parents.
+        for (auto child : first_tx.get().children) {
+            work_queue.push_back(child);
+            visited(child.get());
+            ++reachable_txs;
+        }
+        while (work_queue.size() > 0) {
+            auto next_tx = work_queue.back();
+            work_queue.pop_back();
+            for (auto parent : next_tx.get().parents) {
+                if (!visited(parent.get())) {
+                    ++reachable_txs;
+                    work_queue.push_back(parent);
+                }
+            }
+            for (auto child : next_tx.get().children) {
+                if (!visited(child.get())) {
+                    ++reachable_txs;
+                    work_queue.push_back(child);
+                }
+            }
+        }
+        if (reachable_txs != cluster->m_tx_count) return false;
+    }    
     return true;
+}
+
+void TxGraph::GetClusterSize(const std::vector<TxEntry::TxEntryRef>& parents, int64_t &cluster_size, int64_t &cluster_count) const
+{
+    LOCK(cs);
+    WITH_FRESH_EPOCH(m_epoch);
+
+    cluster_size = cluster_count = 0;
+    for (auto tx: parents) {
+        if (!visited(tx.get().m_cluster)) {
+            cluster_size += tx.get().m_cluster->m_tx_size;
+            cluster_count += tx.get().m_cluster->m_tx_count;
+        }
+    }
+    return;
 }
 
 Trimmer::Trimmer(TxGraph* tx_graph)
@@ -802,7 +878,7 @@ Trimmer::~Trimmer()
     }
 }
 
-TxSelector::TxSelector(TxGraph* tx_graph)
+TxSelector::TxSelector(const TxGraph* tx_graph)
     : m_tx_graph(tx_graph)
 {
     LOCK(m_tx_graph->cs);
@@ -817,7 +893,7 @@ TxSelector::TxSelector(TxGraph* tx_graph)
 
 TxSelector::~TxSelector() {}
     
-void TxSelector::SelectNextChunk(std::vector<TxEntry::TxEntryRef>& txs)
+FeeFrac TxSelector::SelectNextChunk(std::vector<TxEntry::TxEntryRef>& txs)
 {
     LOCK(m_tx_graph->cs);
     // Remove the top element (highest feerate) that matches the maximum vsize.
@@ -833,7 +909,7 @@ void TxSelector::SelectNextChunk(std::vector<TxEntry::TxEntryRef>& txs)
         }
     }
 
-    return;
+    return FeeFrac(m_last_entry_selected.first->fee, m_last_entry_selected.first->size);
 }
 
 void TxSelector::Success()
@@ -1022,7 +1098,7 @@ bool TxGraphChangeSet::AddTx(TxEntry::TxEntryRef tx, const std::vector<TxEntry::
         m_new_clusters.insert(new_cluster->m_id);
         new_cluster->MergeCopy(clusters_to_merge.begin(), clusters_to_merge.end());
         new_cluster->AddTransaction(tx.get(), false);
-        new_cluster->Sort(false);
+        m_sort_new_clusters = true;
 
         // Update our index of tx -> cluster assignment.
         for (auto& chunk : new_cluster->m_chunks) {

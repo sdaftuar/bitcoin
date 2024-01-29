@@ -194,10 +194,10 @@ bool BlockAssembler::TestPackage(uint64_t packageSize, int64_t packageSigOpsCost
 
 // Perform transaction-level checks before adding to block:
 // - transaction finality (locktime)
-bool BlockAssembler::TestPackageTransactions(const std::list<CTxMemPoolEntry::CTxMemPoolEntryRef>& txs) const
+bool BlockAssembler::TestPackageTransactions(const std::vector<const CTxMemPoolEntry *>& txs) const
 {
     for (auto tx : txs) {
-        if (!IsFinalTx(tx.get().GetTx(), nHeight, m_lock_time_cutoff)) {
+        if (!IsFinalTx(tx->GetTx(), nHeight, m_lock_time_cutoff)) {
             return false;
         }
     }
@@ -231,41 +231,33 @@ void BlockAssembler::addChunks(const CTxMemPool& mempool)
     const int64_t MAX_CONSECUTIVE_FAILURES = 1000;
     int64_t nConsecutiveFailed = 0;
 
-    std::vector<Cluster::HeapEntry> heap_chunks;
-    // Initialize the heap with the best entry from each cluster
-    for (const auto & [id, cluster] : mempool.m_cluster_map) {
-        if (!cluster->m_chunks.empty()) {
-            heap_chunks.emplace_back(cluster->m_chunks.begin(), cluster.get());
-        }
-    }
-    // Define comparison operator on our heap entries (using feerate of chunks).
-    auto cmp = [](const Cluster::HeapEntry& a, const Cluster::HeapEntry& b) {
-        // TODO: branch on size of fee to do this as 32-bit calculation
-        // instead? etc
-        return a.first->fee*b.first->size < b.first->fee*a.first->size;
-    };
-    // TODO: replace the heap with a priority queue
-    std::make_heap(heap_chunks.begin(), heap_chunks.end(), cmp);
+    // TODO: wrap this in some kind of mempool call, so that the TxGraph class
+    // is not exposed? Maybe the results can already be cast to CTxMemPoolEntry
+    // as well.
+    TxSelector txselector(&mempool.txgraph);
+    std::vector<TxEntry::TxEntryRef> selected_transactions;
+    FeeFrac chunk_feerate;
 
-    while (!heap_chunks.empty()) {
-        // Remove the top element (best feerate) and try to add to block.
-        auto best_chunk = heap_chunks.front();
-        std::pop_heap(heap_chunks.begin(), heap_chunks.end(), cmp);
-        heap_chunks.pop_back();
+    chunk_feerate = txselector.SelectNextChunk(selected_transactions);
+
+    while (selected_transactions.size() > 0) {
 
         // Check to see if min fee rate is still respected.
-        if (best_chunk.first->fee < m_options.blockMinFeeRate.GetFee(best_chunk.first->size)) {
+        if (chunk_feerate.fee < m_options.blockMinFeeRate.GetFee(chunk_feerate.size)) {
             // Everything else we might consider has a lower feerate
             return;
         }
 
         int64_t package_sig_ops = 0;
-        for (const auto& tx : best_chunk.first->txs) {
-            package_sig_ops += tx.get().GetSigOpCost();
+        std::vector<const CTxMemPoolEntry*> mempool_txs;
+        for (const auto& t : selected_transactions) {
+            const CTxMemPoolEntry& tx = dynamic_cast<const CTxMemPoolEntry&>(t.get());
+            mempool_txs.push_back(&tx);
+            package_sig_ops += tx.GetSigOpCost();
         }
 
         // Check to see if this chunk will fit.
-        if (!TestPackage(best_chunk.first->size, package_sig_ops) || !TestPackageTransactions(best_chunk.first->txs)) {
+        if (!TestPackage(chunk_feerate.size, package_sig_ops) || !TestPackageTransactions(mempool_txs)) {
             // This chunk won't fit, so we let it be removed from the heap and
             // we'll try the next best.
             // TODO: try to break up this chunk into smaller chunks for
@@ -277,20 +269,17 @@ void BlockAssembler::addChunks(const CTxMemPool& mempool)
                 // Give up if we're close to full and haven't succeeded in a while
                 break;
             }
-            continue;
-        }
+        } else {
+            txselector.Success();
 
-        // This chunk will fit, so add it to the block.
-        nConsecutiveFailed = 0;
-        for (const auto& tx : best_chunk.first->txs) {
-            AddToBlock(tx.get());
+            // This chunk will fit, so add it to the block.
+            nConsecutiveFailed = 0;
+            for (const auto& tx : mempool_txs) {
+                AddToBlock(*tx);
+            }
         }
-
-        ++best_chunk.first;
-        if (best_chunk.first != best_chunk.second->m_chunks.end()) {
-            heap_chunks.emplace_back(best_chunk);
-            std::push_heap(heap_chunks.begin(), heap_chunks.end(), cmp);
-        }
+        selected_transactions.clear();
+        chunk_feerate = txselector.SelectNextChunk(selected_transactions);
     }
 }
 } // namespace node

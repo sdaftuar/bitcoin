@@ -250,7 +250,7 @@ static RPCHelpMan testmempoolaccept()
     };
 }
 
-static std::vector<RPCResult> ClusterDescription()
+static std::vector<RPCResult> TxGraphClusterDescription()
 {
     return {
         RPCResult{RPCResult::Type::NUM, "vsize", "virtual transaction size as defined in BIP 141. This is different from actual serialized size for witness transactions as witness data is discounted."},
@@ -301,7 +301,7 @@ static std::vector<RPCResult> MempoolEntryDescription()
     };
 }
 
-static void clusterToJSON(const CTxMemPool& pool, UniValue& info, const Cluster& c) EXCLUSIVE_LOCKS_REQUIRED(pool.cs)
+static void clusterToJSON(const CTxMemPool& pool, UniValue& info, const TxGraphCluster& c) EXCLUSIVE_LOCKS_REQUIRED(pool.cs)
 {
     AssertLockHeld(pool.cs);
     info.pushKV("vsize", (int)c.m_tx_size);
@@ -316,7 +316,7 @@ static void clusterToJSON(const CTxMemPool& pool, UniValue& info, const Cluster&
 
         UniValue txids(UniValue::VARR);
         for (auto &tx : chunk.txs) {
-            txids.push_back(tx.get().GetTx().GetHash().ToString());
+            txids.push_back(dynamic_cast<const CTxMemPoolEntry&>(tx.get()).GetTx().GetHash().ToString());
         }
         chunkdata.pushKV("txids", txids);
 
@@ -344,15 +344,15 @@ static void entryToJSON(const CTxMemPool& pool, UniValue& info, const CTxMemPool
     info.pushKV("ancestorcount", ancestor_count);
     info.pushKV("ancestorsize", ancestor_size);
     info.pushKV("wtxid", e.GetTx().GetWitnessHash().ToString());
-    info.pushKV("chunksize", e.m_cluster->m_chunks[e.m_loc.first].size);
-    info.pushKV("clusterid", e.m_cluster->m_id);
+    //info.pushKV("chunksize", e.m_cluster->m_chunks[e.m_loc.first].size);
+    //info.pushKV("clusterid", e.m_cluster->m_id);
 
     UniValue fees(UniValue::VOBJ);
     fees.pushKV("base", ValueFromAmount(e.GetFee()));
     fees.pushKV("modified", ValueFromAmount(e.GetModifiedFee()));
     fees.pushKV("ancestor", ValueFromAmount(ancestor_fees));
     fees.pushKV("descendant", ValueFromAmount(descendant_fees));
-    fees.pushKV("chunk", ValueFromAmount(e.m_cluster->m_chunks[e.m_loc.first].fee));
+    //fees.pushKV("chunk", ValueFromAmount(e.m_cluster->m_chunks[e.m_loc.first].fee));
     info.pushKV("fees", fees);
 
     const CTransaction& tx = e.GetTx();
@@ -372,8 +372,8 @@ static void entryToJSON(const CTxMemPool& pool, UniValue& info, const CTxMemPool
     info.pushKV("depends", depends);
 
     UniValue spent(UniValue::VARR);
-    for (const CTxMemPoolEntry& child : e.GetMemPoolChildrenConst()) {
-        spent.push_back(child.GetTx().GetHash().ToString());
+    for (const auto& child : e.children) {
+        spent.push_back(dynamic_cast<const CTxMemPoolEntry&>(child.get()).GetTx().GetHash().ToString());
     }
 
     info.pushKV("spentby", spent);
@@ -460,41 +460,23 @@ static RPCHelpMan getmempoolfeesize()
             LOCK(mempool.cs);
 
             UniValue result(UniValue::VARR);
-
-            // TODO: refactor so that we're not just copying this from the miner.
-            std::vector<Cluster::HeapEntry> heap_chunks;
-            // Initialize the heap with the best entry from each cluster
-            for (const auto & [id, cluster] : mempool.m_cluster_map) {
-                if (!cluster->m_chunks.empty()) {
-                    heap_chunks.emplace_back(cluster->m_chunks.begin(), cluster.get());
-                }
-            }
-            // Define comparison operator on our heap entries (using feerate of chunks).
-            auto cmp = [](const Cluster::HeapEntry& a, const Cluster::HeapEntry& b) {
-                return a.first->fee*b.first->size < b.first->fee*a.first->size;
-            };
-            std::make_heap(heap_chunks.begin(), heap_chunks.end(), cmp);
+            TxSelector txselector(&mempool.txgraph);
+            std::vector<TxEntry::TxEntryRef> selected_transactions;
+            FeeFrac chunk_feerate = txselector.SelectNextChunk(selected_transactions);
 
             CAmount accum_fee{0};
             int64_t accum_size{0};
-            while (!heap_chunks.empty()) {
-                auto best_chunk = heap_chunks.front();
-                std::pop_heap(heap_chunks.begin(), heap_chunks.end(), cmp);
-                heap_chunks.pop_back();
-
-                accum_size += best_chunk.first->size;
-                accum_fee += best_chunk.first->fee;
+            while (selected_transactions.size() > 0) {
+                accum_size += chunk_feerate.size;
+                accum_fee += chunk_feerate.fee;
 
                 UniValue o(UniValue::VOBJ);
                 o.pushKV("size", accum_size);
                 o.pushKV("fee", ValueFromAmount(accum_fee));
                 result.push_back(o);
-
-                ++best_chunk.first;
-                if (best_chunk.first != best_chunk.second->m_chunks.end()) {
-                    heap_chunks.emplace_back(best_chunk);
-                    std::push_heap(heap_chunks.begin(), heap_chunks.end(), cmp);
-                }
+                txselector.Success();
+                selected_transactions.clear();
+                chunk_feerate = txselector.SelectNextChunk(selected_transactions);
             }
             return result;
         }
@@ -593,14 +575,14 @@ static RPCHelpMan getmempoolancestors()
 
     if (!fVerbose) {
         UniValue o(UniValue::VARR);
-        for (CTxMemPool::txiter ancestorIt : ancestors) {
-            o.push_back(ancestorIt->GetTx().GetHash().ToString());
+        for (const auto& ancestor : ancestors) {
+            o.push_back(ancestor.get().GetTx().GetHash().ToString());
         }
         return o;
     } else {
         UniValue o(UniValue::VOBJ);
-        for (CTxMemPool::txiter ancestorIt : ancestors) {
-            const CTxMemPoolEntry &e = *ancestorIt;
+        for (auto& entryRef : ancestors) {
+            const CTxMemPoolEntry &e = entryRef.get();
             const uint256& _hash = e.GetTx().GetHash();
             UniValue info(UniValue::VOBJ);
             entryToJSON(mempool, info, e);
@@ -685,7 +667,7 @@ static RPCHelpMan getmempoolcluster()
             {"id", RPCArg::Type::NUM, RPCArg::Optional::NO, "The cluster id (must be in mempool)"},
         },
         RPCResult{
-            RPCResult::Type::OBJ, "", "", ClusterDescription()},
+            RPCResult::Type::OBJ, "", "", TxGraphClusterDescription()},
         RPCExamples{
             HelpExampleCli("getmempoolcluster", "cluster_id")
             + HelpExampleRpc("getmempoolcluster", "cluster_id")
@@ -696,13 +678,15 @@ static RPCHelpMan getmempoolcluster()
 
     const CTxMemPool& mempool = EnsureAnyMemPool(request.context);
     LOCK(mempool.cs);
+    LOCK(mempool.txgraph.cs); // XXX this should not be exposed, need a way to
+                              // acquire the lock from the mempool.
 
-    auto it = mempool.m_cluster_map.find(cluster_id);
-    if (it == mempool.m_cluster_map.end()) {
-        throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Cluster not in mempool");
+    auto cluster = mempool.txgraph.GetClusterById(cluster_id);
+    if (cluster == nullptr) {
+        throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "TxGraphCluster not in mempool");
     }
 
-    const Cluster &c = *(it->second);
+    const TxGraphCluster &c = *cluster;
     UniValue info(UniValue::VOBJ);
     clusterToJSON(mempool, info, c);
     return info;
@@ -840,7 +824,9 @@ UniValue MempoolInfoToJSON(const CTxMemPool& pool)
     ret.pushKV("incrementalrelayfee", ValueFromAmount(pool.m_incremental_relay_feerate.GetFeePerK()));
     ret.pushKV("unbroadcastcount", uint64_t{pool.GetUnbroadcastTxs().size()});
     ret.pushKV("fullrbf", pool.m_full_rbf);
-    ret.pushKV("numberofclusters", pool.m_cluster_map.size());
+    ret.pushKV("numberofclusters", pool.txgraph.GetClusterCount());
+    // TODO: figure out how to do this again
+    #if 0
     int64_t max_cluster_count = 0;
     int64_t max_cluster_size = 0;
     for (const auto& [id, cluster] : pool.m_cluster_map) {
@@ -853,6 +839,7 @@ UniValue MempoolInfoToJSON(const CTxMemPool& pool)
     }
     ret.pushKV("maxclustercount", max_cluster_count);
     ret.pushKV("maxclustersize", max_cluster_size);
+    #endif
     return ret;
 }
 
@@ -875,9 +862,9 @@ static RPCHelpMan getmempoolinfo()
                 {RPCResult::Type::NUM, "incrementalrelayfee", "minimum fee rate increment for mempool limiting or replacement in " + CURRENCY_UNIT + "/kvB"},
                 {RPCResult::Type::NUM, "unbroadcastcount", "Current number of transactions that haven't passed initial broadcast yet"},
                 {RPCResult::Type::BOOL, "fullrbf", "True if the mempool accepts RBF without replaceability signaling inspection"},
-                {RPCResult::Type::NUM, "numberofclusters", "Number of mempool clusters"},
-                {RPCResult::Type::NUM, "maxclustercount", "Count of biggest cluster"},
-                {RPCResult::Type::NUM, "maxclustersize", "Size of biggest cluster"}
+                {RPCResult::Type::NUM, "numberofclusters", "Number of mempool clusters"}
+                //{RPCResult::Type::NUM, "maxclustercount", "Count of biggest cluster"},
+                //{RPCResult::Type::NUM, "maxclustersize", "Size of biggest cluster"}
             }},
         RPCExamples{
             HelpExampleCli("getmempoolinfo", "")

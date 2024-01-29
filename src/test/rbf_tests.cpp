@@ -201,43 +201,43 @@ BOOST_AUTO_TEST_CASE(feerate_diagram_utilities)
     // Sanity check the correctness of the feerate diagram comparison.
 
     // A strictly better case.
-    std::vector<FeeSizePoint> old_diagram{{FeeSizePoint{0, 0}, FeeSizePoint{300, 950}, FeeSizePoint{400, 1050}}};
-    std::vector<FeeSizePoint> new_diagram{{FeeSizePoint{0, 0}, FeeSizePoint{300, 1000}, FeeSizePoint{400, 1050}}};
+    std::vector<FeeFrac> old_diagram{{FeeFrac{0, 0}, FeeFrac{950, 300}, FeeFrac{1050, 400}}};
+    std::vector<FeeFrac> new_diagram{{FeeFrac{0, 0}, FeeFrac{1000, 300}, FeeFrac{1050, 400}}};
 
     BOOST_CHECK(CompareFeeSizeDiagram(old_diagram, new_diagram));
     BOOST_CHECK(!CompareFeeSizeDiagram(new_diagram, old_diagram));
 
     // Incomparable diagrams
-    old_diagram = {FeeSizePoint{0, 0}, FeeSizePoint{300, 950}, FeeSizePoint{400, 1050}};
-    new_diagram = {FeeSizePoint{0, 0}, FeeSizePoint{300, 1000}, FeeSizePoint{400, 1000}};
+    old_diagram = {FeeFrac{0, 0}, FeeFrac{950, 300}, FeeFrac{1050, 400}};
+    new_diagram = {FeeFrac{0, 0}, FeeFrac{1000, 300}, FeeFrac{1000, 400}};
 
     BOOST_CHECK(!CompareFeeSizeDiagram(old_diagram, new_diagram));
     BOOST_CHECK(!CompareFeeSizeDiagram(new_diagram, old_diagram));
 
     // Strictly better but smaller size.
-    old_diagram = {FeeSizePoint{0, 0}, FeeSizePoint{300, 950}, FeeSizePoint{400, 1050}};
-    new_diagram = {FeeSizePoint{0, 0}, FeeSizePoint{300, 1100}};
+    old_diagram = {FeeFrac{0, 0}, FeeFrac{950, 300}, FeeFrac{1050, 400}};
+    new_diagram = {FeeFrac{0, 0}, FeeFrac{1100, 300}};
 
     BOOST_CHECK(CompareFeeSizeDiagram(old_diagram, new_diagram));
     BOOST_CHECK(!CompareFeeSizeDiagram(new_diagram, old_diagram));
 
     // Feerate of first chunk is sufficiently better, but second chunk is worse.
-    old_diagram = {FeeSizePoint{0, 0}, FeeSizePoint{300, 950}, FeeSizePoint{400, 1050}};
-    new_diagram = {FeeSizePoint{0, 0}, FeeSizePoint{100, 1100}, FeeSizePoint{200, 1100}};
+    old_diagram = {FeeFrac{0, 0}, FeeFrac{950, 300}, FeeFrac{1050, 400}};
+    new_diagram = {FeeFrac{0, 0}, FeeFrac{1100, 100}, FeeFrac{1100, 200}};
 
     BOOST_CHECK(CompareFeeSizeDiagram(old_diagram, new_diagram));
     BOOST_CHECK(!CompareFeeSizeDiagram(new_diagram, old_diagram));
 
     // Feerate of first chunk is better, but second chunk is worse
-    old_diagram = {FeeSizePoint{0, 0}, FeeSizePoint{300, 950}, FeeSizePoint{400, 1050}};
-    new_diagram = {FeeSizePoint{0, 0}, FeeSizePoint{100, 7500}, FeeSizePoint{350, 999}, FeeSizePoint{500, 1150}};
+    old_diagram = {FeeFrac{0, 0}, FeeFrac{950, 300}, FeeFrac{1050, 400}};
+    new_diagram = {FeeFrac{0, 0}, FeeFrac{750, 100}, FeeFrac{999, 350}, FeeFrac{1150, 500}};
 
     BOOST_CHECK(!CompareFeeSizeDiagram(old_diagram, new_diagram));
     BOOST_CHECK(!CompareFeeSizeDiagram(new_diagram, old_diagram));
 
     // If we make the second chunk slightly better, the new diagram now wins.
-    old_diagram = {FeeSizePoint{0, 0}, FeeSizePoint{300, 950}, FeeSizePoint{400, 1050}};
-    new_diagram = {FeeSizePoint{0, 0}, FeeSizePoint{100, 750}, FeeSizePoint{350, 1000}, FeeSizePoint{500, 1150}};
+    old_diagram = {FeeFrac{0, 0}, FeeFrac{950, 300}, FeeFrac{1050, 400}};
+    new_diagram = {FeeFrac{0, 0}, FeeFrac{750, 100}, FeeFrac{1000, 350}, FeeFrac{1150, 500}};
 
     BOOST_CHECK(CompareFeeSizeDiagram(old_diagram, new_diagram));
     BOOST_CHECK(!CompareFeeSizeDiagram(new_diagram, old_diagram));

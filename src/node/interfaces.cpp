@@ -649,10 +649,7 @@ public:
     bool hasDescendantsInMempool(const uint256& txid) override
     {
         if (!m_node.mempool) return false;
-        LOCK(m_node.mempool->cs);
-        const auto entry{m_node.mempool->GetEntry(Txid::FromUint256(txid))};
-        if (entry == nullptr) return false;
-        return entry->GetMemPoolChildrenConst().size() > 0;
+        return m_node.mempool->HasDescendants(Txid::FromUint256(txid));
     }
     bool broadcastTransaction(const CTransactionRef& tx,
         const CAmount& max_tx_fee,
@@ -703,14 +700,7 @@ public:
     bool checkChainLimits(const CTransactionRef& tx) override
     {
         if (!m_node.mempool) return true;
-        LockPoints lp;
-        CTxMemPoolEntry entry(tx, 0, 0, 0, 0, false, 0, lp);
-        const CTxMemPool::Limits& limits{m_node.mempool->m_limits};
-        LOCK(m_node.mempool->cs);
-        auto ancestors = m_node.mempool->CalculateMemPoolAncestors(entry, true);
-        CTxMemPoolEntry::Parents parents;
-        for (auto ancestor : ancestors) parents.insert(*ancestor);
-        return m_node.mempool->CheckClusterSizeLimit(entry.GetTxSize(), 1, limits, parents).has_value();
+        return m_node.mempool->CheckClusterSizeLimit(tx).has_value();
     }
     CFeeRate estimateSmartFee(int num_blocks, bool conservative, FeeCalculation* calc) override
     {

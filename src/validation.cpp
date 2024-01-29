@@ -907,11 +907,7 @@ bool MemPoolAccept::ClusterSizeChecks(Workspace& ws)
     const CTxMemPool::setEntries& ancestors = ws.m_ancestors;
     TxValidationState& state = ws.m_state;
 
-    CTxMemPoolEntry::Parents parents;
-    for (auto ancestor : ancestors) {
-        parents.insert(*ancestor);
-    }
-    auto result{m_pool.CheckClusterSizeLimit(entry.GetTxSize(), 1, m_pool.m_limits, parents)};
+    auto result{m_pool.CheckClusterSizeLimit(entry.GetTxSize(), 1, m_pool.m_limits, ancestors)};
     if (!result) {
         return state.Invalid(TxValidationResult::TX_MEMPOOL_POLICY, "too-large-cluster", util::ErrorString(result).original);
     }

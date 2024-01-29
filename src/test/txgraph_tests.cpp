@@ -226,6 +226,7 @@ BOOST_AUTO_TEST_CASE(TxGraphClusterSortTest)
 BOOST_AUTO_TEST_CASE(TxGraphTest)
 {
     TxGraph txgraph;
+    GraphLimits limits{1'000'000'000, 1'000'000'000};
 
     std::vector<TxEntry*> all_entries;
     std::set<int64_t> in_mempool;
@@ -256,7 +257,7 @@ BOOST_AUTO_TEST_CASE(TxGraphTest)
             int64_t random_index = GetRand(all_entries.size());
             if (in_mempool.count(all_entries[random_index]->unique_id)) {
                 TxEntry *entry = all_entries[random_index];
-                std::vector<TxEntry::TxEntryRef> all_conflicts = txgraph.GetDescendants(*entry);
+                std::vector<TxEntry::TxEntryRef> all_conflicts = txgraph.GetDescendants({*entry});
                 GraphLimits limits{100, 1000000};
                 TxGraphChangeSet changeset(&txgraph, limits, all_conflicts);
                 TxEntry *new_entry = new TxEntry(GetRand(1000)+1, GetRand(1000)+1);
@@ -293,7 +294,7 @@ BOOST_AUTO_TEST_CASE(TxGraphTest)
             // Remove a random transaction and its descendants, 5% of the time.
             int64_t random_index = GetRand(all_entries.size());
             if (in_mempool.count(all_entries[random_index]->unique_id)) {
-                std::vector<TxEntry::TxEntryRef> to_remove = txgraph.GetDescendants(*all_entries[random_index]);
+                std::vector<TxEntry::TxEntryRef> to_remove = txgraph.GetDescendants({*all_entries[random_index]});
                 txgraph.RemoveBatch(to_remove);
                 for (size_t k=0; k<to_remove.size(); ++k) {
                     in_mempool.erase(to_remove[k].get().unique_id);
@@ -306,7 +307,7 @@ BOOST_AUTO_TEST_CASE(TxGraphTest)
             while (selected_transactions.size() < num_to_remove) {
                 int64_t random_index = GetRand(all_entries.size());
                 if (in_mempool.count(all_entries[random_index]->unique_id)) {
-                    std::vector<TxEntry::TxEntryRef> to_mine = txgraph.GetAncestors(*all_entries[random_index]);
+                    std::vector<TxEntry::TxEntryRef> to_mine = txgraph.GetAncestors({*all_entries[random_index]});
                     selected_transactions.insert(to_mine.begin(), to_mine.end());
                 }
             }
@@ -377,7 +378,6 @@ BOOST_AUTO_TEST_CASE(TxGraphTest)
                 }
                 txgraph.AddTx(all_entries.back(), all_entries.back()->GetTxSize(), all_entries.back()->GetModifiedFee(), parents);
             }
-            GraphLimits limits{1'000'000'000, 1'000'000'000};
             std::vector<TxEntry::TxEntryRef> removed;
             txgraph.AddParentTxs(new_transactions, limits, [&](const TxEntry& tx) { return children_map[tx.unique_id]; }, removed);
             BOOST_CHECK(removed.size() == 0); // no limits should be hit
@@ -397,7 +397,7 @@ BOOST_AUTO_TEST_CASE(TxGraphTest)
             }
             BOOST_CHECK(feerate == CFeeRate(total_fee, total_size));
         }
-        assert(txgraph.Check());
+        assert(txgraph.Check(limits));
     }
 }
 

@@ -101,7 +101,7 @@ private:
       * locktime, premature-witness, serialized size (if necessary)
       * These checks should always succeed, and they're here
       * only as an extra check in case of suboptimal node configuration */
-    bool TestPackageTransactions(const std::list<CTxMemPoolEntry::CTxMemPoolEntryRef>& txs) const;
+    bool TestPackageTransactions(const std::vector<const CTxMemPoolEntry *>& txs) const;
 };
 
 int64_t UpdateTime(CBlockHeader* pblock, const Consensus::Params& consensusParams, const CBlockIndex* pindexPrev);

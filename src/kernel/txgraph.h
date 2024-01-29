@@ -7,6 +7,7 @@
 #include <util/epochguard.h>
 #include <memusage.h>
 #include <sync.h>
+#include <util/check.h>
 
 #include <atomic>
 #include <functional>
@@ -37,6 +38,7 @@ public:
 
     TxEntry(int32_t vsize, CAmount modified_fee)
         : m_virtual_size(vsize), m_modified_fee(modified_fee) {}
+    virtual ~TxEntry() {}
     int64_t unique_id{++unique_id_counter};
     int32_t m_virtual_size;
     CAmount m_modified_fee;              //!< Tx fee (including prioritisetransaction effects)
@@ -89,7 +91,7 @@ public:
     void AssignTransactions();
 
     // Sanity checks -- verify metadata matches and clusters are topo-sorted.
-    bool Check();
+    bool Check() const;
 
 private:
     // Helper function
@@ -149,10 +151,10 @@ private:
 
 class TxSelector {
 public:
-    TxSelector(TxGraph *tx_graph);
+    TxSelector(const TxGraph *tx_graph);
     ~TxSelector();
     // Return the next chunk in the mempool that is at most max_vsize in size.
-    void SelectNextChunk(std::vector<TxEntry::TxEntryRef>& txs);
+    FeeFrac SelectNextChunk(std::vector<TxEntry::TxEntryRef>& txs);
     // If the transactions were successfully used, then notify the TxSelector
     // to keep selecting transactions from the same cluster.
     void Success();
@@ -163,7 +165,7 @@ public:
 private:
     std::vector<TxGraphCluster::HeapEntry> heap_chunks;
 
-    TxGraph *m_tx_graph{nullptr};
+    const TxGraph *m_tx_graph{nullptr};
     TxGraphCluster::HeapEntry m_last_entry_selected{TxGraphCluster::ChunkIter(), nullptr};
 };
 
@@ -211,7 +213,6 @@ class TxGraph {
 
     void RemoveBatch(std::vector<TxEntry::TxEntryRef> &txs_removed);
 
-
     // add a group of parent transactions, but limit resulting cluster sizes.
     void AddParentTxs(std::vector<TxEntry::TxEntryRef> parent_txs, GraphLimits limits, std::function<std::vector<TxEntry::TxEntryRef>(TxEntry::TxEntryRef)> func, std::vector<TxEntry::TxEntryRef> &txs_removed);
 
@@ -219,11 +220,57 @@ class TxGraph {
     // We need to do this iteratively, so lazy updating of state would be better.
     void RemoveChunkForEviction(TxGraphCluster *cluster) EXCLUSIVE_LOCKS_REQUIRED(cs);
 
-    std::vector<TxEntry::TxEntryRef> GetAncestors(const TxEntry& tx);
+    std::vector<TxEntry::TxEntryRef> GetAncestors(const std::vector<TxEntry::TxEntryRef>& txs) const;
 
-    std::vector<TxEntry::TxEntryRef> GetDescendants(const TxEntry& tx);
+    std::vector<TxEntry::TxEntryRef> GetDescendants(const std::vector<TxEntry::TxEntryRef>& txs) const;
 
-    bool Check(); // sanity checks
+    // Return all transactions in the clusters that the given transactions are part of.
+    std::vector<TxEntry::TxEntryRef> GatherAllClusterTransactions(const std::vector<TxEntry::TxEntryRef> &txs) const;
+
+    void GetClusterSize(const std::vector<TxEntry::TxEntryRef>& parents, int64_t &cluster_size, int64_t &cluster_count) const;
+    TxGraphCluster* GetClusterById(int64_t id) const EXCLUSIVE_LOCKS_REQUIRED(cs) { 
+        auto it = m_cluster_map.find(id);
+        if (it != m_cluster_map.end()) return it->second.get();
+        return nullptr;
+    }
+    uint64_t GetClusterCount() const { LOCK(cs); return m_cluster_map.size(); }
+
+    bool Check(GraphLimits limits) const; // sanity checks
+
+    bool HasDescendants(const TxEntry& tx) const { 
+        return tx.children.size() > 0;
+    }
+
+    bool CompareMiningScore(const TxEntry& a, const TxEntry& b) const {
+        if (&a == &b) return false;
+
+        CAmount a_fee = a.m_cluster->m_chunks[a.m_loc.first].fee;
+        int64_t a_size = a.m_cluster->m_chunks[a.m_loc.first].size;
+        CAmount b_fee = b.m_cluster->m_chunks[b.m_loc.first].fee;
+        int64_t b_size = b.m_cluster->m_chunks[b.m_loc.first].size;
+
+        FeeFrac a_frac(a_fee, a_size);
+        FeeFrac b_frac(b_fee, b_size);
+        if (a_frac != b_frac) {
+            return a_frac > b_frac;
+        } else if (a.m_cluster != b.m_cluster) {
+            // Equal scores in different clusters; sort by cluster id.
+            return a.m_cluster->m_id < b.m_cluster->m_id;
+            //return a->GetTx().GetHash() < b->GetTx().GetHash();
+        } else if (a.m_loc.first != b.m_loc.first) {
+            // Equal scores in same cluster; sort by chunk index.
+            return a.m_loc.first < b.m_loc.first;
+        } else {
+            // Equal scores in same cluster and chunk; sort by position in chunk.
+            for (auto it = a.m_cluster->m_chunks[a.m_loc.first].txs.begin();
+                    it != a.m_cluster->m_chunks[a.m_loc.first].txs.end(); ++it) {
+                if (&(it->get()) == &a) return true;
+                if (&(it->get()) == &b) return false;
+            }
+        }
+        Assume(false); // this should not be reachable.
+        return true;
+    }
 
 private:
     // Create a new (empty) cluster in the cluster map, and return a pointer to it.
@@ -248,8 +295,11 @@ private:
 
     void UpdateTxGraphClusterForDescendants(const TxEntry& tx) EXCLUSIVE_LOCKS_REQUIRED(cs);
 
+public:
+    uint64_t GetInnerUsage() const { LOCK(cs); return cachedInnerUsage; }
+
+    mutable RecursiveMutex cs; // TODO: figure out how this coud be private? used by rpc code, bleh
 private:
-    mutable RecursiveMutex cs;
 
     // TxGraphClusters
     std::unordered_map<int64_t, std::unique_ptr<TxGraphCluster>> m_cluster_map GUARDED_BY(cs);
