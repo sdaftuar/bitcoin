@@ -85,6 +85,8 @@ private:
     const bool spendsCoinbase;      //!< keep track of transactions that spend a coinbase
     const int64_t sigOpCost;        //!< Total sigop cost
     mutable LockPoints lockPoints;  //!< Track the height and time at which tx was final
+public:
+    mutable Epoch::Marker mempool_epoch_marker; //!< epoch when last touched
 
 public:
     CTxMemPoolEntry(const CTransactionRef& tx, CAmount fee,
