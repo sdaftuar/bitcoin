@@ -344,15 +344,15 @@ static void entryToJSON(const CTxMemPool& pool, UniValue& info, const CTxMemPool
     info.pushKV("ancestorcount", ancestor_count);
     info.pushKV("ancestorsize", ancestor_size);
     info.pushKV("wtxid", e.GetTx().GetWitnessHash().ToString());
-    //info.pushKV("chunksize", e.m_cluster->m_chunks[e.m_loc.first].size);
-    //info.pushKV("clusterid", e.m_cluster->m_id);
+    info.pushKV("chunksize", e.m_cluster->m_chunks[e.m_loc.first].size);
+    info.pushKV("clusterid", e.m_cluster->m_id);
 
     UniValue fees(UniValue::VOBJ);
     fees.pushKV("base", ValueFromAmount(e.GetFee()));
     fees.pushKV("modified", ValueFromAmount(e.GetModifiedFee()));
     fees.pushKV("ancestor", ValueFromAmount(ancestor_fees));
     fees.pushKV("descendant", ValueFromAmount(descendant_fees));
-    //fees.pushKV("chunk", ValueFromAmount(e.m_cluster->m_chunks[e.m_loc.first].fee));
+    fees.pushKV("chunk", ValueFromAmount(e.m_cluster->m_chunks[e.m_loc.first].fee));
     info.pushKV("fees", fees);
 
     const CTransaction& tx = e.GetTx();
