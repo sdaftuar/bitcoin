@@ -332,8 +332,9 @@ void CTxMemPool::removeUnchecked(txiter it, MemPoolRemovalReason reason)
         std::chrono::duration_cast<std::chrono::duration<std::uint64_t>>(it->GetTime()).count()
     );
 
-    for (const CTxIn& txin : it->GetTx().vin)
+    for (const CTxIn& txin : it->GetTx().vin) {
         mapNextTx.erase(txin.prevout);
+    }
 
     RemoveUnbroadcastTx(it->GetTx().GetHash(), true /* add logging because unchecked */);
 
@@ -413,7 +414,7 @@ void CTxMemPool::removeRecursive(const CTransaction &origTx, MemPoolRemovalReaso
 
     setAllRemoves.insert(all_removes.begin(), all_removes.end());
 
-    RemoveStaged(setAllRemoves, false, reason);
+    RemoveStaged(setAllRemoves, reason);
 }
 
 void CTxMemPool::removeForReorg(CChain& chain, std::function<bool(txiter)> check_final_and_mature)
@@ -431,7 +432,7 @@ void CTxMemPool::removeForReorg(CChain& chain, std::function<bool(txiter)> check
     setEntries setAllRemoves;
     setAllRemoves.insert(descendants.begin(), descendants.end());
 
-    RemoveStaged(setAllRemoves, false, MemPoolRemovalReason::REORG);
+    RemoveStaged(setAllRemoves, MemPoolRemovalReason::REORG);
     for (indexed_transaction_set::const_iterator it = mapTx.begin(); it != mapTx.end(); it++) {
         assert(TestLockPointValidity(chain, it->GetLockPoints()));
     }
@@ -854,7 +855,7 @@ void CTxMemPool::RemoveUnbroadcastTx(const uint256& txid, const bool unchecked) 
     }
 }
 
-void CTxMemPool::RemoveStaged(setEntries &stage, bool updateDescendants, MemPoolRemovalReason reason) 
+void CTxMemPool::RemoveStaged(setEntries &stage, MemPoolRemovalReason reason)
 {
     AssertLockHeld(cs);
 
@@ -883,7 +884,7 @@ int CTxMemPool::Expire(std::chrono::seconds time)
     setEntries stage;
     stage.insert(descendants.begin(), descendants.end());
 
-    RemoveStaged(stage, false, MemPoolRemovalReason::EXPIRY);
+    RemoveStaged(stage, MemPoolRemovalReason::EXPIRY);
     return stage.size();
 }
 
@@ -1046,9 +1047,12 @@ std::vector<CTxMemPool::txiter> CTxMemPool::GatherClusters(const std::vector<uin
     return ret;
 }
 
-bool CTxMemPool::CalculateFeerateDiagramsForRBF(const CTxMemPoolEntry& entry, CAmount modified_fee, setEntries direct_conflicts, setEntries all_conflicts, std::vector<FeeFrac>& old_diagram, std::vector<FeeFrac>& new_diagram)
+bool CTxMemPool::CalculateFeerateDiagramsForRBF(CTxMemPoolEntry& entry, CAmount modified_fee, setEntries direct_conflicts, setEntries all_conflicts, std::vector<FeeFrac>& old_diagram, std::vector<FeeFrac>& new_diagram)
 {
     LOCK(cs);
+
+    CAmount old_fee = entry.GetModifiedFee();
+    entry.m_modified_fee = modified_fee;
 
     std::vector<TxEntry::TxEntryRef> to_remove;
     for (auto it : all_conflicts) {
@@ -1057,9 +1061,11 @@ bool CTxMemPool::CalculateFeerateDiagramsForRBF(const CTxMemPoolEntry& entry, CA
 
     TxGraphChangeSet changeset(&txgraph, m_limits, to_remove);
     if (!changeset.AddTx(entry, CalculateParents(entry))) {
+        entry.m_modified_fee = old_fee;
         return false;
     }
     changeset.GetFeerateDiagramOld(old_diagram);
     changeset.GetFeerateDiagramNew(new_diagram);
+    entry.m_modified_fee = old_fee;
     return true;
 }

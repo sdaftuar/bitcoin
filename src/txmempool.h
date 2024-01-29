@@ -416,7 +416,7 @@ public:
      *  also be in the set, unless this transaction is being removed for being
      *  in a block.
      */
-    void RemoveStaged(setEntries& stage, bool updateDescendants, MemPoolRemovalReason reason) EXCLUSIVE_LOCKS_REQUIRED(cs);
+    void RemoveStaged(setEntries& stage, MemPoolRemovalReason reason) EXCLUSIVE_LOCKS_REQUIRED(cs);
     void RemoveSingleTxForBlock(txiter it) EXCLUSIVE_LOCKS_REQUIRED(cs);
 
     /** UpdateTransactionsFromBlock is called when adding transactions from a
@@ -509,7 +509,7 @@ public:
 
     std::vector<txiter> CalculateDescendants(std::vector<txiter> txs) const EXCLUSIVE_LOCKS_REQUIRED(cs);
 
-    bool CalculateFeerateDiagramsForRBF(const CTxMemPoolEntry& entry, CAmount
+    bool CalculateFeerateDiagramsForRBF(CTxMemPoolEntry& entry, CAmount
             modified_fee, setEntries direct_conflicts, setEntries all_conflicts,
             std::vector<FeeFrac>& old_diagram, std::vector<FeeFrac>& new_diagram);
 
@@ -655,11 +655,11 @@ public:
      */
     bool visited(const CTxMemPoolEntry& entry) const EXCLUSIVE_LOCKS_REQUIRED(cs, m_epoch)
     {
-        return m_epoch.visited(entry.m_epoch_marker);
+        return m_epoch.visited(entry.mempool_epoch_marker);
     }
     bool visited(const txiter it) const EXCLUSIVE_LOCKS_REQUIRED(cs, m_epoch)
     {
-        return m_epoch.visited(it->m_epoch_marker);
+        return m_epoch.visited(it->mempool_epoch_marker);
     }
 
     bool visited(std::optional<txiter> it) const EXCLUSIVE_LOCKS_REQUIRED(cs, m_epoch)
