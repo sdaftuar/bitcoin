@@ -491,7 +491,7 @@ void CTxMemPool::removeForBlock(const std::vector<CTransactionRef>& vtx, unsigne
     blockSinceLastRollingFeeBump = true;
 }
 
-void CTxMemPool::check(const CCoinsViewCache& active_coins_tip, int64_t spendheight) const
+void CTxMemPool::check(const CCoinsViewCache& active_coins_tip, int64_t spendheight, Limits *limits) const
 {
     if (m_check_ratio == 0) return;
 
@@ -501,7 +501,11 @@ void CTxMemPool::check(const CCoinsViewCache& active_coins_tip, int64_t spendhei
     LOCK(cs);
     LogPrint(BCLog::MEMPOOL, "Checking mempool with %u transactions and %u inputs\n", (unsigned int)mapTx.size(), (unsigned int)mapNextTx.size());
 
-    assert(txgraph.Check(m_limits));
+    if (limits) {
+        assert(txgraph.Check(*limits));
+    } else {
+        assert(txgraph.Check(m_limits));
+    }
 
     uint64_t checkTotal = 0;
     CAmount check_total_fee{0};
