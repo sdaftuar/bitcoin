@@ -907,9 +907,9 @@ FeeFrac TxSelector::SelectNextChunk(std::vector<TxEntry::TxEntryRef>& txs)
         for (auto& tx : m_last_entry_selected.first->txs) {
             txs.emplace_back(tx);
         }
+        return FeeFrac(m_last_entry_selected.first->fee, m_last_entry_selected.first->size);
     }
-
-    return FeeFrac(m_last_entry_selected.first->fee, m_last_entry_selected.first->size);
+    return FeeFrac(0, 0);
 }
 
 void TxSelector::Success()
