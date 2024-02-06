@@ -143,7 +143,7 @@ std::optional<std::string> PackageV3Checks(const CTransactionRef& ptx, int64_t v
 // check whether we should imbue the parent with v3-semantics. If it is so
 // imbued, then the child will be required to comply with the v3-child
 // semantics.
-bool ImbueV3Parent(const CTxMemPool::txiter it)
+bool ImbueV3Parent(const CTxMemPool::txiter it, const CTransactionRef& child)
 {
     const CTransaction& tx = it->GetTx();
 
@@ -211,7 +211,10 @@ std::optional<std::string> ApplyV3Rules(const CTransactionRef& ptx,
 
     bool imbue_v3_semantics{false};
     for (const auto& entry : mempool_ancestors) {
-        imbue_v3_semantics |= ImbueV3Parent(entry);
+        imbue_v3_semantics |= ImbueV3Parent(entry, ptx);
+        if (ImbueV3Parent(entry, ptx)) {
+            LogPrintf("ImbueV3Parent matched for child %s, parent %s\n", ptx->GetHash().ToString(), entry->GetTx().GetHash().ToString());
+        }
     }
 
     if (!imbue_v3_semantics && ptx->nVersion != 3) {

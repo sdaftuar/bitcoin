@@ -954,6 +954,7 @@ bool MemPoolAccept::PreChecks(ATMPArgs& args, Workspace& ws)
 
     ws.m_ancestors = *ancestors;
     if (const auto err_string{ApplyV3Rules(ws.m_ptx, ws.m_ancestors, ws.m_conflicts, ws.m_vsize)}) {
+        LogPrintf("v3-rule-violation: %s failed (%s)\n", ws.m_ptx->GetHash().ToString().c_str(), *err_string);
         return state.Invalid(TxValidationResult::TX_MEMPOOL_POLICY, "v3-rule-violation", *err_string);
     }
 
