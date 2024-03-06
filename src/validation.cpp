@@ -293,6 +293,10 @@ static bool IsCurrentForFeeEstimation(Chainstate& active_chainstate) EXCLUSIVE_L
     return true;
 }
 
+static SteadyClock::duration time_mempool_updatetxs{};
+static SteadyClock::duration time_mempool_remove{};
+static int64_t num_reorgs_total = 0;
+
 void Chainstate::MaybeUpdateMempoolForReorg(
     DisconnectedBlockTransactions& disconnectpool,
     bool fAddToMempool)
@@ -326,12 +330,18 @@ void Chainstate::MaybeUpdateMempoolForReorg(
         }
     }
 
+    ++num_reorgs_total;
+
+    const auto time_1{SteadyClock::now()};
+
     // AcceptToMemoryPool/addUnchecked all assume that new mempool entries have
     // no in-mempool children, which is generally not true when adding
     // previously-confirmed transactions back to the mempool.
     // UpdateTransactionsFromBlock finds descendants of any transactions in
     // the disconnectpool that were added back and cleans up the mempool state.
     m_mempool->UpdateTransactionsFromBlock(vHashUpdate);
+
+    const auto time_2{SteadyClock::now()};
 
     // Predicate to use for filtering transactions in removeForReorg.
     // Checks whether the transaction is still final and, if it spends a coinbase output, mature.
@@ -385,6 +395,21 @@ void Chainstate::MaybeUpdateMempoolForReorg(
 
     // We also need to remove any now-immature transactions
     m_mempool->removeForReorg(m_chain, filter_final_and_mature);
+    const auto time_3{SteadyClock::now()};
+
+    time_mempool_updatetxs += time_2 - time_1;
+    time_mempool_remove += time_3 - time_2;
+
+    LogPrint(BCLog::BENCH, "Mempool UpdateTransactionsFromBlock: %.3fms [%.3fs (%.3fms/reorg)]\n",
+            Ticks<MillisecondsDouble>(time_2-time_1),
+            Ticks<SecondsDouble>(time_mempool_updatetxs),
+            Ticks<MillisecondsDouble>(time_mempool_updatetxs)/num_reorgs_total);
+
+    LogPrint(BCLog::BENCH, "Mempool removeForReorg: %.3fms [%.3fs (%.3fms/reorg)]\n",
+            Ticks<MillisecondsDouble>(time_3-time_2),
+            Ticks<SecondsDouble>(time_mempool_remove),
+            Ticks<MillisecondsDouble>(time_mempool_remove)/num_reorgs_total);
+
     // Re-limit mempool size, in case we added any transactions
     LimitMempoolSize(*m_mempool, this->CoinsTip());
 }
@@ -1108,6 +1133,10 @@ bool MemPoolAccept::ConsensusScriptChecks(const ATMPArgs& args, Workspace& ws)
     return true;
 }
 
+static SteadyClock::duration time_mempool_addremove{};
+static SteadyClock::duration time_limitsize{};
+static int64_t num_txs_total = 0;
+
 bool MemPoolAccept::Finalize(const ATMPArgs& args, Workspace& ws)
 {
     AssertLockHeld(cs_main);
@@ -1140,9 +1169,23 @@ bool MemPoolAccept::Finalize(const ATMPArgs& args, Workspace& ws)
         );
         ws.m_replaced_transactions.push_back(it->GetSharedTx());
     }
+
+    const auto time_1{SteadyClock::now()};
     m_pool.RemoveStaged(ws.m_all_conflicting, false, MemPoolRemovalReason::REPLACED);
     // Store transaction in memory
     m_pool.addUnchecked(*entry, ws.m_ancestors);
+    const auto time_2{SteadyClock::now()};
+
+    time_mempool_addremove += time_2 - time_1;
+
+    ++num_txs_total;
+
+    if (num_txs_total % 5000 == 0) {
+        LogPrint(BCLog::BENCH, "Mempool RemoveStaged + addUnchecked: %.3fms [%.3fs (%.3fms/tx)]\n",
+            Ticks<MillisecondsDouble>(time_2-time_1),
+            Ticks<SecondsDouble>(time_mempool_addremove),
+            Ticks<MillisecondsDouble>(time_mempool_addremove)/num_txs_total);
+    }
 
     // trim mempool and check if tx was trimmed
     // If we are validating a package, don't trim here because we could evict a previous transaction
@@ -1150,6 +1193,13 @@ bool MemPoolAccept::Finalize(const ATMPArgs& args, Workspace& ws)
     // is still within limits and package submission happens atomically.
     if (!args.m_package_submission && !bypass_limits) {
         LimitMempoolSize(m_pool, m_active_chainstate.CoinsTip());
+        const auto time_3{SteadyClock::now()};
+        time_limitsize += time_3-time_2;
+        if (num_txs_total % 5000 == 0) {
+            LogPrint(BCLog::BENCH, "LimitMempoolSize: [%.3fs (%.3fms/tx)]\n",
+                    Ticks<SecondsDouble>(time_limitsize),
+                    Ticks<MillisecondsDouble>(time_limitsize)/num_txs_total);
+        }
         if (!m_pool.exists(GenTxid::Txid(hash)))
             // The tx no longer meets our (new) mempool minimum feerate but could be reconsidered in a package.
             return state.Invalid(TxValidationResult::TX_RECONSIDERABLE, "mempool full");
@@ -1239,6 +1289,9 @@ bool MemPoolAccept::SubmitPackage(const ATMPArgs& args, std::vector<Workspace>& 
     return all_submitted;
 }
 
+static SteadyClock::duration time_replacement_checks{};
+static int64_t num_replacements_total = 0;
+
 MempoolAcceptResult MemPoolAccept::AcceptSingleTransaction(const CTransactionRef& ptx, ATMPArgs& args)
 {
     AssertLockHeld(cs_main);
@@ -1255,7 +1308,25 @@ MempoolAcceptResult MemPoolAccept::AcceptSingleTransaction(const CTransactionRef
         return MempoolAcceptResult::Failure(ws.m_state);
     }
 
-    if (m_rbf && !ReplacementChecks(ws)) return MempoolAcceptResult::Failure(ws.m_state);
+    if (m_rbf) {
+        ++num_replacements_total;
+        const auto time_1{SteadyClock::now()};
+        auto res = ReplacementChecks(ws);
+        const auto time_2{SteadyClock::now()};
+
+        time_replacement_checks += time_2-time_1;
+
+        if (num_replacements_total % 100 == 0) {
+            LogPrint(BCLog::BENCH, "Validation ReplacementChecks: %.3fms [%.3fs (%.3fms/tx)]\n",
+                    Ticks<MillisecondsDouble>(time_2-time_1),
+                    Ticks<SecondsDouble>(time_replacement_checks),
+                    Ticks<MillisecondsDouble>(time_replacement_checks)/num_replacements_total);
+        }
+
+        if (!res) {
+            return MempoolAcceptResult::Failure(ws.m_state);
+        }
+     }
 
     // Perform the inexpensive checks first and avoid hashing and signature verification unless
     // those checks pass, to mitigate CPU exhaustion denial-of-service attacks.
