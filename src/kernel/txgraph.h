@@ -9,6 +9,16 @@
 #include <sync.h>
 #include <util/check.h>
 
+#include <boost/multi_index_container.hpp>
+#include <boost/multi_index/member.hpp>
+#include <boost/multi_index/ordered_index.hpp>
+#include <boost/multi_index/identity.hpp>
+#include <boost/multi_index/indexed_by.hpp>
+#include <boost/multi_index/ordered_index.hpp>
+#include <boost/multi_index/sequenced_index.hpp>
+#include <boost/multi_index/tag.hpp>
+#include <boost/multi_index_container.hpp>
+
 #include <atomic>
 #include <functional>
 #include <list>
@@ -130,7 +140,7 @@ public:
     const int64_t m_id;
     mutable Epoch::Marker m_epoch_marker; //!< epoch when last touched
 
-    TxGraph *m_tx_graph{nullptr};  
+    TxGraph *m_tx_graph{nullptr};
 };
 
 class Trimmer {
@@ -228,7 +238,7 @@ class TxGraph {
     std::vector<TxEntry::TxEntryRef> GatherAllClusterTransactions(const std::vector<TxEntry::TxEntryRef> &txs) const;
 
     void GetClusterSize(const std::vector<TxEntry::TxEntryRef>& parents, int64_t &cluster_size, int64_t &cluster_count) const;
-    TxGraphCluster* GetClusterById(int64_t id) const EXCLUSIVE_LOCKS_REQUIRED(cs) { 
+    TxGraphCluster* GetClusterById(int64_t id) const EXCLUSIVE_LOCKS_REQUIRED(cs) {
         auto it = m_cluster_map.find(id);
         if (it != m_cluster_map.end()) return it->second.get();
         return nullptr;
@@ -237,7 +247,7 @@ class TxGraph {
 
     bool Check(GraphLimits limits) const; // sanity checks
 
-    bool HasDescendants(const TxEntry& tx) const { 
+    bool HasDescendants(const TxEntry& tx) const {
         return tx.children.size() > 0;
     }
 
@@ -273,6 +283,48 @@ class TxGraph {
     }
 
 private:
+    struct worst_chunk {};
+    struct best_chunk {};
+    struct id {};
+
+    class CompareTxGraphClusterByWorstChunk {
+    public:
+        bool operator()(const TxGraphCluster& a, const TxGraphCluster& b) const
+        {
+            return FeeFrac(a.m_chunks.back().fee, a.m_chunks.back().size) < FeeFrac(b.m_chunks.back().fee, b.m_chunks.back().size);
+        }
+    };
+
+    class CompareTxGraphClusterByBestChunk {
+    public:
+        bool operator()(const TxGraphCluster& a, const TxGraphCluster& b) const
+        {
+            return FeeFrac(a.m_chunks.front().fee, a.m_chunks.front().size) > FeeFrac(b.m_chunks.front().fee, b.m_chunks.front().size);
+        }
+    };
+    typedef boost::multi_index_container<
+        TxGraphCluster,
+        boost::multi_index::indexed_by<
+            // sorted by lowest chunk feerate
+            boost::multi_index::ordered_non_unique<
+                boost::multi_index::tag<worst_chunk>,
+                boost::multi_index::identity<TxGraphCluster>,
+                CompareTxGraphClusterByWorstChunk
+            >,
+            // sorted by highest chunk feerate
+            boost::multi_index::ordered_non_unique<
+                boost::multi_index::tag<best_chunk>,
+                boost::multi_index::identity<TxGraphCluster>,
+                CompareTxGraphClusterByBestChunk
+            >,
+            boost::multi_index::ordered_unique<
+                boost::multi_index::tag<id>,
+                boost::multi_index::member<TxGraphCluster, const int64_t, &TxGraphCluster::m_id>
+            >
+        >
+    > indexed_cluster_set;
+
+    indexed_cluster_set cluster_index;
     // Create a new (empty) cluster in the cluster map, and return a pointer to it.
     TxGraphCluster* AssignTxGraphCluster() EXCLUSIVE_LOCKS_REQUIRED(cs);
 
