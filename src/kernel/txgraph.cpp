@@ -301,6 +301,25 @@ void TxGraphCluster::Merge(std::vector<TxGraphCluster*>::iterator first, std::ve
     assert(m_tx_count == total_txs);
 }
 
+void TxGraph::UpdateClusterIndex(TxGraphCluster* c)
+{
+    auto it = m_cluster_index.get<id>().find(c->m_id);
+    if (it != m_cluster_index.get<id>().end()) {
+        m_cluster_index.get<id>().erase(it);
+    }
+    m_cluster_index.insert(c);
+}
+
+void TxGraph::EraseCluster(TxGraphCluster* c)
+{
+    LOCK(cs);
+    auto it = m_cluster_index.get<id>().find(c->m_id);
+    if (it != m_cluster_index.get<id>().end()) {
+        m_cluster_index.get<id>().erase(it);
+    }
+    m_cluster_map.erase(c->m_id);
+}
+
 void TxGraph::AddTx(TxEntry *new_tx, int32_t vsize, CAmount modified_fee, const std::vector<TxEntry::TxEntryRef>& parents)
 {
     LOCK(cs);
@@ -325,22 +344,25 @@ void TxGraph::AddTx(TxEntry *new_tx, int32_t vsize, CAmount modified_fee, const 
         new_tx->m_cluster = AssignTxGraphCluster();
         new_tx->m_cluster->AddTransaction(*new_tx, true);
         cachedInnerUsage += new_tx->m_cluster->GetMemoryUsage();
+        UpdateClusterIndex(new_tx->m_cluster);
     } else if (clusters_to_merge.size() == 1) {
         cachedInnerUsage -= clusters_to_merge[0]->GetMemoryUsage();
         // Only one parent cluster: add to it.
         new_tx->m_cluster = clusters_to_merge[0];
         clusters_to_merge[0]->AddTransaction(*new_tx, true);
         cachedInnerUsage += clusters_to_merge[0]->GetMemoryUsage();
+        UpdateClusterIndex(new_tx->m_cluster);
     } else {
         cachedInnerUsage -= clusters_to_merge[0]->GetMemoryUsage();
         clusters_to_merge[0]->Merge(clusters_to_merge.begin()+1, clusters_to_merge.end(), false, true);
         // Add this transaction to the cluster.
         new_tx->m_cluster = clusters_to_merge[0];
         clusters_to_merge[0]->AddTransaction(*new_tx, true);
+        UpdateClusterIndex(new_tx->m_cluster);
         // Need to delete the other clusters.
         for (auto it=clusters_to_merge.begin()+1; it != clusters_to_merge.end(); ++it) {
             cachedInnerUsage -= (*it)->GetMemoryUsage();
-            m_cluster_map.erase((*it)->m_id);
+            EraseCluster(*it);
         }
         cachedInnerUsage += clusters_to_merge[0]->GetMemoryUsage();
     }
@@ -517,6 +539,7 @@ void TxGraph::RecalculateTxGraphClusterAndMaybeSort(TxGraphCluster *cluster, boo
         } else {
             cluster->Rechunk();
         }
+        UpdateClusterIndex(cluster);
         cachedInnerUsage += cluster->GetMemoryUsage();
     }
 
@@ -553,7 +576,7 @@ void TxGraph::RemoveBatch(std::vector<TxEntry::TxEntryRef> &txs_removed)
             }
             RemoveTx(t);
             if (delete_now) {
-                m_cluster_map.erase(cluster->m_id);
+                EraseCluster(cluster);
             }
         }
     }
@@ -561,7 +584,7 @@ void TxGraph::RemoveBatch(std::vector<TxEntry::TxEntryRef> &txs_removed)
     // repartition/re-sort the remaining clusters (which could have split).
     for (auto c : cluster_clean_up) {
         if (c->m_tx_count == 0) {
-            m_cluster_map.erase(c->m_id);
+            EraseCluster(c);
         } else {
             RecalculateTxGraphClusterAndMaybeSort(c, true);
         }
@@ -712,6 +735,7 @@ void TxGraph::AddParentTxs(std::vector<TxEntry::TxEntryRef> parent_txs, GraphLim
             cachedInnerUsage -= cluster->GetMemoryUsage();
             cluster->Sort();
             cachedInnerUsage += cluster->GetMemoryUsage();
+            UpdateClusterIndex(cluster);
         }
     }
 }
@@ -738,7 +762,7 @@ void TxGraph::UpdateTxGraphClusterForDescendants(const TxEntry& tx)
         clusters_to_merge[0]->Merge(clusters_to_merge.begin()+1, clusters_to_merge.end(), true, true);
         // Need to delete the other clusters.
         for (auto it=clusters_to_merge.begin()+1; it!= clusters_to_merge.end(); ++it) {
-            m_cluster_map.erase((*it)->m_id);
+            EraseCluster(*it);
         }
         // Note: we cannot re-sort the cluster here, because (a) we are not yet
         // finished merging connected clusters together, so some parents may be
@@ -758,14 +782,22 @@ bool TxGraph::Check(GraphLimits limits) const
 
     LOCK(cs);
     // Run sanity checks on each cluster.
-    for (const auto & [id, cluster] : m_cluster_map) {
+    for (const auto & [cluster_id, cluster] : m_cluster_map) {
         if (!cluster->Check()) {
             return false;
         }
         if (cluster->m_tx_count > limits.cluster_count || cluster->m_tx_size > limits.cluster_size_vbytes) {
             return false;
         }
+
+        // Ensure that every cluster in the cluster map corresponds to a cluster in the cluster index
+        auto it = m_cluster_index.get<id>().find(cluster_id);
+        if (it == m_cluster_index.get<id>().end()) return false;
+        if ((*it) != cluster.get()) return false;
     }
+
+    // Check that every cluster in the multi_index is in the cluster_map
+    if (m_cluster_index.size() != m_cluster_map.size()) return false;
 
     // Check that each cluster is connected.
     for (const auto & [id, cluster] : m_cluster_map) {
@@ -871,7 +903,7 @@ Trimmer::~Trimmer()
     for (TxGraphCluster* cluster : clusters_with_evictions) {
         m_tx_graph->cachedInnerUsage -= cluster->GetMemoryUsage();
         if (cluster->m_tx_count == 0) {
-            m_tx_graph->m_cluster_map.erase(cluster->m_id);
+            m_tx_graph->EraseCluster(cluster);
         } else {
             m_tx_graph->RecalculateTxGraphClusterAndMaybeSort(cluster, false);
         }
@@ -1034,7 +1066,7 @@ void TxGraphChangeSet::Apply()
     // Delete any clusters that are no longer needed.
     for (auto &cluster : m_clusters_to_delete) {
         m_tx_graph->cachedInnerUsage -= cluster->GetMemoryUsage();
-        m_tx_graph->m_cluster_map.erase(cluster->m_id);
+        m_tx_graph->EraseCluster(cluster);
     }
     m_clusters_to_delete.clear();
 
@@ -1043,6 +1075,7 @@ void TxGraphChangeSet::Apply()
         auto cluster = m_tx_graph->m_cluster_map[cluster_id].get();
         m_tx_graph->cachedInnerUsage += cluster->GetMemoryUsage();
         cluster->AssignTransactions();
+        m_tx_graph->UpdateClusterIndex(cluster);
     }
     m_new_clusters.clear();
 
