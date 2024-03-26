@@ -291,7 +291,11 @@ private:
     public:
         bool operator()(const TxGraphCluster& a, const TxGraphCluster& b) const
         {
-            return FeeFrac(a.m_chunks.back().fee, a.m_chunks.back().size) < FeeFrac(b.m_chunks.back().fee, b.m_chunks.back().size);
+            return operator()(&a, &b);
+        }
+        bool operator()(const TxGraphCluster* a, const TxGraphCluster* b) const
+        {
+            return FeeFrac(a->m_chunks.back().fee, a->m_chunks.back().size) < FeeFrac(b->m_chunks.back().fee, b->m_chunks.back().size);
         }
     };
 
@@ -299,11 +303,15 @@ private:
     public:
         bool operator()(const TxGraphCluster& a, const TxGraphCluster& b) const
         {
-            return FeeFrac(a.m_chunks.front().fee, a.m_chunks.front().size) > FeeFrac(b.m_chunks.front().fee, b.m_chunks.front().size);
+            return operator()(&a, &b);
+        }
+        bool operator()(const TxGraphCluster* a, const TxGraphCluster* b) const
+        {
+            return FeeFrac(a->m_chunks.front().fee, a->m_chunks.front().size) > FeeFrac(b->m_chunks.front().fee, b->m_chunks.front().size);
         }
     };
     typedef boost::multi_index_container<
-        TxGraphCluster,
+        TxGraphCluster*,
         boost::multi_index::indexed_by<
             // sorted by lowest chunk feerate
             boost::multi_index::ordered_non_unique<
@@ -324,7 +332,11 @@ private:
         >
     > indexed_cluster_set;
 
-    indexed_cluster_set cluster_index;
+    indexed_cluster_set m_cluster_index;
+
+    void EraseCluster(TxGraphCluster* c);
+    void UpdateClusterIndex(TxGraphCluster* c);
+
     // Create a new (empty) cluster in the cluster map, and return a pointer to it.
     TxGraphCluster* AssignTxGraphCluster() EXCLUSIVE_LOCKS_REQUIRED(cs);
 
