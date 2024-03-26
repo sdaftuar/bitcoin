@@ -854,42 +854,34 @@ void TxGraph::GetClusterSize(const std::vector<TxEntry::TxEntryRef>& parents, in
 Trimmer::Trimmer(TxGraph* tx_graph)
     : m_tx_graph(tx_graph)
 {
-    // TODO: we don't need the chunk in the heap, just the cluster.
-    for (const auto & [id, cluster] : tx_graph->m_cluster_map) {
-        if (!cluster->m_chunks.empty()) {
-            heap_chunks.emplace_back(cluster->m_chunks.end()-1, cluster.get());
-        }
-    }
-
-    std::make_heap(heap_chunks.begin(), heap_chunks.end(), ChunkCompare);
 }
 
 CFeeRate Trimmer::RemoveWorstChunk(std::vector<TxEntry::TxEntryRef>& txs_to_remove)
 {
     LOCK(m_tx_graph->cs);
-    // Remove the top element (lowest feerate) and evict.
-    auto worst_chunk = heap_chunks.front();
-    std::pop_heap(heap_chunks.begin(), heap_chunks.end(), Trimmer::ChunkCompare);
-    heap_chunks.pop_back();
 
-    // Save the txs being removed.
-    for (auto& tx : worst_chunk.second->m_chunks.back().txs) {
-        txs_to_remove.emplace_back(tx);
+    TxGraph::indexed_cluster_set::index<TxGraph::worst_chunk>::type::iterator it = m_tx_graph->m_cluster_index.get<TxGraph::worst_chunk>().begin();
+
+    if (it != m_tx_graph->m_cluster_index.get<TxGraph::worst_chunk>().end()) {
+        auto cluster = *it;
+        for (auto& tx : cluster->m_chunks.back().txs) {
+            txs_to_remove.emplace_back(tx);
+        }
+
+        CFeeRate removed(cluster->m_chunks.back().fee, cluster->m_chunks.back().size);
+
+        m_tx_graph->RemoveChunkForEviction(cluster);
+        if (cluster->m_tx_count > 0) {
+            m_tx_graph->UpdateClusterIndex(cluster);
+        } else {
+            m_tx_graph->m_cluster_index.get<TxGraph::worst_chunk>().erase(it);
+        }
+        clusters_with_evictions.insert(cluster);
+
+        return removed;
     }
 
-    // Remove the worst chunk from the cluster.
-    m_tx_graph->RemoveChunkForEviction(worst_chunk.second);
-
-    // Check to see if there are more eviction candidates in this cluster.
-    if (worst_chunk.second->m_tx_count > 0) {
-        heap_chunks.emplace_back(worst_chunk.second->m_chunks.end()-1, worst_chunk.second);
-        std::push_heap(heap_chunks.begin(), heap_chunks.end(), Trimmer::ChunkCompare);
-    }
-
-    clusters_with_evictions.insert(worst_chunk.second);
-
-    CFeeRate removed(worst_chunk.first->fee, worst_chunk.first->size);
-    return removed;
+    return CFeeRate{};
 }
 
 Trimmer::~Trimmer()

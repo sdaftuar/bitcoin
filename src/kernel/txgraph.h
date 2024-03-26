@@ -150,10 +150,6 @@ public:
     CFeeRate RemoveWorstChunk(std::vector<TxEntry::TxEntryRef>& txs_to_remove);
 
 private:
-    static bool ChunkCompare(const TxGraphCluster::HeapEntry& a, const TxGraphCluster::HeapEntry& b) {
-        return FeeFrac(a.first->fee, a.first->size) > FeeFrac(b.first->fee, b.first->size);
-    }
-    std::vector<TxGraphCluster::HeapEntry> heap_chunks;
     std::set<TxGraphCluster*> clusters_with_evictions;
 
     TxGraph *m_tx_graph{nullptr};
