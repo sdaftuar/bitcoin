@@ -374,9 +374,11 @@ void TxGraph::RemoveTx(TxEntry::TxEntryRef remove_tx)
     // Update the parent/child state
     for (const TxEntry::TxEntryRef& parent: remove_tx.get().parents) {
         parent.get().children.erase(remove_tx);
+        cachedInnerUsage -= memusage::IncrementalDynamicUsage(parent.get().children);
     }
     for (const TxEntry::TxEntryRef& child: remove_tx.get().children) {
         child.get().parents.erase(remove_tx);
+        cachedInnerUsage -= memusage::IncrementalDynamicUsage(child.get().parents);
     }
     // Update the cluster
     remove_tx.get().m_cluster->RemoveTransaction(remove_tx.get());
@@ -799,6 +801,23 @@ bool TxGraph::Check(GraphLimits limits) const
     // Check that every cluster in the multi_index is in the cluster_map
     if (m_cluster_index.size() != m_cluster_map.size()) return false;
 
+    // Check that cachedInnerUsage is correct.
+    uint64_t expected_memory_usage{0};
+    TxEntry::TxEntryParents p;
+    TxEntry::TxEntryChildren c;
+    for (const auto & [cluter_id, cluster] : m_cluster_map) {
+        expected_memory_usage += cluster->GetMemoryUsage();
+        for (auto &chunk : cluster->m_chunks) {
+            for (auto& tx : chunk.txs) {
+                expected_memory_usage += tx.get().parents.size() * memusage::IncrementalDynamicUsage(p);
+                expected_memory_usage += tx.get().children.size() * memusage::IncrementalDynamicUsage(c);
+            }
+        }
+    }
+    if (expected_memory_usage != cachedInnerUsage) {
+        return false;
+    }
+
     // Check that each cluster is connected.
     for (const auto & [id, cluster] : m_cluster_map) {
         // We'll check that if we walk to every transaction reachable from the
@@ -1045,6 +1064,10 @@ void TxGraphChangeSet::Apply()
 
     if (m_sort_new_clusters) SortNewClusters();
 
+    for (auto &cluster : m_clusters_to_delete) {
+        m_tx_graph->cachedInnerUsage -= cluster->GetMemoryUsage();
+    }
+
     // Remove the transactions from the graph.
     {
         for (auto &tx : m_txs_to_remove) {
@@ -1057,7 +1080,6 @@ void TxGraphChangeSet::Apply()
 
     // Delete any clusters that are no longer needed.
     for (auto &cluster : m_clusters_to_delete) {
-        m_tx_graph->cachedInnerUsage -= cluster->GetMemoryUsage();
         m_tx_graph->EraseCluster(cluster);
     }
     m_clusters_to_delete.clear();
@@ -1076,7 +1098,7 @@ void TxGraphChangeSet::Apply()
     // transactions.
     TxEntry::TxEntryParents p;
     for (auto &tx : m_txs_to_add) {
-        m_tx_graph->cachedInnerUsage += memusage::IncrementalDynamicUsage(p)*tx.get().parents.size();
+        m_tx_graph->cachedInnerUsage += memusage::DynamicUsage(tx.get().parents);
         for (auto& parent : tx.get().parents) {
             m_tx_graph->UpdateChild(parent, tx, true);
         }
