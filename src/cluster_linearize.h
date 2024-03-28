@@ -14,6 +14,7 @@
 #include <optional>
 #include <vector>
 #include <tuple>
+#include <deque>
 
 #include <util/bitset.h>
 #include <util/feefrac.h>
@@ -161,7 +162,7 @@ public:
     void Done(const Cluster<S>& cluster, const DescendantSets<S>& desc, const S& new_done) noexcept
     {
 #if DEBUG_LINEARIZE
-        assert((m_done & new_done).None());
+        assert(!(m_done && new_done));
 #endif
         m_done |= new_done;
         for (unsigned pos : new_done) {
@@ -188,11 +189,11 @@ public:
     const FeeFrac& operator[](unsigned i) const noexcept { return m_anc_feefracs[i]; }
 };
 
-/** Precomputation data structure for sorting a cluster based on individual transaction FeeFrac. */
+/** Precomputation data structure for reordering a cluster based on a provided order. */
 template<typename S>
-struct SortedCluster
+struct ReorderedCluster
 {
-    /** The cluster in individual FeeFrac sorted order (both itself and its dependencies) */
+    /** The reordered cluster (both itself and its dependencies) */
     Cluster<S> cluster;
     /** Mapping from the original order (input to constructor) to sorted order. */
     std::vector<unsigned> original_to_sorted;
@@ -215,21 +216,13 @@ struct SortedCluster
         return ret;
     }
 
-    /** Construct a sorted cluster object given a (non-sorted) cluster as input. */
-    SortedCluster(const Cluster<S>& orig_cluster)
+    /** Construct a reordered cluster object given a (non-sorted) cluster as input. */
+    ReorderedCluster(const Cluster<S>& orig_cluster, std::vector<unsigned> order)
     {
         // Allocate vectors.
-        sorted_to_original.resize(orig_cluster.size());
-        original_to_sorted.resize(orig_cluster.size());
-        cluster.resize(orig_cluster.size());
-        // Compute sorted_to_original mapping.
-        std::iota(sorted_to_original.begin(), sorted_to_original.end(), 0U);
-        std::sort(sorted_to_original.begin(), sorted_to_original.end(), [&](unsigned i, unsigned j) {
-            if (orig_cluster[i].first == orig_cluster[j].first) {
-                return i < j;
-            }
-            return orig_cluster[i].first > orig_cluster[j].first;
-        });
+        sorted_to_original = std::move(order);
+        original_to_sorted.resize(sorted_to_original.size());
+        cluster.resize(sorted_to_original.size());
         // Use sorted_to_original to fill original_to_sorted.
         for (size_t i = 0; i < orig_cluster.size(); ++i) {
             original_to_sorted[sorted_to_original[i]] = i;
@@ -240,6 +233,29 @@ struct SortedCluster
             cluster[i].second = OriginalToSorted(orig_cluster[sorted_to_original[i]].second);
         }
     }
+};
+
+/** Precomputation data structure for sorting a cluster based on individual transaction FeeFrac. */
+template<typename S>
+struct SortedCluster : public ReorderedCluster<S>
+{
+private:
+    static std::vector<unsigned> SortMapping(const Cluster<S>& orig_cluster)
+    {
+        std::vector<unsigned> sorted_to_original(orig_cluster.size());
+        // Compute sorted_to_original mapping.
+        std::iota(sorted_to_original.begin(), sorted_to_original.end(), 0U);
+        std::sort(sorted_to_original.begin(), sorted_to_original.end(), [&](unsigned i, unsigned j) {
+            if (orig_cluster[i].first == orig_cluster[j].first) {
+                return i < j;
+            }
+            return orig_cluster[i].first > orig_cluster[j].first;
+        });
+        return sorted_to_original;
+    }
+
+public:
+    SortedCluster(const Cluster<S>& orig_cluster) : ReorderedCluster<S>(orig_cluster, SortMapping(orig_cluster)) {}
 };
 
 /** Given a cluster and its ancestor sets, find the one with the best FeeFrac. */
@@ -272,6 +288,8 @@ CandidateSetAnalysis<S> FindBestAncestorSet(const Cluster<S>& cluster, const Anc
     return ret;
 }
 
+#define CANDIDATE_PRESPLIT_ANC
+
 /** An efficient algorithm for finding the best candidate set. Believed to be O(~1.6^n).
  *
  * cluster must be sorted (see SortedCluster) by individual feerate, and anc/desc/done must use
@@ -302,8 +320,8 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const Cluster<S>& cluster,
      * - pot_feefrac: equal to ComputeSetFeeFrac(cluster, pot / done). */
     using QueueElem = std::tuple<S, S, S, FeeFrac, FeeFrac>;
     /** Queues with work items. */
-    static constexpr unsigned NUM_QUEUES = 4;
-    std::vector<QueueElem> queue[NUM_QUEUES];
+    static constexpr unsigned NUM_QUEUES = 1;
+    std::deque<QueueElem> queue[NUM_QUEUES];
     /** Sum of total number of queue items across all queues. */
     unsigned queue_tot{0};
     /** Very fast local random number generator. */
@@ -312,6 +330,8 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const Cluster<S>& cluster,
     S best_candidate;
     /** Equal to ComputeSetFeeFrac(cluster, best_candidate / done). */
     FeeFrac best_feefrac;
+    /** Transactions which have feerate > best_feefrac. */
+    S imp = todo;
     /** The number of insertions so far into the queues in total. */
     unsigned insert_count{0};
 
@@ -325,28 +345,29 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const Cluster<S>& cluster,
      * - inc_feefrac: equal to ComputeSetFeeFrac(cluster, inc / done).
      * - pot_feefrac: equal to ComputeSetFeeFrac(cluster, pot / done).
      * - inc_may_be_best: whether the possibility exists that inc_feefrac > best_feefrac.
+     * - consider_inc: subset of (pot / inc) to consider adding to inc through jump ahead.
      */
-    auto add_fn = [&](const S& init_inc, const S& exc, S&& pot, FeeFrac&& inc_feefrac, FeeFrac&& pot_feefrac, bool inc_may_be_best) {
+    auto add_fn = [&](const S& init_inc, const S& exc, S pot, FeeFrac inc_feefrac, FeeFrac pot_feefrac, bool inc_may_be_best, S consider_inc) {
         // Add missing entries to pot (and pot_feefrac). We iterate over all undecided transactions
-        // excluding pot.
-        for (unsigned pos : todo / (pot | exc)) {
+        // excluding pot whose feerate is higher than best_feefrac.
+        for (unsigned pos : imp / (pot | exc)) {
             // Determine if adding transaction pos to pot (ignoring topology) would improve it. If
             // not, we're done updating pot.
-            ++ret.iterations;
             if (!pot_feefrac.IsEmpty()) {
                 ++ret.comparisons;
                 if (!(cluster[pos].first >> pot_feefrac)) break;
             }
             pot_feefrac += cluster[pos].first;
             pot.Set(pos);
+            consider_inc.Set(pos);
         }
 
         // If (pot / done) is empty, this is certainly uninteresting to work on.
         if (pot_feefrac.IsEmpty()) return;
 
-        // If any transaction in pot has only missing ancestors in pot, add it (and its ancestors)
-        // to inc. This is legal because any topologically-valid subset of pot must be part of the
-        // best possible candidate reachable from this state. To see this:
+        // If any transaction in consider_inc has only missing ancestors in pot, add it (and its
+        // ancestors) to inc. This is legal because any topologically-valid subset of pot must be
+        // part of the best possible candidate reachable from this state. To see this:
         // - The feefrac of every element of (pot / inc) is higher than that of (pot / done),
         //   which on its turn is higher than that of (inc / done).
         // - Thus, the feefrac of any non-empty subset of (pot / inc) is higher than that of the
@@ -360,8 +381,7 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const Cluster<S>& cluster,
         bool updated_inc{false};
         S inc = init_inc;
         // Iterate over all transactions in pot that are not yet included in inc.
-        for (unsigned pos : pot / inc) {
-            ++ret.iterations;
+        for (unsigned pos : consider_inc) {
             // If that transaction's ancestors are a subset of pot, and the transaction is
             // (still) not part of inc, we can merge it together with its ancestors to inc.
             if (!inc[pos] && (pot >> anc[pos])) {
@@ -391,12 +411,18 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const Cluster<S>& cluster,
             if (new_best) {
                 best_feefrac = inc_feefrac;
                 best_candidate = inc;
+                while (imp.Any()) {
+                    unsigned check = imp.Last();
+                    ++ret.comparisons;
+                    if (cluster[check].first >> best_feefrac) break;
+                    imp.Reset(check);
+                }
             }
         }
 
-        // Only if any transactions with feefrac better than inc_feefrac exist add this entry to the
-        // queue. If not, it is unimprovable, and it is not worth exploring further.
-        if (pot_feefrac == inc_feefrac) return;
+        // If no potential transactions exist beyond the already included ones, no improvement
+        // is possible anymore.
+        if (pot == inc) return;
 
         // Construct a new work item in one of the queues, in a round-robin fashion, and update
         // statistics.
@@ -418,7 +444,6 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const Cluster<S>& cluster,
         S added = component;
         // Compute the transitive closure of "is ancestor or descendant of but not done or after".
         while (true) {
-            ++ret.iterations;
             S prev_component = component;
             for (unsigned i : added) {
                 component |= anc[i];
@@ -428,6 +453,8 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const Cluster<S>& cluster,
             if (prev_component == component) break;
             added = component / prev_component;
         }
+        auto exclude_others = todo / component;
+#ifdef CANDIDATE_PRESPLIT_ANC
         // Find highest ancestor feerate transaction in the component using the precomputed values.
         FeeFrac best_ancestor_feefrac;
         unsigned best_ancestor_tx{0};
@@ -445,10 +472,12 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const Cluster<S>& cluster,
         // Add queue entries corresponding to the inclusion and the exclusion of that highest
         // ancestor feerate transaction. This guarantees that regardless of how many iterations
         // are performed later, the best found is always at least as good as the best ancestor set.
-        auto exclude_others = todo / component;
-        add_fn(done, after | desc[best_ancestor_tx] | exclude_others, S{done}, {}, {}, false);
+        add_fn(done, after | desc[best_ancestor_tx] | exclude_others, done, {}, {}, false, {});
         auto inc{done | anc[best_ancestor_tx]};
-        add_fn(inc, after | exclude_others, S{inc}, FeeFrac{best_ancestor_feefrac}, std::move(best_ancestor_feefrac), true);
+        add_fn(inc, after | exclude_others, inc, best_ancestor_feefrac, best_ancestor_feefrac, true, {});
+#else
+        add_fn(done, after | exclude_others, done, {}, {}, false, {});
+#endif
         // Update the set of transactions to cover, and finish if there are none left.
         to_cover /= component;
         if (to_cover.None()) break;
@@ -456,48 +485,40 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const Cluster<S>& cluster,
 
     // Work processing loop.
     while (queue_tot) {
-        ++ret.iterations;
-
         // Find a queue to pop a work item from.
         unsigned queue_idx;
         do {
             queue_idx = rng() % NUM_QUEUES;
         } while (queue[queue_idx].empty());
 
+        // Move the work item from the queue to local variables, popping it.
+        auto [inc, exc, pot, inc_feefrac, pot_feefrac] = std::move(queue[queue_idx].front());
+        queue[queue_idx].pop_front();
+        --queue_tot;
+
         // If this item's potential feefrac is not better than the best seen so far, drop it.
-        const auto& pot_feefrac_ref = std::get<4>(queue[queue_idx].back());
-#if DEBUG_LINEARIZE
-        assert(pot_feefrac_ref.size > 0);
-#endif
         if (!best_feefrac.IsEmpty()) {
             ++ret.comparisons;
-            if (pot_feefrac_ref <= best_feefrac) {
-                queue[queue_idx].pop_back();
-                --queue_tot;
-                continue;
-            }
+            if (pot_feefrac <= best_feefrac) continue;
         }
 
-        // Move the work item from the queue to local variables, popping it.
-        auto [inc, exc, pot, inc_feefrac, pot_feefrac] = std::move(queue[queue_idx].back());
-        queue[queue_idx].pop_back();
-        --queue_tot;
+        ++ret.iterations;
 
         // Decide which transaction to split on (create new work items; one with it included, one
         // with it excluded).
         //
-        // Among the (undecided) ancestors and descendants of the best individual feefrac undecided
-        // transaction, pick the one which:
+        // Among the (undecided) ancestors of the highest individual feefrac transaction, pick the
+        // one which reduces the search space most:
         // - Minimizes the size of the largest of the undecided sets after including or excluding.
         // - If the above is equal, the one that minimizes the other branch's undecided set size.
         // - If the above are equal, the one with the best individual feefrac.
         unsigned pos = 0;
-        std::optional<std::pair<unsigned, unsigned>> pos_counts;
         auto remain = todo / inc;
         remain /= exc;
         unsigned first = remain.First();
-        for (unsigned i : (anc[first] | desc[first]) & remain) {
-            ++ret.iterations;
+        auto select = remain & anc[first];
+        std::optional<std::pair<unsigned, unsigned>> pos_counts;
+        for (unsigned i : select) {
             std::pair<unsigned, unsigned> counts{(remain / anc[i]).Count(), (remain / desc[i]).Count()};
             if (counts.first < counts.second) std::swap(counts.first, counts.second);
             if (!pos_counts.has_value() || counts < *pos_counts) {
@@ -505,10 +526,17 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const Cluster<S>& cluster,
                 pos_counts = counts;
             }
         }
+        if (!pos_counts.has_value()) continue;
 
         // Consider adding a work item corresponding to that transaction excluded. As nothing is
         // being added to inc, this new entry cannot be a new best.
-        add_fn(inc, exc | desc[pos], pot / desc[pos], FeeFrac{inc_feefrac}, pot_feefrac - ComputeSetFeeFrac(cluster, pot & desc[pos]), false);
+        add_fn(/*init_inc=*/inc,
+               /*exc=*/exc | desc[pos],
+               /*pot=*/pot / desc[pos],
+               /*inc_feefrac=*/inc_feefrac,
+               /*pot_feefrac=*/pot_feefrac - ComputeSetFeeFrac(cluster, pot & desc[pos]),
+               /*inc_may_be_best=*/false,
+               /*consider_inc=*/{});
 
         // Consider adding a work item corresponding to that transaction included. Since only
         // connected subgraphs can be optimal candidates, if there is no overlap between the
@@ -518,17 +546,266 @@ CandidateSetAnalysis<S> FindBestCandidateSetEfficient(const Cluster<S>& cluster,
         // due to the preseeding with the best ancestor set, we know that anything better must
         // necessarily consist of the union of at least two ancestor sets, and this is not a
         // concern.
-        bool may_be_new_best = !(done >> (inc & anc[pos]));
-        inc_feefrac += ComputeSetFeeFrac(cluster, anc[pos] / inc);
-        pot_feefrac += ComputeSetFeeFrac(cluster, anc[pos] / pot);
-        inc |= anc[pos];
-        pot |= anc[pos];
-        add_fn(inc, exc, std::move(pot), std::move(inc_feefrac), std::move(pot_feefrac), may_be_new_best);
+        add_fn(/*init_inc=*/inc | anc[pos],
+               /*exc=*/exc,
+               /*pot=*/pot | anc[pos],
+               /*inc_feefrac=*/inc_feefrac + ComputeSetFeeFrac(cluster, anc[pos] / inc),
+               /*pot_feefrac=*/pot_feefrac + ComputeSetFeeFrac(cluster, anc[pos] / pot),
+#ifdef CANDIDATE_PRESPLIT_ANC
+               /*inc_may_be_best=*/!(done >> (inc & anc[pos])),
+#else
+               /*inc_may_be_best=*/!(done >> (inc & anc[pos])) || (done == inc),
+#endif
+               /*consider_inc=*/pot / inc);
     }
 
     // Return the best seen candidate set.
     ret.best_candidate_set = best_candidate / done;
     ret.best_candidate_feefrac = best_feefrac;
+    return ret;
+}
+
+template<typename S>
+std::vector<std::pair<FeeFrac, S>> ChunkLinearization(const Cluster<S>& cluster, Span<const unsigned> linearization)
+{
+    std::vector<std::pair<FeeFrac, S>> chunks;
+    chunks.reserve(linearization.size());
+    for (unsigned i : linearization) {
+        S add;
+        add.Set(i);
+        FeeFrac add_feefrac = cluster[i].first;
+        while (!chunks.empty() && add_feefrac >> chunks.back().first) {
+            add |= chunks.back().second;
+            add_feefrac += chunks.back().first;
+            chunks.pop_back();
+        }
+        chunks.emplace_back(add_feefrac, add);
+    }
+    return chunks;
+}
+
+/** Given a cluster and a linearization for it, improve the linearization such that its chunks are
+ *  all connected. It may also result in improved sub-chunk ordering.
+ *
+ * O(n^2) in the size of the cluster in the worst case. If the input linearization is the output
+ * of PostLinearization itself, runtime is O(n). */
+template<typename S>
+void PostLinearization(const Cluster<S>& cluster, std::vector<unsigned>& linearization, uint64_t* swaps = nullptr)
+{
+    struct Entry {
+        /** data index for previous transaction in this chunk (cyclic). */
+        unsigned prev_tx;
+        // The following fields are only relevant for the heads of chunks:
+        /** - data index for the head of the previous chunk (cyclic). */
+        unsigned prev_chunk;
+        /** - the chunk feerate. */
+        FeeFrac chunk_feerate;
+        /** - the set of all chunk members */
+        S chunk;
+        /** - the set of all chunk parents */
+        S parents;
+    };
+    /** data[i+1] contains information about transaction 'i'. data[0] is a sentinel. */
+    std::vector<Entry> data(cluster.size() + 1);
+    data[0].prev_tx = 0;
+    data[0].prev_chunk = 0;
+    uint64_t num_swaps = 0;
+    for (unsigned i : linearization) {
+        // Create a new chunk with just transaction 'i' at the end.
+        auto& entry = data[i + 1];
+        entry.prev_tx = i + 1;
+        entry.prev_chunk = data[0].prev_chunk;
+        data[0].prev_chunk = i + 1;
+        entry.chunk_feerate = cluster[i].first;
+        assert(entry.chunk.None());
+        entry.chunk.Set(i);
+        entry.parents = cluster[i].second;
+        // 'after_work' is the head of the chunk *after* the one we're working on.
+        // We start working on the newly inserted chunk, so after_work starts at the sentinel.
+        unsigned after_work = 0;
+        while (true) {
+            unsigned work = data[after_work].prev_chunk;
+            assert(work != 0); // cannot work on the sentinel
+            unsigned before_work = data[work].prev_chunk;
+            // If the previous chunk is the sentinel, we are done.
+            if (before_work == 0) break;
+            // If the previous chunk has higher or equal feerate, we are done.
+            if (!(data[before_work].chunk_feerate << data[work].chunk_feerate)) break;
+            // Check whether there is a dependency on the previous chunk.
+            if (data[work].parents && data[before_work].chunk) {
+                // There is a dependency; merge the chunk data.
+                data[before_work].chunk_feerate += data[work].chunk_feerate;
+                data[before_work].chunk |= data[work].chunk;
+                data[before_work].parents = (data[before_work].parents | data[work].parents) / data[before_work].chunk;
+                // Stitch the two chunks together.
+                std::swap(data[before_work].prev_tx, data[work].prev_tx);
+                // Continue with the now-merged chunk.
+                data[after_work].prev_chunk = before_work;
+            } else {
+                // There is no dependency; swap the two chunks.
+                data[after_work].prev_chunk = before_work;
+                data[work].prev_chunk = data[before_work].prev_chunk;
+                data[before_work].prev_chunk = work;
+                // Continue with the now-moved previous work chunk.
+                after_work = before_work;
+                ++num_swaps;
+            }
+        }
+    }
+    // Iterate over the chunks, and their transactions, overwriting linearization backwards.
+    auto it = linearization.end();
+    unsigned work_chunk = data[0].prev_chunk;
+    while (work_chunk != 0) {
+        unsigned first_tx = work_chunk;
+        unsigned work_tx = first_tx;
+        do {
+            work_tx = data[work_tx].prev_tx;
+            assert(work_tx != 0);
+            assert(it != linearization.begin());
+            --it;
+            *it = work_tx - 1;
+        } while (work_tx != first_tx);
+        work_chunk = data[work_chunk].prev_chunk;
+    }
+    assert(it == linearization.begin());
+    if (swaps) *swaps = num_swaps;
+}
+
+/** Given two linearizations for the same cluster, return a new linearization that better or equal than both.
+ *
+ * The implemented algorithm is prefix-intersection merging, equivalent to:
+ * - While not all transactions are included:
+ *   - Find P_1, the highest-feerate prefix of L_1 (ignoring already included transactions).
+ *   - Find P_2, the highest-feerate prefix of L_2 (ignoring already included transactions).
+ *   - Let i be such that P_i is the higher-feerate of the two.
+ *   - Find C, the highest-feerate prefix of the intersection between L_{3-i} with P_i.
+ *   - Include the transactions from C in the output, and start over.
+ *
+ * Only transactions that appear in both linearizations will be in the output.
+ *
+ * Worst-case complexity is O(n^2) in the number of transactions, but merging identical
+ * linearizations is only O(n).
+ *
+ * For discussion, see https://delvingbitcoin.org/t/merging-incomparable-linearizations/209.
+ */
+template<typename S>
+std::vector<unsigned> MergeLinearizations(const Cluster<S>& cluster, Span<const unsigned> lin1, Span<const unsigned> lin2)
+{
+    std::vector<unsigned> ret;
+    ret.reserve(std::min(lin1.size(), lin2.size()));
+    /** Indices within cluster that are done. */
+    S done;
+    /** Indices within lin1 (not within cluster!) that are still todo. */
+    S todo1 = S::Fill(lin1.size());
+    /** Indices within lin2 (not within cluster!) that are still todo. */
+    S todo2 = S::Fill(lin2.size());
+
+    /** Find the first remaining transaction in a linearization (also update todo). */
+    auto first_tx = [&](Span<const unsigned> lin, S& todo) -> std::pair<unsigned, unsigned> {
+        S new_todo = todo;
+        for (unsigned i : todo) {
+            // Find the index into cluster for that position.
+            unsigned idx = lin[i];
+            // If that index has not been included, return it;
+            if (!done[idx]) {
+                todo = new_todo;
+                return {idx, i};
+            }
+            // Otherwise remove it from todo.
+            new_todo.Reset(i);
+        }
+        return {(unsigned)(-1), 0};
+    };
+
+    /** Find the prefix of lin that has the highest feerate (also update todo). */
+    auto first_chunk = [&](Span<const unsigned> lin, S& todo) -> std::pair<S, FeeFrac> {
+        FeeFrac sum, best_sum;
+        S set, best_set;
+        S new_todo = todo;
+        // Iterate over the remaining positions in lin (note that todo can be out of date).
+        for (unsigned i : todo) {
+            // Find the index into cluster for that position.
+            unsigned idx = lin[i];
+            // If that index has since been included, update todo, and skip it.
+            if (done[idx]) {
+                new_todo.Reset(i);
+                continue;
+            }
+            // Update running sum/set of unincluded prefixes.
+            sum += cluster[idx].first;
+            set.Set(idx);
+            // If this is a new best sum, remember it.
+            if (best_sum.IsEmpty() || sum >> best_sum) {
+                best_sum = sum;
+                best_set = set;
+            }
+        }
+        // Remember the updated todo, and return the best set of cluster indices we found.
+        todo = new_todo;
+        return {best_set, best_sum};
+    };
+
+    /** Find the highest-feerate prefix of lin, restricted to indices in filter. */
+    auto best_subset = [&](Span<const unsigned> lin, const S& todo, const S& filter) -> std::pair<S, S> {
+        FeeFrac sum, best_sum;
+        S set, best_set, select, best_select;
+        // Iterate over the unincluded positions in lin (todo is necessarily up to date here).
+        for (unsigned i : todo) {
+            unsigned idx = lin[i];
+            // If the cluster index in that position is in the filter, process it.
+            if (filter[idx]) {
+                // Update running sum/set/select (set contains cluster indices, select lin indices).
+                sum += cluster[idx].first;
+                set.Set(idx);
+                select.Set(i);
+                // If this is a new best sum, remember it.
+                if (best_sum.IsEmpty() || sum >> best_sum) {
+                    best_sum = sum;
+                    best_set = set;
+                    best_select = select;
+                }
+                // Optimization: if all filter entries have been processed, nothing more can be added.
+                if (set == filter) break;
+            }
+        }
+        // Return the best lin indices and cluster indices.
+        return {best_select, best_set};
+    };
+
+    while (true) {
+        // Find the first remaining transaction in both linearizations.
+        auto [tx1, pos1] = first_tx(lin1, todo1);
+        auto [tx2, pos2] = first_tx(lin2, todo2);
+        // If either has run out, we're done.
+        if (tx1 == (unsigned)(-1) || tx2 == (unsigned)(-1)) break;
+        // As an optimization, see if those transactions are identical. If so, just copy it to the
+        // output directly.
+        if (tx1 == tx2) {
+            ret.push_back(tx1);
+            done.Set(tx1);
+            todo1.Reset(pos1);
+            todo2.Reset(pos2);
+            continue;
+        }
+        // If not, find best prefix in both linearizations.
+        auto [chunk1, feerate1] = first_chunk(lin1, todo1);
+        auto [chunk2, feerate2] = first_chunk(lin2, todo2);
+        // Find best prefix of the intersection of that prefix with the other linearization,
+        // and then include that. The indirection through select is used so that the output
+        // is in the order of the linearization it was taken from (which is always topological).
+        if (feerate2 >= feerate1) {
+            auto [select, best] = best_subset(lin1, todo1, chunk2);
+            done |= best;
+            for (unsigned i : select) ret.push_back(lin1[i]);
+            todo1 /= select;
+        } else {
+            auto [select, best] = best_subset(lin2, todo2, chunk1);
+            done |= best;
+            for (unsigned i : select) ret.push_back(lin2[i]);
+            todo2 /= select;
+        }
+    }
+
     return ret;
 }
 
@@ -539,21 +816,109 @@ struct LinearizationResult
     size_t comparisons{0};
 };
 
-template<typename S>
-std::optional<unsigned> SingleViableTransaction(const Cluster<S>& cluster, const S& done)
+[[maybe_unused]] std::ostream& operator<<(std::ostream& o, const FeeFrac& data)
 {
-    unsigned num_viable = 0;
-    unsigned first_viable = 0;
-    for (unsigned i : S::Fill(cluster.size()) / done) {
-        if (done >> cluster[i].second) {
-            if (++num_viable == 2) return {};
-            first_viable = i;
+    o << "(" << data.fee << "/" << data.size << "=" << ((double)data.fee / data.size) << ")";
+    return o;
+}
+
+[[maybe_unused]] std::ostream& operator<<(std::ostream& o, Span<const unsigned> data)
+{
+    o << '{';
+    bool first = true;
+    for (unsigned i : data) {
+        if (first) {
+            first = false;
+        } else {
+            o << ',';
+        }
+        o << i;
+    }
+    o << '}';
+    return o;
+}
+
+template<typename I>
+std::ostream& operator<<(std::ostream& s, const bitset_detail::IntBitSet<I>& bs)
+{
+    s << "[";
+    size_t cnt = 0;
+    for (size_t i = 0; i < bs.Size(); ++i) {
+        if (bs[i]) {
+            if (cnt) s << ",";
+            ++cnt;
+            s << i;
         }
     }
-#if DEBUG_LINEARIZE
-    assert(num_viable == 1);
-#endif
-    return {first_viable};
+    s << "]";
+    return s;
+}
+
+template<typename I, unsigned N>
+std::ostream& operator<<(std::ostream& s, const bitset_detail::MultiIntBitSet<I, N>& bs)
+{
+    s << "[";
+    size_t cnt = 0;
+    for (size_t i = 0; i < bs.Size(); ++i) {
+        if (bs[i]) {
+            if (cnt) s << ",";
+            ++cnt;
+            s << i;
+        }
+    }
+    s << "]";
+    return s;
+}
+
+/** String serialization for debug output of Cluster. */
+template<typename S>
+std::ostream& operator<<(std::ostream& o, const Cluster<S>& cluster)
+{
+    o << "Cluster{";
+    for (size_t i = 0; i < cluster.size(); ++i) {
+        if (i) o << ",";
+        o << i << ":" << cluster[i].first << cluster[i].second;
+    }
+    o << "}";
+    return o;
+}
+
+/** Compute a full linearization of a cluster using ancestor-based sort. */
+template<typename S>
+LinearizationResult LinearizeClusterAnc(const Cluster<S>& cluster)
+{
+    LinearizationResult ret;
+    ret.linearization.reserve(cluster.size());
+    AncestorSets<S> anc(cluster);
+    DescendantSets<S> desc(anc);
+    std::vector<unsigned> anccount(cluster.size(), 0);
+    for (unsigned i = 0; i < cluster.size(); ++i) {
+        anccount[i] = anc[i].Count();
+    }
+    AncestorSetFeeFracs anc_feefracs(cluster, anc, {});
+    auto all = S::Fill(cluster.size());
+    S done;
+
+    while (done != all) {
+        auto analysis = FindBestAncestorSet(cluster, anc, anc_feefracs, done, {});
+        ret.iterations += analysis.iterations;
+        ret.comparisons += analysis.comparisons;
+
+        size_t old_size = ret.linearization.size();
+        for (unsigned selected : analysis.best_candidate_set) {
+            ret.linearization.emplace_back(selected);
+        }
+        std::sort(ret.linearization.begin() + old_size, ret.linearization.end(), [&](unsigned a, unsigned b) {
+            if (anccount[a] == anccount[b]) return a < b;
+            return anccount[a] < anccount[b];
+        });
+
+        // Update bookkeeping
+        done |= analysis.best_candidate_set;
+        anc_feefracs.Done(cluster, desc, analysis.best_candidate_set);
+    }
+
+    return ret;
 }
 
 /** Compute a full linearization of a cluster (vector of cluster indices). */
@@ -563,15 +928,11 @@ LinearizationResult LinearizeCluster(const Cluster<S>& cluster, unsigned optimal
     LinearizationResult ret;
     ret.linearization.reserve(cluster.size());
     auto all = S::Fill(cluster.size());
+    S done;
+    unsigned left = (all / done).Count();
 
     /** Very fast local random number generator. */
     XoRoShiRo128PlusPlus rng(seed);
-
-    std::vector<std::tuple<S, S, bool, std::optional<unsigned>>> queue;
-    queue.reserve(cluster.size() * 2);
-    queue.emplace_back(S{}, S{}, true, std::nullopt);
-    std::vector<unsigned> bottleneck_list;
-    bottleneck_list.reserve(cluster.size());
 
     // Precompute stuff.
     SortedCluster<S> sorted(cluster);
@@ -584,61 +945,19 @@ LinearizationResult LinearizeCluster(const Cluster<S>& cluster, unsigned optimal
     }
     AncestorSetFeeFracs anc_feefracs(sorted.cluster, anc, {});
 
-    while (!queue.empty()) {
-        auto [done, after, maybe_bottlenecks, single] = queue.back();
-        queue.pop_back();
-
-        if (single) {
-            ret.linearization.push_back(*single);
-            anc_feefracs.Done(sorted.cluster, desc, *single);
-            continue;
-        }
-
-        auto todo = all / (done | after);
-        if (todo.None()) continue;
-        unsigned left = todo.Count();
-
-        if (left == 1) {
-            unsigned idx = todo.First();
-            ret.linearization.push_back(idx);
-            anc_feefracs.Done(sorted.cluster, desc, idx);
-            continue;
-        }
-
-        if (maybe_bottlenecks) {
-            // Find bottlenecks in the current graph.
-            auto bottlenecks = todo;
-            for (unsigned i : todo) {
-                ++ret.iterations;
-                bottlenecks &= (anc[i] | desc[i]);
-                if (bottlenecks.None()) break;
-            }
-
-            if (bottlenecks.Any()) {
-                bottleneck_list.clear();
-                for (unsigned i : bottlenecks) bottleneck_list.push_back(i);
-                std::sort(bottleneck_list.begin(), bottleneck_list.end(), [&](unsigned a, unsigned b) { return anccount[a] > anccount[b]; });
-                for (unsigned i : bottleneck_list) {
-                    queue.emplace_back(done | anc[i], after, false, std::nullopt);
-                    queue.emplace_back(S{}, S{}, false, i);
-                    after |= desc[i];
-                }
-                queue.emplace_back(done, after, false, std::nullopt);
-                continue;
-            }
-        }
-
+    while (done != all) {
+        // Find candidate set.
         CandidateSetAnalysis<S> analysis;
         if (left > optimal_limit) {
-            analysis = FindBestAncestorSet(sorted.cluster, anc, anc_feefracs, done, after);
+            analysis = FindBestAncestorSet(sorted.cluster, anc, anc_feefracs, done, {});
         } else {
-            analysis = FindBestCandidateSetEfficient(sorted.cluster, anc, desc, anc_feefracs, done, after, rng() ^ ret.iterations);
+            analysis = FindBestCandidateSetEfficient(sorted.cluster, anc, desc, anc_feefracs, done, {}, rng() ^ ret.iterations);
         }
 
         // Sanity checks.
 #if DEBUG_LINEARIZE
         assert(analysis.best_candidate_set.Any()); // Must be at least one transaction
-        assert((analysis.best_candidate_set & (done | after)).None()); // Cannot overlap with processed ones.
+        assert(!(analysis.best_candidate_set && done)); // Cannot overlap with processed ones.
 #endif
 
         // Update statistics.
@@ -657,8 +976,8 @@ LinearizationResult LinearizeCluster(const Cluster<S>& cluster, unsigned optimal
 
         // Update bookkeeping
         done |= analysis.best_candidate_set;
+        left -= analysis.best_candidate_set.Count();
         anc_feefracs.Done(sorted.cluster, desc, analysis.best_candidate_set);
-        queue.emplace_back(done, after, true, std::nullopt);
     }
 
     // Map linearization back from sorted cluster indices to original indices.
@@ -669,7 +988,6 @@ LinearizationResult LinearizeCluster(const Cluster<S>& cluster, unsigned optimal
     return ret;
 }
 
-#if 0
 uint8_t ReadSpanByte(Span<const unsigned char>& data)
 {
     if (data.empty()) return 0;
@@ -689,7 +1007,6 @@ uint64_t DeserializeNumberBase128(Span<const unsigned char>& data)
     }
     return ret;
 }
-#endif
 
 /** Serialize a number, in little-endian 7 bit format, top bit set = more size. */
 void SerializeNumberBase128(uint64_t val, std::vector<unsigned char>& data)
@@ -736,16 +1053,15 @@ void SerializeCluster(const Cluster<S>& cluster, std::vector<unsigned char>& dat
     data.push_back(0);
 }
 
-#if 0
 /** Deserialize a cluster in the same format as SerializeCluster (overflows wrap). */
 template<typename S>
 Cluster<S> DeserializeCluster(Span<const unsigned char>& data)
 {
     Cluster<S> ret;
     while (true) {
-        uint32_t size = DeserializeNumberBase128(data) & 0x3fffff;
+        int32_t size = DeserializeNumberBase128(data) & 0x3fffff;
         if (size == 0) break;
-        uint64_t fee = DeserializeNumberBase128(data) & 0x7ffffffffffff;
+        int64_t fee = DeserializeNumberBase128(data) & 0x7ffffffffffff;
         S parents;
         while (true) {
             unsigned read = DeserializeNumberBase128(data);
@@ -766,7 +1082,6 @@ Cluster<S> DeserializeCluster(Span<const unsigned char>& data)
     }
     return ret;
 }
-#endif
 
 /** Minimize the set of parents of every cluster transaction, without changing ancestry. */
 template<typename S>
@@ -844,27 +1159,9 @@ bool IsAcyclic(const AncestorSets<S>& anc)
     return true;
 }
 
-template<typename S>
-std::vector<std::pair<FeeFrac, S>> ChunkLinearization(const Cluster<S>& cluster, Span<const unsigned> linearization)
-{
-    std::vector<std::pair<FeeFrac, S>> chunks;
-    chunks.reserve(linearization.size());
-    for (unsigned i : linearization) {
-        S add;
-        add.Set(i);
-        FeeFrac add_feefrac = cluster[i].first;
-        while (!chunks.empty() && add_feefrac >> chunks.back().first) {
-            add |= chunks.back().second;
-            add_feefrac += chunks.back().first;
-            chunks.pop_back();
-        }
-        chunks.emplace_back(add_feefrac, add);
-    }
-    return chunks;
-}
 
 } // namespace
 
-} // namespace cluster_linearize
+} // namespace linearize_cluster
 
 #endif // BITCOIN_CLUSTER_LINEARIZE_H
