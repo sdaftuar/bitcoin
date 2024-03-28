@@ -8,6 +8,7 @@
 #include <config/bitcoin-config.h>
 
 #include <array>
+#include <bit>
 #include <cstdint>
 #include <limits>
 #include <type_traits>
@@ -19,9 +20,10 @@
 /* This file provides data types similar to std::bitset, but adds the following functionality:
  *
  * - Efficient iteration over all set bits (compatible with range-based for loops).
- * - Efficient search for the first set bit (First()).
+ * - Efficient search for the first and last set bit (First() and Last()).
  * - Efficient set subtraction: (a / b) implements "a and not b".
  * - Efficient subset/superset testing: (a >> b) and (a << b).
+ * - Efficient set overlap testing: a && b
  * - Efficient construction of set containing 0..N-1 (S::Fill).
  *
  * Other differences:
@@ -32,67 +34,6 @@
  */
 
 namespace bitset_detail {
-
-#if defined(_MSC_VER) && (defined(_M_IX86) || defined(_M_X64))
-#  pragma intrinsic(_BitScanForward)
-#endif
-
-#if defined(_MSC_VER) && defined(_M_X64)
-#  pragma intrinsic(_BitScanForward64)
-#endif
-
-/** Compute the trailing zeroes of a non-zero value. */
-template<typename I>
-unsigned inline CountTrailingZeroes(I v) noexcept
-{
-    static_assert(std::is_integral_v<I> && std::is_unsigned_v<I> && std::numeric_limits<I>::radix == 2);
-    constexpr auto BITS = std::numeric_limits<I>::digits;
-#if HAVE_BUILTIN_CTZ
-    constexpr auto BITS_U = std::numeric_limits<unsigned>::digits;
-    if constexpr (BITS <= BITS_U) return __builtin_ctz(v);
-#endif
-#if HAVE_BUILTIN_CTZL
-    constexpr auto BITS_UL = std::numeric_limits<unsigned long>::digits;
-    if constexpr (BITS <= BITS_UL) return __builtin_ctzl(v);
-#endif
-#if HAVE_BUILTIN_CTZLL
-    constexpr auto BITS_ULL = std::numeric_limits<unsigned long long>::digits;
-    if constexpr (BITS <= BITS_ULL) return __builtin_ctzll(v);
-#endif
-#if defined(_MSC_VER) && (defined(_M_IX86) || defined(_M_X64))
-    if constexpr (BITS <= 32) {
-        unsigned long ret;
-        _BitScanForward(&ret, v);
-        return ret;
-    }
-#endif
-#if defined(_MSC_VER) && defined(_M_X64)
-    if constexpr (BITS <= 64) {
-        unsigned long ret;
-        _BitScanForward64(&ret, v);
-        return ret;
-    }
-#endif
-    /* Use de Bruijn sequence based fallback. */
-    if constexpr (BITS <= 32) {
-        static constexpr uint8_t DEBRUIJN[32] = {
-            0x00, 0x01, 0x02, 0x18, 0x03, 0x13, 0x06, 0x19,
-            0x16, 0x04, 0x14, 0x0A, 0x10, 0x07, 0x0C, 0x1A,
-            0x1F, 0x17, 0x12, 0x05, 0x15, 0x09, 0x0F, 0x0B,
-            0x1E, 0x11, 0x08, 0x0E, 0x1D, 0x0D, 0x1C, 0x1B
-        };
-        return DEBRUIJN[(uint32_t)((v & uint32_t(~v+1U)) * uint32_t{0x04D7651FU}) >> 27];
-    } else {
-        static_assert(BITS <= 64);
-        static constexpr uint8_t DEBRUIJN[64] = {
-            0, 1, 2, 53, 3, 7, 54, 27, 4, 38, 41, 8, 34, 55, 48, 28,
-            62, 5, 39, 46, 44, 42, 22, 9, 24, 35, 59, 56, 49, 18, 29, 11,
-            63, 52, 6, 26, 37, 40, 33, 47, 61, 45, 43, 21, 23, 58, 17, 10,
-            51, 25, 36, 32, 60, 20, 57, 16, 50, 31, 19, 15, 30, 14, 13, 12
-        };
-        return DEBRUIJN[(uint64_t)((v & uint64_t(~v+1U)) * uint64_t{0x022FDD63CC95386D}) >> 58];
-    }
-}
 
 /** Count the number of bits set in an unsigned integer type. */
 template<typename I>
@@ -146,7 +87,7 @@ class IntBitSet
         unsigned m_pos; /** Last reported 1 position (if m_pos != 0). */
         Iterator(I val) noexcept : m_val(val), m_pos(0)
         {
-            if (m_val != 0) m_pos = CountTrailingZeroes(m_val);
+            if (m_val != 0) m_pos = std::countr_zero(m_val);
         }
     public:
         /** Do not allow external code to construct an Iterator. */
@@ -168,7 +109,7 @@ class IntBitSet
         Iterator& operator++() noexcept
         {
             m_val &= m_val - I{1U};
-            if (m_val != 0) m_pos = CountTrailingZeroes(m_val);
+            if (m_val != 0) m_pos = std::countr_zero(m_val);
             return *this;
         }
         /** Get the current bit position (only if != IteratorEnd). */
@@ -209,13 +150,17 @@ public:
     /** Return a dummy object to compare Iterators with. */
     IteratorEnd end() const noexcept { return IteratorEnd(); }
     /** Find the first element (requires Any()). */
-    unsigned First() const noexcept { return CountTrailingZeroes(m_val); }
+    unsigned First() const noexcept { return std::countr_zero(m_val); }
+    /** Find the last element (requires Any()). */
+    unsigned Last() const noexcept { return std::bit_width(m_val) - 1; }
     /** Set this object's bits to be the binary AND between respective bits from this and a. */
     IntBitSet& operator|=(const IntBitSet& a) noexcept { m_val |= a.m_val; return *this; }
     /** Set this object's bits to be the binary OR between respective bits from this and a. */
     IntBitSet& operator&=(const IntBitSet& a) noexcept { m_val &= a.m_val; return *this; }
     /** Set this object's bits to be the binary AND NOT between respective bits from this and a. */
     IntBitSet& operator/=(const IntBitSet& a) noexcept { m_val &= ~a.m_val; return *this; }
+    /** Check if the intersection between two sets is non-empty. */
+    friend bool operator&&(const IntBitSet& a, const IntBitSet& b) noexcept { return a.m_val & b.m_val; }
     /** Return an object with the binary AND between respective bits from a and b. */
     friend IntBitSet operator&(const IntBitSet& a, const IntBitSet& b) noexcept { return {I(a.m_val & b.m_val)}; }
     /** Return an object with the binary OR between respective bits from a and b. */
@@ -245,7 +190,7 @@ class MultiIntBitSet
     /** Number of elements this set type supports. */
     static constexpr unsigned MAX_SIZE = LIMB_BITS * N;
     /** Array whose member integers store the bits of the set. */
-    std::array<I, N> m_val{};
+    std::array<I, N> m_val;
     /** Dummy type to return using end(). Only used for comparing with Iterator. */
     class IteratorEnd
     {
@@ -267,7 +212,7 @@ class MultiIntBitSet
             do {
                 m_val = (*m_ptr)[m_idx];
                 if (m_val) {
-                    m_pos = CountTrailingZeroes(m_val) + m_idx * LIMB_BITS;
+                    m_pos = std::countr_zero(m_val) + m_idx * LIMB_BITS;
                     break;
                 }
                 ++m_idx;
@@ -300,12 +245,12 @@ class MultiIntBitSet
                     if (m_idx == N) break;
                     m_val = (*m_ptr)[m_idx];
                     if (m_val) {
-                        m_pos = CountTrailingZeroes(m_val) + m_idx * LIMB_BITS;
+                        m_pos = std::countr_zero(m_val) + m_idx * LIMB_BITS;
                         break;
                     }
                 }
             } else {
-                m_pos = CountTrailingZeroes(m_val) + m_idx * LIMB_BITS;
+                m_pos = std::countr_zero(m_val) + m_idx * LIMB_BITS;
             }
             return *this;
         }
@@ -315,7 +260,7 @@ class MultiIntBitSet
 
 public:
     /** Construct an all-zero bitset. */
-    MultiIntBitSet() noexcept = default;
+    MultiIntBitSet() noexcept : m_val{} {}
     /** Copy construct a bitset. */
     MultiIntBitSet(const MultiIntBitSet&) noexcept = default;
     /** Copy assign a bitset. */
@@ -375,7 +320,14 @@ public:
     {
         unsigned p = 0;
         while (m_val[p] == 0) ++p;
-        return CountTrailingZeroes(m_val[p]) + p * LIMB_BITS;
+        return std::countr_zero(m_val[p]) + p * LIMB_BITS;
+    }
+    /** Find the last element (requires Any()). */
+    unsigned Last() const noexcept
+    {
+        unsigned p = N - 1;
+        while (m_val[p] == 0) --p;
+        return std::bit_width(m_val[p]) - 1 + p * LIMB_BITS;
     }
     /** Set this object's bits to be the binary OR between respective bits from this and a. */
     MultiIntBitSet& operator|=(const MultiIntBitSet& a) noexcept
@@ -400,6 +352,14 @@ public:
             m_val[i] &= ~a.m_val[i];
         }
         return *this;
+    }
+    /** Check whether the intersection between two sets is non-empty. */
+    friend bool operator&&(const MultiIntBitSet& a, const MultiIntBitSet& b) noexcept
+    {
+        for (unsigned i = 0; i < N; ++i) {
+            if (a.m_val[i] & b.m_val[i]) return true;
+        }
+        return false;
     }
     /** Return an object with the binary AND between respective bits from a and b. */
     friend MultiIntBitSet operator&(const MultiIntBitSet& a, const MultiIntBitSet& b) noexcept

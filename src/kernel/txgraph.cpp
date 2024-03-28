@@ -148,6 +148,7 @@ std::vector<TxEntry::TxEntryRef> InvokeSort(size_t tx_count, const std::vector<T
         }
     }
     result = cluster_linearize::LinearizeCluster(cluster, 0, 0);
+    cluster_linearize::PostLinearization(cluster, result.linearization);
     txs.clear();
     for (auto index : result.linearization) {
         txs.push_back(orig_txs[index]);
