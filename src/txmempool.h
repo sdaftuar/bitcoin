@@ -509,7 +509,7 @@ public:
 
     bool CalculateFeerateDiagramsForRBF(CTxMemPoolEntry& entry, CAmount
             modified_fee, setEntries direct_conflicts, setEntries all_conflicts,
-            std::vector<FeeFrac>& old_diagram, std::vector<FeeFrac>& new_diagram);
+            std::vector<FeeFrac>& old_diagram, std::vector<FeeFrac>& new_diagram, bool print=false);
 
 
     /** The minimum fee to get into the mempool, which may itself not be enough

@@ -121,7 +121,7 @@ std::vector<TxEntry::TxEntryRef> InvokeSort(size_t tx_count, const std::vector<T
 {
     std::vector<TxEntry::TxEntryRef> txs;
     cluster_linearize::Cluster<SetType> cluster;
-    const auto time_1{SteadyClock::now()};
+    //const auto time_1{SteadyClock::now()};
 
     std::vector<TxEntry::TxEntryRef> orig_txs;
     std::vector<std::pair<const TxEntry*, unsigned>> entry_to_index;
@@ -148,11 +148,14 @@ std::vector<TxEntry::TxEntryRef> InvokeSort(size_t tx_count, const std::vector<T
         }
     }
     result = cluster_linearize::LinearizeCluster(cluster, 0, 0);
+    cluster_linearize::PostLinearization(cluster, result.linearization);
+
     txs.clear();
     for (auto index : result.linearization) {
         txs.push_back(orig_txs[index]);
     }
 
+        #if 0
     const auto time_2{SteadyClock::now()};
     if (tx_count >= 10) {
         double time_millis = Ticks<MillisecondsDouble>(time_2-time_1);
@@ -166,6 +169,7 @@ std::vector<TxEntry::TxEntryRef> InvokeSort(size_t tx_count, const std::vector<T
                 time_millis * 1000000.0 / (result.comparisons > 0 ? result.comparisons : result.comparisons+1),
                 HexStr(cluster_linearize::DumpCluster(cluster)));
     }
+        #endif
     return txs;
 }
 
@@ -816,6 +820,7 @@ bool TxGraph::Check(GraphLimits limits) const
         }
     }
     if (expected_memory_usage != cachedInnerUsage) {
+        LogPrintf("expected = %lu, actual = %lu\n", expected_memory_usage, cachedInnerUsage);
         return false;
     }
 
@@ -891,6 +896,7 @@ CFeeRate Trimmer::RemoveWorstChunk(std::vector<TxEntry::TxEntryRef>& txs_to_remo
         CFeeRate removed(cluster->m_chunks.back().fee, cluster->m_chunks.back().size);
 
         m_tx_graph->RemoveChunkForEviction(cluster);
+
         if (cluster->m_tx_count > 0) {
             m_tx_graph->UpdateClusterIndex(cluster);
         } else {
@@ -1244,5 +1250,39 @@ void TxGraphChangeSet::GetFeerateDiagram(std::vector<FeeFrac>& diagram, const st
             heap_chunks.emplace_back(best_chunk);
             std::push_heap(heap_chunks.begin(), heap_chunks.end(), TxSelector::ChunkCompare);
         }
+    }
+}
+void TxGraphChangeSet::Print()
+{
+    // Print each cluster.
+    LogPrintf("old clusters: \n");
+    for (auto cluster : m_clusters_to_delete) {
+        cluster->Print();
+    }
+    LogPrintf("new clusters: \n");
+    for (auto cluster_id : m_new_clusters) {
+        m_tx_graph->m_cluster_map[cluster_id]->Print();
+    }
+}
+
+void TxGraphCluster::Print()
+{
+    // Print each transaction with its dependencies.
+    LogPrintf("Cluster %ld\n", m_id);
+    for (auto& chunk : m_chunks) {
+        LogPrintf("[");
+        for (auto& tx : chunk.txs) {
+            LogPrintf("%ld %ld %u ", tx.get().unique_id, tx.get().m_modified_fee, tx.get().m_virtual_size);
+            LogPrintf("(");
+            for (auto p : tx.get().parents) {
+                LogPrintf("%ld,", p.get().unique_id);
+            }
+            LogPrintf(") (");
+            for (auto c : tx.get().children) {
+                LogPrintf("%ld,", c.get().unique_id);
+            }
+            LogPrintf("); ");
+        }
+        LogPrintf("]\n");
     }
 }

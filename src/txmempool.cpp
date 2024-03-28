@@ -1036,7 +1036,7 @@ std::vector<CTxMemPool::txiter> CTxMemPool::GatherClusters(const std::vector<uin
     return ret;
 }
 
-bool CTxMemPool::CalculateFeerateDiagramsForRBF(CTxMemPoolEntry& entry, CAmount modified_fee, setEntries direct_conflicts, setEntries all_conflicts, std::vector<FeeFrac>& old_diagram, std::vector<FeeFrac>& new_diagram)
+bool CTxMemPool::CalculateFeerateDiagramsForRBF(CTxMemPoolEntry& entry, CAmount modified_fee, setEntries direct_conflicts, setEntries all_conflicts, std::vector<FeeFrac>& old_diagram, std::vector<FeeFrac>& new_diagram, bool print)
 {
     LOCK(cs);
 
@@ -1046,6 +1046,9 @@ bool CTxMemPool::CalculateFeerateDiagramsForRBF(CTxMemPoolEntry& entry, CAmount 
     std::vector<TxEntry::TxEntryRef> to_remove;
     for (auto it : all_conflicts) {
         to_remove.emplace_back(*it);
+        if (print) {
+            LogPrintf("to remove: %s (%d, %ld)\n", it->GetTx().GetHash().ToString(), it->GetTxSize(), it->GetModifiedFee());
+        }
     }
 
     TxGraphChangeSet changeset(&txgraph, m_limits, to_remove);
@@ -1055,6 +1058,15 @@ bool CTxMemPool::CalculateFeerateDiagramsForRBF(CTxMemPoolEntry& entry, CAmount 
     }
     changeset.GetFeerateDiagramOld(old_diagram);
     changeset.GetFeerateDiagramNew(new_diagram);
+    if (print) {
+        LogPrintf("RBF Changeset for %s (%d): \n", entry.GetTx().GetHash().ToString(), entry.unique_id);
+        LogPrintf("conflicts: ");
+        for (auto it : all_conflicts) {
+            LogPrintf("(%s %ld), ", it->GetTx().GetHash().ToString(), it->unique_id);
+        }
+        LogPrintf("\n");
+        changeset.Print();
+    }
     entry.m_modified_fee = old_fee;
     return true;
 }

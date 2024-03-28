@@ -82,6 +82,8 @@ class TxGraphCluster {
 public:
     TxGraphCluster(int64_t id, TxGraph *tx_graph) : m_id(id), m_tx_graph(tx_graph) {}
 
+    void Print();
+
     void Clear() {
         m_chunks.clear();
         m_tx_count = 0;
@@ -193,6 +195,7 @@ public:
 
     void Apply(); // Apply this changeset to the txgraph, adding/removing
                   // transactions and clusters as needed.
+    void Print();
 private:
     void GetFeerateDiagram(std::vector<FeeFrac> &diagram, const std::vector<TxGraphCluster*>& clusters);
     void SortNewClusters();
