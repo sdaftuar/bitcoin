@@ -325,6 +325,7 @@ void TxGraph::AddTx(TxEntry *new_tx, int32_t vsize, CAmount modified_fee, const 
     LOCK(cs);
     new_tx->m_virtual_size = vsize;
     new_tx->m_modified_fee = modified_fee;
+    new_tx->parents.clear();
     // Figure out which cluster this transaction belongs to.
     std::vector<TxGraphCluster*> clusters_to_merge;
     {
