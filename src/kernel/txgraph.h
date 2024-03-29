@@ -102,6 +102,7 @@ public:
 
     // Sanity checks -- verify metadata matches and clusters are topo-sorted.
     bool Check() const;
+    bool CheckTopo() const;
 
 private:
     // Helper function

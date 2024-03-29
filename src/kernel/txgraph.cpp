@@ -114,6 +114,21 @@ bool TxGraphCluster::Check() const
     return true;
 }
 
+bool TxGraphCluster::CheckTopo() const
+{
+    // Check topology.
+    std::set<TxEntry::TxEntryRef, TxEntry::CompareById> seen_elements;
+    for (auto &chunk : m_chunks) {
+        for (auto tx : chunk.txs) {
+            for (auto parent : tx.get().parents) {
+                if (seen_elements.count(parent) == 0) return false;
+            }
+            seen_elements.insert(tx);
+        }
+    }
+    return true;
+}
+
 namespace {
 
 template <typename SetType>
@@ -174,6 +189,7 @@ std::vector<TxEntry::TxEntryRef> InvokeSort(size_t tx_count, const std::vector<T
 
 void TxGraphCluster::Sort(bool reassign_locations)
 {
+    assert(CheckTopo());
     std::vector<TxEntry::TxEntryRef> txs;
     if (m_tx_count <= 32) {
         txs = InvokeSort<BitSet<32>>(m_tx_count, m_chunks);
