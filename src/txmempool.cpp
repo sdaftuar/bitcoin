@@ -1046,9 +1046,6 @@ bool CTxMemPool::CalculateFeerateDiagramsForRBF(CTxMemPoolEntry& entry, CAmount 
     std::vector<TxEntry::TxEntryRef> to_remove;
     for (auto it : all_conflicts) {
         to_remove.emplace_back(*it);
-        if (print) {
-            LogPrintf("to remove: %s (%d, %ld)\n", it->GetTx().GetHash().ToString(), it->GetTxSize(), it->GetModifiedFee());
-        }
     }
 
     TxGraphChangeSet changeset(&txgraph, m_limits, to_remove);
@@ -1058,13 +1055,29 @@ bool CTxMemPool::CalculateFeerateDiagramsForRBF(CTxMemPoolEntry& entry, CAmount 
     }
     changeset.GetFeerateDiagramOld(old_diagram);
     changeset.GetFeerateDiagramNew(new_diagram);
+
     if (print) {
-        LogPrintf("RBF Changeset for %s (%d): \n", entry.GetTx().GetHash().ToString(), entry.unique_id);
-        LogPrintf("conflicts: ");
+        LogPrintf("[manual] RBF Changeset for %s (%d), total removes = %d, total_involved_txs = %d: \n", entry.GetTx().GetHash().ToString(), entry.unique_id, to_remove.size(), changeset.GetTxCount());
+        LogPrintf("[manual] all conflicts: ");
         for (auto it : all_conflicts) {
-            LogPrintf("(%s %ld), ", it->GetTx().GetHash().ToString(), it->unique_id);
+            LogPrintf("[manual] (%s %ld %ld %lu), ", it->GetTx().GetHash().ToString(), it->unique_id, it->GetModifiedFee(), it->GetTxSize());
         }
         LogPrintf("\n");
+        if (all_conflicts.size() == 1) {
+            // check to see if the new tx and the old tx have the same parents
+            auto removetx = to_remove.front();
+            bool match_parents{true};
+            if (removetx.get().parents.size() == entry.parents.size()) {
+                for (auto p : removetx.get().parents) {
+                    if (entry.parents.count(p) == 0) {
+                        match_parents = false;
+                    }
+                }
+            } else {
+                match_parents = false;
+            }
+            LogPrintf("[manual] single tx replacement: parents match = %s\n", match_parents ? "true" : "false");
+        }
         changeset.Print();
     }
     entry.m_modified_fee = old_fee;

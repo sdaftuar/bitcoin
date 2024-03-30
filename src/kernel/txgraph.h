@@ -197,6 +197,7 @@ public:
     void Apply(); // Apply this changeset to the txgraph, adding/removing
                   // transactions and clusters as needed.
     void Print();
+    int GetTxCount();
 private:
     void GetFeerateDiagram(std::vector<FeeFrac> &diagram, const std::vector<TxGraphCluster*>& clusters);
     void SortNewClusters();

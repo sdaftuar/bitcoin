@@ -162,7 +162,7 @@ std::vector<TxEntry::TxEntryRef> InvokeSort(size_t tx_count, const std::vector<T
             cluster[i].second.Set(it->second);
         }
     }
-    result = cluster_linearize::LinearizeCluster(cluster, 0, 0);
+    result = cluster_linearize::LinearizeCluster(cluster, 10, 0);
     std::vector<unsigned int> orig_linearization;
     orig_linearization.reserve(tx_count);
     for (unsigned int i=0; i<cluster.size(); ++i) {
@@ -1285,6 +1285,15 @@ void TxGraphChangeSet::Print()
     for (auto cluster_id : m_new_clusters) {
         m_tx_graph->m_cluster_map[cluster_id]->Print();
     }
+}
+
+int TxGraphChangeSet::GetTxCount()
+{
+    int total_txs{0};
+    for (auto cluster : m_clusters_to_delete) {
+        total_txs += cluster->m_tx_count;
+    }
+    return total_txs;
 }
 
 void TxGraphCluster::Print()
