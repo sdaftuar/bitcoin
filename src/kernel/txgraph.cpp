@@ -162,7 +162,7 @@ std::vector<TxEntry::TxEntryRef> InvokeSort(size_t tx_count, const std::vector<T
             cluster[i].second.Set(it->second);
         }
     }
-    result = cluster_linearize::LinearizeCluster(cluster, 0, 0);
+    result = cluster_linearize::LinearizeCluster(cluster, 10, 0);
     std::vector<unsigned int> orig_linearization;
     orig_linearization.reserve(tx_count);
     for (unsigned int i=0; i<cluster.size(); ++i) {
