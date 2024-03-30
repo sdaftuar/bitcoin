@@ -1130,10 +1130,23 @@ void TxGraphChangeSet::Apply()
     m_txs_to_add.clear();
 }
 
+static bool HasSameParents(const TxEntry& a, const TxEntry& b) {
+    if (a.parents.size() != b.parents.size()) return false;
+    for (auto& p : a.parents) {
+        if (b.parents.count(p) == 0) return false;
+    }
+    return true;
+}
+
+
 bool TxGraphChangeSet::AddTx(TxEntry::TxEntryRef tx, const std::vector<TxEntry::TxEntryRef> parents)
 {
     // Register a new cluster for this transaction that merges its parents.
     LOCK(m_tx_graph->cs);
+
+    for (auto& parent : parents) {
+        tx.get().parents.insert(parent);
+    }
     
     // Go through all the parents, and merge them into a new cluster, checking
     // the limits.
@@ -1167,8 +1180,26 @@ bool TxGraphChangeSet::AddTx(TxEntry::TxEntryRef tx, const std::vector<TxEntry::
         // Otherwise, we're good to combine the needed clusters.
         TxGraphCluster *new_cluster = m_tx_graph->AssignTxGraphCluster();
         m_new_clusters.insert(new_cluster->m_id);
-        new_cluster->MergeCopy(clusters_to_merge.begin(), clusters_to_merge.end());
-        new_cluster->AddTransaction(tx.get(), false);
+
+        // Special case the situation where a single new transaction is
+        // replacing a single old transaction with the exact same parents.
+        if (m_txs_to_remove.size() == 1 && HasSameParents(m_txs_to_remove.front().get(), tx.get()) && m_txs_to_add.size() == 0) {
+            const TxEntry &removetx = m_txs_to_remove.front().get();
+            assert(m_clusters_to_delete.size() == 1);
+            TxGraphCluster* old_cluster = m_clusters_to_delete[0];
+            for (auto& chunk : old_cluster->m_chunks) {
+                for (auto& entry : chunk.txs) {
+                    if (&(entry.get()) != &removetx) {
+                        new_cluster->AddTransaction(entry.get(), false);
+                    } else {
+                        new_cluster->AddTransaction(tx.get(), false);
+                    }
+                }
+            }
+        } else {
+            new_cluster->MergeCopy(clusters_to_merge.begin(), clusters_to_merge.end());
+            new_cluster->AddTransaction(tx.get(), false);
+        }
         m_sort_new_clusters = true;
 
         // Update our index of tx -> cluster assignment.
@@ -1199,9 +1230,6 @@ bool TxGraphChangeSet::AddTx(TxEntry::TxEntryRef tx, const std::vector<TxEntry::
                 m_clusters_to_delete.emplace_back(p.get().m_cluster);
             }
         }
-    }
-    for (auto& parent : parents) {
-        tx.get().parents.insert(parent);
     }
     m_txs_to_add.emplace_back(tx);
 
