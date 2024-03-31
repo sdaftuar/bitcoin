@@ -589,7 +589,7 @@ std::vector<std::pair<FeeFrac, S>> ChunkLinearization(const Cluster<S>& cluster,
  *
  * O(n^2) in the size of the cluster in the worst case. If the input linearization is the output
  * of PostLinearization itself, runtime is O(n). */
-template<typename S>
+template<typename S, bool Rev = false>
 void PostLinearization(const Cluster<S>& cluster, std::vector<unsigned>& linearization, uint64_t* swaps = nullptr)
 {
     struct Entry {
@@ -610,7 +610,8 @@ void PostLinearization(const Cluster<S>& cluster, std::vector<unsigned>& lineari
     data[0].prev_tx = 0;
     data[0].prev_chunk = 0;
     uint64_t num_swaps = 0;
-    for (unsigned i : linearization) {
+    for (unsigned lp = 0; lp < linearization.size(); ++lp) {
+        unsigned i = linearization[Rev ? linearization.size() - 1 - lp : lp];
         // Create a new chunk with just transaction 'i' at the end.
         auto& entry = data[i + 1];
         entry.prev_tx = i + 1;
@@ -630,9 +631,13 @@ void PostLinearization(const Cluster<S>& cluster, std::vector<unsigned>& lineari
             // If the previous chunk is the sentinel, we are done.
             if (before_work == 0) break;
             // If the previous chunk has higher or equal feerate, we are done.
-            if (!(data[before_work].chunk_feerate << data[work].chunk_feerate)) break;
+            if constexpr (Rev) {
+                if (!(data[before_work].chunk_feerate >> data[work].chunk_feerate)) break;
+            } else {
+                if (!(data[before_work].chunk_feerate << data[work].chunk_feerate)) break;
+            }
             // Check whether there is a dependency on the previous chunk.
-            if (data[work].parents && data[before_work].chunk) {
+            if (Rev ? (data[before_work].parents && data[work].chunk) : (data[work].parents && data[before_work].chunk)) {
                 // There is a dependency; merge the chunk data.
                 data[before_work].chunk_feerate += data[work].chunk_feerate;
                 data[before_work].chunk |= data[work].chunk;
@@ -653,7 +658,7 @@ void PostLinearization(const Cluster<S>& cluster, std::vector<unsigned>& lineari
         }
     }
     // Iterate over the chunks, and their transactions, overwriting linearization backwards.
-    auto it = linearization.end();
+    unsigned lp = 0;
     unsigned work_chunk = data[0].prev_chunk;
     while (work_chunk != 0) {
         unsigned first_tx = work_chunk;
@@ -661,13 +666,13 @@ void PostLinearization(const Cluster<S>& cluster, std::vector<unsigned>& lineari
         do {
             work_tx = data[work_tx].prev_tx;
             assert(work_tx != 0);
-            assert(it != linearization.begin());
-            --it;
-            *it = work_tx - 1;
+            assert(lp != linearization.size());
+            linearization[Rev ? lp : linearization.size() - 1 - lp] = work_tx - 1;
+            ++lp;
         } while (work_tx != first_tx);
         work_chunk = data[work_chunk].prev_chunk;
     }
-    assert(it == linearization.begin());
+    assert(lp == linearization.size());
     if (swaps) *swaps = num_swaps;
 }
 
