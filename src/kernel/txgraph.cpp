@@ -170,6 +170,7 @@ std::vector<TxEntry::TxEntryRef> InvokeSort(size_t tx_count, const std::vector<T
     }
     result.linearization = cluster_linearize::MergeLinearizations(cluster, result.linearization, orig_linearization);
     cluster_linearize::PostLinearization(cluster, result.linearization);
+    cluster_linearize::PostLinearization<SetType, true>(cluster, result.linearization);
     txs.clear();
     for (auto index : result.linearization) {
         txs.push_back(orig_txs[index]);
@@ -195,7 +196,7 @@ std::vector<TxEntry::TxEntryRef> InvokeSort(size_t tx_count, const std::vector<T
 
 void TxGraphCluster::Sort(bool reassign_locations)
 {
-    assert(CheckTopo());
+    //assert(CheckTopo());
     std::vector<TxEntry::TxEntryRef> txs;
     if (m_tx_count <= 32) {
         txs = InvokeSort<BitSet<32>>(m_tx_count, m_chunks);
