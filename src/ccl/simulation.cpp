@@ -120,6 +120,8 @@ void Simulation::RunSim(NodeContext& node)
                 ProcessTransaction(txEvent.obj, *node.chainman, *node.mempool);
                 txEvent.reset();
             } else if (nextEvent == &blockEvent) {
+                // Invoke CNB and log output first.
+                node.chainman->RunCreateNewBlock();
                 node.chainman->ProcessNewBlock(blockEvent.obj, true, true, NULL);
                 blockEvent.reset();
             } else if (nextEvent == &headersEvent) {
