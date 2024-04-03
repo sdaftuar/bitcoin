@@ -65,6 +65,8 @@
 #include <validationinterface.h>
 #include <warnings.h>
 
+#include <node/miner.h>
+
 #include <algorithm>
 #include <cassert>
 #include <chrono>
@@ -4317,6 +4319,12 @@ MempoolAcceptResult ChainstateManager::ProcessTransaction(const CTransactionRef&
     auto result = AcceptToMemoryPool(active_chainstate, tx, GetTime(), /*bypass_limits=*/ false, test_accept);
     active_chainstate.GetMempool()->check(active_chainstate.CoinsTip(), active_chainstate.m_chain.Height() + 1);
     return result;
+}
+
+void ChainstateManager::RunCreateNewBlock()
+{
+    LOCK(cs_main);
+    node::BlockAssembler(ActiveChainstate(), ActiveChainstate().GetMempool()).CreateNewBlock(CScript());
 }
 
 bool TestBlockValidity(BlockValidationState& state,
