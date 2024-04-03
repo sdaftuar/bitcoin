@@ -1192,7 +1192,7 @@ bool TxGraphChangeSet::AddTx(TxEntry::TxEntryRef tx, const std::vector<TxEntry::
 
         // Special case the situation where a single new transaction is
         // replacing a single old transaction with the exact same parents.
-        if (m_txs_to_remove.size() == 1 && HasSameParents(m_txs_to_remove.front().get(), tx.get()) && m_txs_to_add.size() == 0) {
+        if (false && m_txs_to_remove.size() == 1 && HasSameParents(m_txs_to_remove.front().get(), tx.get()) && m_txs_to_add.size() == 0) {
             const TxEntry &removetx = m_txs_to_remove.front().get();
             assert(m_clusters_to_delete.size() == 1);
             TxGraphCluster* old_cluster = m_clusters_to_delete[0];
