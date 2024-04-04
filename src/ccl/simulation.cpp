@@ -17,6 +17,18 @@
 using namespace boost;
 using namespace std;
 
+static std::map<Txid, CTransactionRef> cluster_size_failures;
+
+static void CheckBlockForClusterSizeLimitedTransactions(std::shared_ptr<CBlock> pblock, CTxMemPool& mempool)
+{
+    LOCK(mempool.cs);
+    for (auto tx : pblock->vtx) {
+        if (cluster_size_failures.count(tx->GetHash()) > 0 && !mempool.exists(GenTxid::Txid(tx->GetHash()))) {
+            LogPrintf("Found txid %s in block %s\n", tx->GetHash().ToString(), pblock->GetHash().ToString());
+        }
+    }
+}
+
 Simulation::Simulation(date sdate, date edate, string datadir)
  : logdir(datadir),
    begindate(sdate), enddate(edate)
@@ -122,7 +134,9 @@ void Simulation::RunSim(NodeContext& node)
             } else if (nextEvent == &blockEvent) {
                 // Invoke CNB and log output first.
                 node.chainman->RunCreateNewBlock();
+                CheckBlockForClusterSizeLimitedTransactions(blockEvent.obj, *node.mempool);
                 node.chainman->ProcessNewBlock(blockEvent.obj, true, true, NULL);
+                ProcessClusterSizeFailures(*node.chainman, *node.mempool);
                 blockEvent.reset();
             } else if (nextEvent == &headersEvent) {
                 BlockValidationState dummy;
@@ -142,7 +156,7 @@ void Simulation::RunSim(NodeContext& node)
         LoadFiles(curdate);
     }
     LogPrintf("Simulation exiting\n");
-    (*node.shutdown)();
+    (void)(*node.shutdown)();
 }
 
 // Reimplementation of PeerManagerImpl::ProcessOrphanTx, but with peer=0
@@ -193,10 +207,41 @@ void Simulation::ProcessTransaction(const CTransactionRef& ptx, ChainstateManage
         m_orphanage.AddTx(ptx, 0);
         unsigned int nMaxOrphanTx = (unsigned int)std::max((int64_t)0, gArgs.GetIntArg("-maxorphantx", DEFAULT_MAX_ORPHAN_TRANSACTIONS));
         m_orphanage.LimitOrphans(nMaxOrphanTx, rng);
+    } else if (state.GetResult() == TxValidationResult::TX_MEMPOOL_POLICY && state.GetRejectReason() == "too-large-cluster") {
+        // Store this tx for later processing.
+        cluster_size_failures.insert({ptx->GetHash(), ptx});
     }
     if (state.IsInvalid()) {
         LogPrint(BCLog::MEMPOOLREJ, "%s was not accepted: %s\n", tx.GetHash().ToString(),
                 state.ToString());
     }
     return;
+}
+
+void Simulation::ProcessClusterSizeFailures(ChainstateManager &m_chainman, CTxMemPool &m_mempool)
+{
+    LogPrintf("BCLog::MEMPOOL", "ProcessClusterSizeFailures: looping over %u transactions\n", cluster_size_failures.size());
+    for (auto it = cluster_size_failures.begin(); it != cluster_size_failures.end(); ) {
+        // Try to process the tx that previously failed.
+        const CTransaction& tx = *it->second;
+
+        const MempoolAcceptResult result = m_chainman.ProcessTransaction(it->second);
+        const TxValidationState& state = result.m_state;
+
+        // Log success, in an identifiable way
+        if (result.m_result_type == MempoolAcceptResult::ResultType::VALID) {
+            LogPrint(BCLog::MEMPOOL, "AcceptToMemoryPool-retry: accepted %s (poolsz %u txn, %u kB)\n",
+                    tx.GetHash().ToString(),
+                    m_mempool.size(), m_mempool.DynamicMemoryUsage() / 1000);
+        }
+
+        // Remove the element from the set if either accepted or failed for non-cluster-size-limit reason
+        if (state.GetResult() != TxValidationResult::TX_MEMPOOL_POLICY ||
+                state.GetRejectReason() != "too-large-cluster") {
+                it = cluster_size_failures.erase(it);
+        } else {
+            ++it;
+        }
+    }
+    LogPrintf("BCLog::MEMPOOL", "ProcessClusterSizeFailures: finished with %u transactions remaining\n", cluster_size_failures.size());
 }

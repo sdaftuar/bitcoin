@@ -99,6 +99,7 @@ private:
     void InitAutoFile(unique_ptr<AutoFile> &which, std::string fileprefix, date d);
     void ProcessTransaction(const CTransactionRef& ptx, ChainstateManager &m_chainman, CTxMemPool& m_mempool);
     bool ProcessOrphanTx(ChainstateManager& m_chainman);
+    void ProcessClusterSizeFailures(ChainstateManager &m_chainman, CTxMemPool &m_mempool);
 
     TxOrphanage m_orphanage;
 
