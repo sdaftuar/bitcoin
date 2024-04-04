@@ -198,6 +198,56 @@ std::vector<TxEntry::TxEntryRef> InvokeSort(size_t tx_count, const std::vector<T
     return txs;
 }
 
+template<typename S>
+void DrawCluster(std::ostream& o, const cluster_linearize::Cluster<S>& cluster)
+{
+    o << "digraph{rankdir=\"BT\";";
+    for (unsigned i = 0; i < cluster.size(); ++i) {
+        o << "t" << i << "[label=\"" << (double(cluster[i].first.fee) / cluster[i].first.size) << "\\n" << cluster[i].first.fee << " / " << cluster[i].first.size << "\"];";
+    }
+    for (unsigned i = 0; i < cluster.size(); ++i) {
+        for (unsigned val : cluster[i].second) {
+            o << "t" << i << "->t" << val << ";";
+        }
+    }
+    o << "}";
+}
+
+template <typename SetType>
+void InvokeDrawCluster(size_t tx_count, const std::vector<TxGraphCluster::Chunk>& chunks)
+{
+    std::vector<TxEntry::TxEntryRef> txs;
+    cluster_linearize::Cluster<SetType> cluster;
+    std::vector<std::pair<const TxEntry*, unsigned>> entry_to_index;
+    std::vector<TxEntry::TxEntryRef> orig_txs;
+
+    cluster.reserve(tx_count);
+    entry_to_index.reserve(tx_count);
+    cluster.clear();
+
+    for (auto &chunk : chunks) {
+        for (auto tx : chunk.txs) {
+            orig_txs.emplace_back(tx);
+            cluster.emplace_back(FeeFrac(uint64_t(tx.get().GetModifiedFee()+1000000*int64_t(tx.get().GetTxSize())), tx.get().GetTxSize()), SetType{});
+            entry_to_index.emplace_back(&(tx.get()), cluster.size() - 1);
+        }
+    }
+    std::sort(entry_to_index.begin(), entry_to_index.end());
+    for (size_t i=0; i<orig_txs.size(); ++i) {
+        for (auto& parent : orig_txs[i].get().parents) {
+            auto it = std::lower_bound(entry_to_index.begin(), entry_to_index.end(), &(parent.get()),
+                    [&](const auto& a, const auto& b) { return std::less<const TxEntry*>()(a.first, b); });
+            assert(it != entry_to_index.end());
+            assert(it->first == &(parent.get()));
+            cluster[i].second.Set(it->second);
+        }
+    }
+    std::ostringstream output;
+    DrawCluster<SetType>(output, cluster);
+    LogPrintf("%s\n", output.str());
+}
+
+
 } // namespace
 
 void TxGraphCluster::Sort(bool reassign_locations)
@@ -1336,16 +1386,17 @@ void TxGraphCluster::Print()
         LogPrintf("[");
         for (auto& tx : chunk.txs) {
             LogPrintf("%ld %ld %u ", tx.get().unique_id, tx.get().m_modified_fee, tx.get().m_virtual_size);
-            LogPrintf("(");
-            for (auto p : tx.get().parents) {
-                LogPrintf("%ld,", p.get().unique_id);
-            }
-            LogPrintf(") (");
-            for (auto c : tx.get().children) {
-                LogPrintf("%ld,", c.get().unique_id);
-            }
-            LogPrintf("); ");
         }
         LogPrintf("]\n");
+    }
+
+    if (m_tx_count <= 32) {
+        InvokeDrawCluster<BitSet<32>>(m_tx_count, m_chunks);
+    } else if (m_tx_count <= 64) {
+        InvokeDrawCluster<BitSet<64>>(m_tx_count, m_chunks);
+    } else if (m_tx_count <= 128) {
+        InvokeDrawCluster<BitSet<128>>(m_tx_count, m_chunks);
+    } else {
+        return;
     }
 }
