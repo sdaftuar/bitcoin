@@ -220,7 +220,7 @@ void Simulation::ProcessTransaction(const CTransactionRef& ptx, ChainstateManage
 
 void Simulation::ProcessClusterSizeFailures(ChainstateManager &m_chainman, CTxMemPool &m_mempool)
 {
-    LogPrintf("BCLog::MEMPOOL", "ProcessClusterSizeFailures: looping over %u transactions\n", cluster_size_failures.size());
+    LogPrint(BCLog::MEMPOOL, "ProcessClusterSizeFailures: looping over %u transactions\n", cluster_size_failures.size());
     for (auto it = cluster_size_failures.begin(); it != cluster_size_failures.end(); ) {
         // Try to process the tx that previously failed.
         const CTransaction& tx = *it->second;
@@ -243,5 +243,5 @@ void Simulation::ProcessClusterSizeFailures(ChainstateManager &m_chainman, CTxMe
             ++it;
         }
     }
-    LogPrintf("BCLog::MEMPOOL", "ProcessClusterSizeFailures: finished with %u transactions remaining\n", cluster_size_failures.size());
+    LogPrint(BCLog::MEMPOOL, "ProcessClusterSizeFailures: finished with %u transactions remaining\n", cluster_size_failures.size());
 }
