@@ -5,6 +5,11 @@
 #include <reverse_iterator.h>
 #include <util/strencodings.h>
 
+FeeFrac TxEntry::GetMinerScore() const
+{
+    return FeeFrac(m_cluster->m_chunks[m_loc.first].fee, m_cluster->m_chunks[m_loc.first].size);
+}
+
 void TxGraphCluster::AddTransaction(const TxEntry& entry, bool sort)
 {
     m_chunks.emplace_back(entry.GetModifiedFee(), entry.GetTxSize());
@@ -148,7 +153,8 @@ std::vector<TxEntry::TxEntryRef> InvokeSort(size_t tx_count, const std::vector<T
     for (auto &chunk : chunks) {
         for (auto tx : chunk.txs) {
             orig_txs.emplace_back(tx);
-            cluster.emplace_back(FeeFrac(uint64_t(tx.get().GetModifiedFee()+1000000*int64_t(tx.get().GetTxSize())), tx.get().GetTxSize()), SetType{});
+            //cluster.emplace_back(FeeFrac(uint64_t(tx.get().GetModifiedFee()+1000000*int64_t(tx.get().GetTxSize())), tx.get().GetTxSize()), SetType{});
+            cluster.emplace_back(FeeFrac(tx.get().GetModifiedFee(), tx.get().GetTxSize()), SetType{});
             entry_to_index.emplace_back(&(tx.get()), cluster.size() - 1);
         }
     }
@@ -228,7 +234,7 @@ void InvokeDrawCluster(size_t tx_count, const std::vector<TxGraphCluster::Chunk>
     for (auto &chunk : chunks) {
         for (auto tx : chunk.txs) {
             orig_txs.emplace_back(tx);
-            cluster.emplace_back(FeeFrac(uint64_t(tx.get().GetModifiedFee()+1000000*int64_t(tx.get().GetTxSize())), tx.get().GetTxSize()), SetType{});
+            cluster.emplace_back(FeeFrac(tx.get().GetModifiedFee(), tx.get().GetTxSize()), SetType{});
             entry_to_index.emplace_back(&(tx.get()), cluster.size() - 1);
         }
     }

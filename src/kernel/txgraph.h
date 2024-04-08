@@ -49,6 +49,9 @@ public:
     TxEntry(int32_t vsize, CAmount modified_fee)
         : m_virtual_size(vsize), m_modified_fee(modified_fee) {}
     virtual ~TxEntry() {}
+
+    FeeFrac GetMinerScore() const;
+
     int64_t unique_id{++unique_id_counter};
     int32_t m_virtual_size;
     CAmount m_modified_fee;              //!< Tx fee (including prioritisetransaction effects)
