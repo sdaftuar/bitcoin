@@ -294,6 +294,7 @@ public:
     std::vector<CTransactionRef> txns_randomized GUARDED_BY(cs); //!< All transactions in mapTx, in random order
 
     typedef std::set<txiter, CompareIteratorByHash> setEntries;
+    typedef std::vector<txiter> Entries;
 
     using Limits = kernel::MemPoolLimits;
 
@@ -522,6 +523,8 @@ public:
      *  Assumes that setDescendants includes all in-mempool descendants of anything
      *  already in it.  */
     void CalculateDescendants(txiter it, setEntries& setDescendants) const EXCLUSIVE_LOCKS_REQUIRED(cs);
+
+    std::vector<txiter> CalculateDescendants(std::vector<txiter> txs) const EXCLUSIVE_LOCKS_REQUIRED(cs);
 
     bool CalculateFeerateDiagramsForRBF(CTxMemPoolEntry& entry, CAmount
             modified_fee, setEntries direct_conflicts, setEntries all_conflicts,
