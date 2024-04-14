@@ -9,7 +9,9 @@
 #include <stdint.h>
 #include <algorithm>
 #include <compare>
+#include <span.h>
 #include <vector>
+#include <util/check.h>
 
 namespace {
 
@@ -153,6 +155,15 @@ struct FeeFrac
     }
 };
 
-void BuildDiagramFromUnsortedChunks(std::vector<FeeFrac>& chunks, std::vector<FeeFrac>& diagram);
+/** Takes the pre-computed and topologically-valid chunks and generates a fee diagram which starts at FeeFrac of (0, 0) */
+std::vector<FeeFrac> BuildDiagramFromChunks(Span<const FeeFrac> chunks);
+
+/** Compares two feerate diagrams. The shorter one is implicitly
+ * extended with a horizontal straight line.
+ *
+ * A feerate diagram consists of a list of (fee, size) points with the property that size
+ * is strictly increasing and that the first entry is (0, 0).
+ */
+std::partial_ordering CompareFeerateDiagram(Span<const FeeFrac> dia0, Span<const FeeFrac> dia1);
 
 #endif // BITCOIN_UTIL_FEEFRAC_H
