@@ -1084,7 +1084,7 @@ bool MemPoolAccept::Finalize(const ATMPArgs& args, Workspace& ws)
         );
         ws.m_replaced_transactions.push_back(it->GetSharedTx());
     }
-    m_pool.RemoveStaged(ws.m_all_conflicting, false, MemPoolRemovalReason::REPLACED);
+    m_pool.RemoveStaged(ws.m_all_conflicting, MemPoolRemovalReason::REPLACED);
     // Store transaction in memory
     m_pool.addUnchecked(*entry);
 
