@@ -506,11 +506,6 @@ public:
     util::Result<void> CheckPackageLimits(const Package& package,
                                           int64_t total_vsize) const EXCLUSIVE_LOCKS_REQUIRED(cs);
 
-    /** Populate setDescendants with all in-mempool descendants of hash.
-     *  Assumes that setDescendants includes all in-mempool descendants of anything
-     *  already in it.  */
-    void CalculateDescendants(txiter it, setEntries& setDescendants) const EXCLUSIVE_LOCKS_REQUIRED(cs);
-
     std::vector<txiter> CalculateDescendants(std::vector<txiter> txs) const EXCLUSIVE_LOCKS_REQUIRED(cs);
 
     bool CalculateFeerateDiagramsForRBF(CTxMemPoolEntry& entry, CAmount
