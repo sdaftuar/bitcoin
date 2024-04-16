@@ -52,8 +52,8 @@ bool TestLockPointValidity(CChain& active_chain, const LockPoints& lp)
 std::vector<CTxMemPoolEntry::CTxMemPoolEntryRef> CTxMemPool::GetChildren(const CTxMemPoolEntry& entry) const
 {
     std::vector<CTxMemPoolEntry::CTxMemPoolEntryRef> ret;
-    for (auto child : entry.GetMemPoolChildrenConst()) {
-        ret.push_back(child);
+    for (auto child : entry.GetTxEntryChildren()) {
+        ret.push_back(static_cast<const CTxMemPoolEntry &>(child.get()));
     }
     return ret;
 }
@@ -61,8 +61,8 @@ std::vector<CTxMemPoolEntry::CTxMemPoolEntryRef> CTxMemPool::GetChildren(const C
 std::vector<CTxMemPoolEntry::CTxMemPoolEntryRef> CTxMemPool::GetParents(const CTxMemPoolEntry& entry) const
 {
     std::vector<CTxMemPoolEntry::CTxMemPoolEntryRef> ret;
-    for (auto child : entry.GetMemPoolParentsConst()) {
-        ret.push_back(child);
+    for (auto parent : entry.GetTxEntryParents()) {
+        ret.push_back(static_cast<const CTxMemPoolEntry &>(parent.get()));
     }
     return ret;
 }
