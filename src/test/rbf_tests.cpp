@@ -216,7 +216,7 @@ BOOST_FIXTURE_TEST_CASE(rbf_conflicts_calculator, TestChain100Setup)
     // If we mine parent_tx, then the cluster splits into NUM_OUTPUTS clusters.
     CTxMemPool::setEntries remove_parent;
     remove_parent.insert(parent_entry);
-    pool.RemoveStaged(remove_parent, true, MemPoolRemovalReason::BLOCK);
+    pool.RemoveStaged(remove_parent, MemPoolRemovalReason::BLOCK);
 
     // We can conflict with 100 different clusters, even though they have 10
     // transactions each.
