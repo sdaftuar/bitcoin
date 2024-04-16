@@ -597,7 +597,7 @@ private:
          * those it directly conflicts with and their descendants. */
         CTxMemPool::setEntries m_all_conflicting;
         /** All mempool ancestors of this transaction. */
-        CTxMemPool::setEntries m_ancestors;
+        CTxMemPool::Entries m_parents;
         /** Mempool entry constructed for this transaction. Constructed in PreChecks() but not
          * inserted into the mempool until Finalize(). */
         std::unique_ptr<CTxMemPoolEntry> m_entry;
@@ -894,19 +894,20 @@ bool MemPoolAccept::PreChecks(ATMPArgs& args, Workspace& ws)
     ws.m_iters_conflicting = m_pool.GetIterSet(ws.m_conflicts);
 
     // Calculate in-mempool ancestors
-    ws.m_ancestors = m_pool.CalculateMemPoolAncestors(*entry);
     if (const auto err_string{SingleV3Checks(m_pool, ws.m_ptx, ws.m_conflicts, ws.m_vsize)}) {
         return state.Invalid(TxValidationResult::TX_MEMPOOL_POLICY, "v3-rule-violation", *err_string);
     }
+    ws.m_parents = m_pool.CalculateParentsOf(*ws.m_ptx);
 
-    // A transaction that spends outputs that would be replaced by it is invalid. Now
-    // that we have the set of all ancestors we can detect this
-    // pathological case by making sure ws.m_conflicts and ws.m_ancestors don't
-    // intersect.
-    if (const auto err_string{EntriesAndTxidsDisjoint(ws.m_ancestors, ws.m_conflicts, hash)}) {
-        // We classify this as a consensus error because a transaction depending on something it
-        // conflicts with would be inconsistent.
-        return state.Invalid(TxValidationResult::TX_CONSENSUS, "bad-txns-spends-conflicting-tx", *err_string);
+    // A transaction that spends outputs that would be replaced by it is invalid. Ensure
+    // that m_conflicts doesn't intersect with the set of ancestors.
+    if (!ws.m_conflicts.empty()) {
+        auto ancestors = m_pool.CalculateMemPoolAncestors(*entry);
+        if (const auto err_string{EntriesAndTxidsDisjoint(ancestors, ws.m_conflicts, hash)}) {
+            // We classify this as a consensus error because a transaction depending on something it
+            // conflicts with would be inconsistent.
+            return state.Invalid(TxValidationResult::TX_CONSENSUS, "bad-txns-spends-conflicting-tx", *err_string);
+        }
     }
 
     m_rbf = !ws.m_conflicts.empty();
@@ -919,13 +920,9 @@ bool MemPoolAccept::ClusterSizeChecks(Workspace& ws)
     AssertLockHeld(m_pool.cs);
 
     const CTxMemPoolEntry &entry = *ws.m_entry;
-    const CTxMemPool::setEntries& ancestors = ws.m_ancestors;
     TxValidationState& state = ws.m_state;
 
-    std::vector<CTxMemPoolEntry::CTxMemPoolEntryRef> parents;
-    for (auto a : ancestors) parents.emplace_back(*a);
-
-    auto result{m_pool.CheckClusterSizeLimit(entry.GetTxSize(), 1, m_pool.m_limits, parents)};
+    auto result{m_pool.CheckClusterSizeLimit(entry.GetTxSize(), 1, m_pool.m_limits, ws.m_parents)};
     if (!result) {
         return state.Invalid(TxValidationResult::TX_MEMPOOL_POLICY, "too-large-cluster", util::ErrorString(result).original);
     }
@@ -1130,11 +1127,6 @@ bool MemPoolAccept::SubmitPackage(const ATMPArgs& args, std::vector<Workspace>& 
                                             ws.m_ptx->GetHash().ToString()));
         }
 
-        // Re-calculate mempool ancestors to call addUnchecked(). They may have changed since the
-        // last calculation done in PreChecks, since package ancestors have already been submitted.
-        {
-            ws.m_ancestors = m_pool.CalculateMemPoolAncestors(*ws.m_entry);
-        }
         // If we call LimitMempoolSize() for each individual Finalize(), the mempool will not take
         // the transaction's descendant feerate into account because it hasn't seen them yet. Also,
         // we risk evicting a transaction that a subsequent package transaction depends on. Instead,
