@@ -48,6 +48,16 @@ bool TestLockPointValidity(CChain& active_chain, const LockPoints& lp)
     return true;
 }
 
+CTxMemPool::Entries CTxMemPool::CalculateParentsOf(const CTransaction& tx) const
+{
+    LOCK(cs);
+    Entries ret;
+    for (auto p : CalculateParents(tx)) {
+        ret.push_back(mapTx.iterator_to(static_cast<const CTxMemPoolEntry&>(p.get())));
+    }
+    return ret;
+}
+
 std::vector<CTxMemPoolEntry::CTxMemPoolEntryRef> CTxMemPool::GetChildren(const CTxMemPoolEntry& entry) const
 {
     std::vector<CTxMemPoolEntry::CTxMemPoolEntryRef> ret;

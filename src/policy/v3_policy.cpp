@@ -159,12 +159,13 @@ std::optional<std::string> PackageV3Checks(const CTxMemPool& pool, const CTransa
 }
 
 std::optional<std::string> SingleV3Checks(const CTxMemPool& pool, const CTransactionRef& ptx,
-                                          const CTxMemPool::setEntries& mempool_ancestors,
                                           const std::set<Txid>& direct_conflicts,
                                           int64_t vsize)
 {
+    CTxMemPool::Entries parents = pool.CalculateParentsOf(*ptx);
+
     // Check v3 and non-v3 inheritance.
-    for (const auto& entry : mempool_ancestors) {
+    for (const auto& entry : parents) {
         if (ptx->nVersion != 3 && entry->GetTx().nVersion == 3) {
             return strprintf("non-v3 tx %s (wtxid=%s) cannot spend from v3 tx %s (wtxid=%s)",
                              ptx->GetHash().ToString(), ptx->GetWitnessHash().ToString(),
@@ -184,13 +185,13 @@ std::optional<std::string> SingleV3Checks(const CTxMemPool& pool, const CTransac
     if (ptx->nVersion != 3) return std::nullopt;
 
     // Check that V3_ANCESTOR_LIMIT would not be violated.
-    if (mempool_ancestors.size() + 1 > V3_ANCESTOR_LIMIT) {
+    if (parents.size() + 1 > V3_ANCESTOR_LIMIT) {
         return strprintf("tx %s (wtxid=%s) would have too many ancestors",
                          ptx->GetHash().ToString(), ptx->GetWitnessHash().ToString());
     }
 
     // Remaining checks only pertain to transactions with unconfirmed ancestors.
-    if (mempool_ancestors.size() > 0) {
+    if (parents.size() > 0) {
         // If this transaction spends V3 parents, it cannot be too large.
         if (vsize > V3_CHILD_MAX_VSIZE) {
             return strprintf("v3 child tx %s (wtxid=%s) is too big: %u > %u virtual bytes",
@@ -198,7 +199,14 @@ std::optional<std::string> SingleV3Checks(const CTxMemPool& pool, const CTransac
         }
 
         // Check the descendant counts of in-mempool ancestors.
-        const auto& parent_entry = *mempool_ancestors.begin();
+        const auto& parent_entry = parents[0];
+
+        // If we have a single parent, that transaction may not have any of its own parents.
+        if (pool.GetParents(*parent_entry).size() > 0) {
+            return strprintf("tx %s (wtxid=%s) would have too many ancestors",
+                    ptx->GetHash().ToString(), ptx->GetWitnessHash().ToString());
+        }
+
         // If there are any ancestors, this is the only child allowed. The parent cannot have any
         // other descendants. We handle the possibility of multiple children as that case is
         // possible through a reorg.

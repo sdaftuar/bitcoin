@@ -895,7 +895,7 @@ bool MemPoolAccept::PreChecks(ATMPArgs& args, Workspace& ws)
 
     // Calculate in-mempool ancestors
     ws.m_ancestors = m_pool.CalculateMemPoolAncestors(*entry);
-    if (const auto err_string{SingleV3Checks(m_pool, ws.m_ptx, ws.m_ancestors, ws.m_conflicts, ws.m_vsize)}) {
+    if (const auto err_string{SingleV3Checks(m_pool, ws.m_ptx, ws.m_conflicts, ws.m_vsize)}) {
         return state.Invalid(TxValidationResult::TX_MEMPOOL_POLICY, "v3-rule-violation", *err_string);
     }
 
