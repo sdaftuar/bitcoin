@@ -1199,6 +1199,7 @@ void MemPoolAccept::FinalizeSubpackage(const ATMPArgs& args)
 
     if (!m_subpackage.m_all_conflicts.empty()) Assume(args.m_allow_replacement);
     // Remove conflicting transactions from the mempool
+    CTxMemPool::Entries all_removals;
     for (CTxMemPool::txiter it : m_subpackage.m_all_conflicts)
     {
         LogDebug(BCLog::MEMPOOL, "replacing mempool tx %s (wtxid=%s, fees=%s, vsize=%s). ",
@@ -1229,6 +1230,7 @@ void MemPoolAccept::FinalizeSubpackage(const ATMPArgs& args)
                 feerate.fee
         );
         m_subpackage.m_replaced_transactions.push_back(it->GetSharedTx());
+        all_removals.push_back(it);
     }
     m_subpackage.m_changeset->Apply();
     m_subpackage.m_changeset.reset();
