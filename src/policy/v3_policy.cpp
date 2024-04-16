@@ -55,7 +55,7 @@ struct ParentInfo {
     {}
 };
 
-std::optional<std::string> PackageV3Checks(const CTransactionRef& ptx, int64_t vsize,
+std::optional<std::string> PackageV3Checks(const CTxMemPool& pool, const CTransactionRef& ptx, int64_t vsize,
                                            const Package& package,
                                            const CTxMemPool::setEntries& mempool_ancestors)
 {
@@ -85,11 +85,11 @@ std::optional<std::string> PackageV3Checks(const CTransactionRef& ptx, int64_t v
             const auto parent_info = [&] {
                 if (mempool_ancestors.size() > 0) {
                     auto& mempool_parent = *mempool_ancestors.begin();
-                    Assume(mempool_parent->GetNumChildren() == 0);
+                    Assume(pool.GetNumChildren(mempool_parent) == 0);
                     return ParentInfo{mempool_parent->GetTx().GetHash(),
                                       mempool_parent->GetTx().GetWitnessHash(),
                                       mempool_parent->GetTx().nVersion,
-                                      /*has_mempool_descendant=*/mempool_parent->GetNumChildren() > 0};
+                                      /*has_mempool_descendant=*/pool.GetNumChildren(mempool_parent) > 0};
                 } else {
                     auto& parent_index = in_package_parents.front();
                     auto& package_parent = package.at(parent_index);
@@ -158,7 +158,7 @@ std::optional<std::string> PackageV3Checks(const CTransactionRef& ptx, int64_t v
     return std::nullopt;
 }
 
-std::optional<std::string> SingleV3Checks(const CTransactionRef& ptx,
+std::optional<std::string> SingleV3Checks(const CTxMemPool& pool, const CTransactionRef& ptx,
                                           const CTxMemPool::setEntries& mempool_ancestors,
                                           const std::set<Txid>& direct_conflicts,
                                           int64_t vsize)
@@ -209,7 +209,7 @@ std::optional<std::string> SingleV3Checks(const CTransactionRef& ptx,
         const bool child_will_be_replaced = !children.empty() &&
             std::any_of(children.cbegin(), children.cend(),
                 [&direct_conflicts](const CTxMemPoolEntry& child){return direct_conflicts.count(child.GetTx().GetHash()) > 0;});
-        if (parent_entry->GetNumChildren() + 2 > V3_DESCENDANT_LIMIT && !child_will_be_replaced) {
+        if (pool.GetNumChildren(parent_entry) + 2 > V3_DESCENDANT_LIMIT && !child_will_be_replaced) {
             return strprintf("tx %u (wtxid=%s) would exceed descendant count limit",
                              parent_entry->GetSharedTx()->GetHash().ToString(),
                              parent_entry->GetSharedTx()->GetWitnessHash().ToString());
