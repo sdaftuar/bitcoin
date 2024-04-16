@@ -77,6 +77,6 @@ std::optional<std::string> SingleV3Checks(const CTxMemPool& pool, const CTransac
  * */
 std::optional<std::string> PackageV3Checks(const CTxMemPool& pool, const CTransactionRef& ptx, int64_t vsize,
                                            const Package& package,
-                                           const CTxMemPool::setEntries& mempool_ancestors);
+                                           const CTxMemPool::Entries& mempool_parents);
 
 #endif // BITCOIN_POLICY_V3_POLICY_H
