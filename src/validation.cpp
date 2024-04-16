@@ -1064,6 +1064,7 @@ bool MemPoolAccept::Finalize(const ATMPArgs& args, Workspace& ws)
     std::unique_ptr<CTxMemPoolEntry>& entry = ws.m_entry;
 
     // Remove conflicting transactions from the mempool
+    CTxMemPool::Entries all_removals;
     for (CTxMemPool::txiter it : ws.m_all_conflicting)
     {
         LogPrint(BCLog::MEMPOOL, "replacing tx %s (wtxid=%s) with %s (wtxid=%s) for %s additional fees, %d delta bytes\n",
@@ -1083,8 +1084,9 @@ bool MemPoolAccept::Finalize(const ATMPArgs& args, Workspace& ws)
                 entry->GetFee()
         );
         ws.m_replaced_transactions.push_back(it->GetSharedTx());
+        all_removals.push_back(it);
     }
-    m_pool.RemoveStaged(ws.m_all_conflicting, MemPoolRemovalReason::REPLACED);
+    m_pool.RemoveStaged(all_removals, MemPoolRemovalReason::REPLACED);
     // Store transaction in memory
     m_pool.addUnchecked(*entry);
 
