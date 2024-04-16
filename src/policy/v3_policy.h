@@ -43,7 +43,6 @@ static_assert(V3_CHILD_MAX_VSIZE + MAX_STANDARD_TX_WEIGHT / WITNESS_SCALE_FACTOR
  *
  *
  * @param[in]   pool                    A reference to the mempool.
- * @param[in]   mempool_ancestors       The in-mempool ancestors of ptx.
  * @param[in]   direct_conflicts        In-mempool transactions this tx conflicts with. These conflicts
  *                                      are used to more accurately calculate the resulting descendant
  *                                      count of in-mempool ancestors.
@@ -58,7 +57,6 @@ static_assert(V3_CHILD_MAX_VSIZE + MAX_STANDARD_TX_WEIGHT / WITNESS_SCALE_FACTOR
  *   applicable.
  */
 std::optional<std::pair<std::string, CTransactionRef>> SingleV3Checks(const CTxMemPool& pool, const CTransactionRef& ptx,
-                                          const CTxMemPool::setEntries& mempool_ancestors,
                                           const std::set<Txid>& direct_conflicts,
                                           int64_t vsize);
 
