@@ -377,13 +377,13 @@ CTxMemPool::Entries CTxMemPool::CalculateDescendants(Entries txs) const
 {
     std::vector<TxEntry::TxEntryRef> tx_entries;
     for (auto it : txs) {
-        tx_entries.push_back(*it);
+        tx_entries.emplace_back(*it);
     }
     auto descendants = txgraph.GetDescendants(tx_entries);
 
     CTxMemPool::Entries result;
     for (auto tx : descendants) {
-        result.push_back(mapTx.iterator_to(dynamic_cast<const CTxMemPoolEntry&>(tx.get())));
+        result.emplace_back(mapTx.iterator_to(dynamic_cast<const CTxMemPoolEntry&>(tx.get())));
     }
     return result;
 }
