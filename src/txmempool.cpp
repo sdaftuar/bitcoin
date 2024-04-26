@@ -63,7 +63,7 @@ std::vector<CTxMemPoolEntry::CTxMemPoolEntryRef> CTxMemPool::GetChildren(const C
 {
     std::vector<CTxMemPoolEntry::CTxMemPoolEntryRef> ret;
     for (auto child : entry.GetTxEntryChildren()) {
-        ret.push_back(static_cast<const CTxMemPoolEntry &>(child.get()));
+        ret.emplace_back(static_cast<const CTxMemPoolEntry &>(child.get()));
     }
     return ret;
 }
@@ -72,7 +72,7 @@ std::vector<CTxMemPoolEntry::CTxMemPoolEntryRef> CTxMemPool::GetParents(const CT
 {
     std::vector<CTxMemPoolEntry::CTxMemPoolEntryRef> ret;
     for (auto parent : entry.GetTxEntryParents()) {
-        ret.push_back(static_cast<const CTxMemPoolEntry &>(parent.get()));
+        ret.emplace_back(static_cast<const CTxMemPoolEntry &>(parent.get()));
     }
     return ret;
 }
