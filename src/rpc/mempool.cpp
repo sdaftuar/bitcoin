@@ -665,6 +665,7 @@ static RPCHelpMan getmempoolcluster()
     const CTxMemPool& mempool = EnsureAnyMemPool(request.context);
     LOCK(mempool.cs);
 
+    LOCK(mempool.txgraph.cs);
     auto it = mempool.txgraph.GetClusterMap().find(cluster_id);
     if (it == mempool.txgraph.GetClusterMap().end()) {
         throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Cluster not in mempool");
@@ -796,6 +797,7 @@ UniValue MempoolInfoToJSON(const CTxMemPool& pool)
 {
     // Make sure this call is atomic in the pool.
     LOCK(pool.cs);
+    LOCK(pool.txgraph.cs);
     UniValue ret(UniValue::VOBJ);
     ret.pushKV("loaded", pool.GetLoadTried());
     ret.pushKV("size", (int64_t)pool.size());
