@@ -930,7 +930,7 @@ void CTxMemPool::TrimToSize(size_t sizelimit, std::vector<COutPoint>* pvNoSpends
         if (pvNoSpendsRemaining) {
             txn.reserve(txs_to_remove.size());
             for (auto tx_entry_ref : txs_to_remove)
-                txn.push_back(dynamic_cast<const CTxMemPoolEntry&>(tx_entry_ref.get()).GetTx());
+                txn.emplace_back(dynamic_cast<const CTxMemPoolEntry&>(tx_entry_ref.get()).GetTx());
         }
 
         for (auto tx : txs_to_remove) {
