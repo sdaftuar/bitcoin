@@ -475,7 +475,7 @@ void CTxMemPool::removeForBlock(const std::vector<CTransactionRef>& vtx, unsigne
         txiter it = mapTx.find(tx->GetHash());
         if (it != mapTx.end()) {
             txs_removed_for_block.emplace_back(*it);
-            txs_to_remove.push_back(*it);
+            txs_to_remove.emplace_back(*it);
         }
     }
 
