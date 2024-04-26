@@ -226,7 +226,7 @@ std::vector<TxEntry::TxEntryRef> CTxMemPool::CalculateParents(const CTransaction
         for (const CTxIn &txin : tx.vin) {
             std::optional<txiter> piter = GetIter(txin.prevout.hash);
             if (piter && !visited(*piter)) {
-                ret.push_back(**piter);
+                ret.emplace_back(**piter);
             }
         }
     }
