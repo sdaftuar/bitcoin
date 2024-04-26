@@ -399,7 +399,7 @@ void CTxMemPool::removeRecursive(const CTransaction &origTx, MemPoolRemovalReaso
         WITH_FRESH_EPOCH(m_epoch);
         if (origit != mapTx.end()) {
             visited(origit);
-            txToRemove.push_back(origit);
+            txToRemove.emplace_back(origit);
         } else {
             // When recursively removing but origTx isn't in the mempool
             // be sure to remove any children that are in the pool. This can
@@ -412,7 +412,7 @@ void CTxMemPool::removeRecursive(const CTransaction &origTx, MemPoolRemovalReaso
                 txiter nextit = mapTx.find(it->second->GetHash());
                 assert(nextit != mapTx.end());
                 if (!visited(nextit)) {
-                    txToRemove.push_back(nextit);
+                    txToRemove.emplace_back(nextit);
                 }
             }
         }
