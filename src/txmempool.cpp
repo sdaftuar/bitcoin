@@ -1058,14 +1058,14 @@ util::Result<std::pair<std::vector<FeeFrac>, std::vector<FeeFrac>>> CTxMemPool::
         auto parents = CalculateParents((*e.first));
         // Add in any parents from new_entries
         std::set<CTxMemPoolEntry*> additional_parents;
-        for (auto input: e.first->GetTx().vin) {
+        for (auto& input: e.first->GetTx().vin) {
             auto it = new_entries_map.find(input.prevout.hash);
             if (it != new_entries_map.end()) {
                 additional_parents.insert(it->second);
             }
         }
         for (auto p : additional_parents) {
-            parents.push_back(*p);
+            parents.emplace_back(*p);
         }
         if (!changeset.AddTx(*(e.first), parents)) {
             cleanup();
