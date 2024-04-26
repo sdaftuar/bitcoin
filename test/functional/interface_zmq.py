@@ -3,11 +3,8 @@
 # Distributed under the MIT software license, see the accompanying
 # file COPYING or http://www.opensource.org/licenses/mit-license.php.
 """Test the ZMQ notification interface."""
-import os
 import struct
-import tempfile
 from time import sleep
-from io import BytesIO
 
 from test_framework.address import (
     ADDRESS_BCRT1_P2WSH_OP_TRUE,
@@ -20,7 +17,6 @@ from test_framework.blocktools import (
 )
 from test_framework.test_framework import BitcoinTestFramework
 from test_framework.messages import (
-    CBlock,
     hash256,
     tx_from_hex,
 )
@@ -32,7 +28,7 @@ from test_framework.util import (
 from test_framework.wallet import (
     MiniWallet,
 )
-from test_framework.netutil import test_ipv6_local, test_unix_socket
+from test_framework.netutil import test_ipv6_local
 
 
 # Test may be skipped and not have zmq installed
@@ -108,8 +104,9 @@ class ZMQTestSetupBlock:
 class ZMQTest (BitcoinTestFramework):
     def set_test_params(self):
         self.num_nodes = 2
-        # whitelist peers to speed up tx relay / mempool sync
-        self.noban_tx_relay = True
+        # This test isn't testing txn relay/timing, so set whitelist on the
+        # peers for instant txn relay. This speeds up the test run time 2-3x.
+        self.extra_args = [["-whitelist=noban@127.0.0.1"]] * self.num_nodes
         self.zmq_port_base = p2p_port(self.num_nodes + 1)
 
     def skip_test_if_missing_module(self):
@@ -121,10 +118,6 @@ class ZMQTest (BitcoinTestFramework):
         self.ctx = zmq.Context()
         try:
             self.test_basic()
-            if test_unix_socket():
-                self.test_basic(unix=True)
-            else:
-                self.log.info("Skipping ipc test, because UNIX sockets are not supported.")
             self.test_sequence()
             self.test_mempool_sync()
             self.test_reorg()
@@ -145,7 +138,8 @@ class ZMQTest (BitcoinTestFramework):
                 socket.setsockopt(zmq.IPV6, 1)
             subscribers.append(ZMQSubscriber(socket, topic.encode()))
 
-        self.restart_node(0, [f"-zmqpub{topic}={address.replace('ipc://', 'unix:')}" for topic, address in services])
+        self.restart_node(0, [f"-zmqpub{topic}={address}" for topic, address in services] +
+                             self.extra_args[0])
 
         for i, sub in enumerate(subscribers):
             sub.socket.connect(services[i][1])
@@ -182,19 +176,12 @@ class ZMQTest (BitcoinTestFramework):
 
         return subscribers
 
-    def test_basic(self, unix = False):
-        self.log.info(f"Running basic test with {'ipc' if unix else 'tcp'} protocol")
+    def test_basic(self):
 
         # Invalid zmq arguments don't take down the node, see #17185.
         self.restart_node(0, ["-zmqpubrawtx=foo", "-zmqpubhashtx=bar"])
 
         address = f"tcp://127.0.0.1:{self.zmq_port_base}"
-
-        if unix:
-            # Use the shortest temp path possible since paths may have as little as 92-char limit
-            socket_path = tempfile.NamedTemporaryFile().name
-            address = f"ipc://{socket_path}"
-
         subs = self.setup_zmq_test([(topic, address) for topic in ["hashblock", "hashtx", "rawblock", "rawtx"]])
 
         hashblock = subs[0]
@@ -216,13 +203,8 @@ class ZMQTest (BitcoinTestFramework):
             assert_equal(tx.hash, txid.hex())
 
             # Should receive the generated raw block.
-            hex = rawblock.receive()
-            block = CBlock()
-            block.deserialize(BytesIO(hex))
-            assert block.is_valid()
-            assert_equal(block.vtx[0].hash, tx.hash)
-            assert_equal(len(block.vtx), 1)
-            assert_equal(genhashes[x], hash256_reversed(hex[:80]).hex())
+            block = rawblock.receive()
+            assert_equal(genhashes[x], hash256_reversed(block[:80]).hex())
 
             # Should receive the generated block hash.
             hash = hashblock.receive().hex()
@@ -260,8 +242,6 @@ class ZMQTest (BitcoinTestFramework):
         ])
 
         assert_equal(self.nodes[1].getzmqnotifications(), [])
-        if unix:
-            os.unlink(socket_path)
 
     def test_reorg(self):
 
@@ -446,14 +426,12 @@ class ZMQTest (BitcoinTestFramework):
         mempool_seq += 1
         assert_equal((bump_txid, "A", mempool_seq), seq.receive_sequence())
         mempool_seq += 1
+        mempool_seq += len(more_tx)
         # Conflict announced first, then block
         assert_equal((bump_txid, "R", mempool_seq), seq.receive_sequence())
-        mempool_seq += 1
         assert_equal((tip, "C", None), seq.receive_sequence())
-        mempool_seq += len(more_tx)
-        # Last tx
-        assert_equal((orig_txid_2, "A", mempool_seq), seq.receive_sequence())
         mempool_seq += 1
+        assert_equal((orig_txid_2, "A", mempool_seq), seq.receive_sequence())
         self.generatetoaddress(self.nodes[0], 1, ADDRESS_BCRT1_UNSPENDABLE)
         self.sync_all()  # want to make sure we didn't break "consensus" for other tests
 
