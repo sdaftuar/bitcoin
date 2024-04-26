@@ -37,8 +37,6 @@ class MempoolPackagesTest(BitcoinTestFramework):
         self.wallet = MiniWallet(self.nodes[0])
         self.wallet.rescan_utxos()
 
-        peer_inv_store = self.nodes[0].add_p2p_connection(P2PTxInvStore()) # keep track of invs
-
         # Now test descendant chain limits
 
         tx_children = []
