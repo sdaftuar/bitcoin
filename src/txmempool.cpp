@@ -1011,7 +1011,7 @@ std::vector<CTxMemPool::txiter> CTxMemPool::GatherClusters(const std::vector<uin
     for (auto txid : txids) {
         auto it = mapTx.find(txid);
         if (it != mapTx.end()) {
-            txs.push_back(*it);
+            txs.emplace_back(*it);
         }
     }
 
@@ -1021,7 +1021,7 @@ std::vector<CTxMemPool::txiter> CTxMemPool::GatherClusters(const std::vector<uin
         return {};
     }
     for (auto tx : all_txs) {
-        ret.push_back(mapTx.iterator_to(dynamic_cast<const CTxMemPoolEntry&>(tx.get())));
+        ret.emplace_back(mapTx.iterator_to(dynamic_cast<const CTxMemPoolEntry&>(tx.get())));
     }
     return ret;
 }
