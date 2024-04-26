@@ -139,7 +139,7 @@ std::vector<CTxMemPoolEntry::CTxMemPoolEntryRef> CTxMemPool::CalculateMemPoolAnc
 
     std::vector<CTxMemPoolEntry::CTxMemPoolEntryRef> ret;
     for (auto ancestor : ancestors) {
-        ret.push_back(dynamic_cast<const CTxMemPoolEntry&>(ancestor.get()));
+        ret.emplace_back(dynamic_cast<const CTxMemPoolEntry&>(ancestor.get()));
     }
     return ret;
 }
@@ -153,7 +153,7 @@ std::vector<TxEntry::TxEntryRef> CTxMemPool::CalculateAncestors(const CTxMemPool
         parents = CalculateParents(entry);
     } else {
         for (auto p : entry.GetTxEntryParents()) {
-            parents.push_back(p);
+            parents.emplace_back(p);
         }
     }
 
