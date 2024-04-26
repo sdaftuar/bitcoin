@@ -863,7 +863,7 @@ int CTxMemPool::Expire(std::chrono::seconds time)
     indexed_transaction_set::index<entry_time>::type::iterator it = mapTx.get<entry_time>().begin();
     Entries toremove;
     while (it != mapTx.get<entry_time>().end() && it->GetTime() < time) {
-        toremove.push_back(mapTx.project<0>(it));
+        toremove.emplace_back(mapTx.project<0>(it));
         it++;
     }
 
