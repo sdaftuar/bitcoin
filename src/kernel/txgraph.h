@@ -368,7 +368,7 @@ public:
 
     mutable RecursiveMutex cs; // TODO: figure out how this could be private? used by rpc code, bleh
 
-    const std::unordered_map<int64_t, std::unique_ptr<TxGraphCluster>>& GetClusterMap() const { LOCK(cs); return m_cluster_map; }
+    const std::unordered_map<int64_t, std::unique_ptr<TxGraphCluster>>& GetClusterMap() const EXCLUSIVE_LOCKS_REQUIRED(cs) { return m_cluster_map; }
 private:
 
     // TxGraphClusters
