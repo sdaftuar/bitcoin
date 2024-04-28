@@ -201,6 +201,9 @@ public:
 
     void Apply(); // Apply this changeset to the txgraph, adding/removing
                   // transactions and clusters as needed.
+
+    FeeFrac GetChunkFeerate(const TxEntry& tx);
+
 private:
     void GetFeerateDiagram(std::vector<FeeFrac> &diagram, const std::vector<TxGraphCluster*>& clusters);
     void SortNewClusters();
@@ -254,6 +257,7 @@ public:
     uint64_t GetClusterCount() const { LOCK(cs); return m_cluster_map.size(); }
     uint64_t GetClusterCount(const TxEntry& tx) const { return tx.m_cluster->m_tx_count; }
 
+    FeeFrac GetChunkFeerate(const TxEntry& tx) const { return tx.m_cluster->m_chunks[tx.m_loc.first].feerate; }
     void Check(GraphLimits limits) const; // sanity checks
     void CheckMemory() const;
 

@@ -1011,7 +1011,6 @@ TxSelector::TxSelector(const TxGraph* tx_graph)
             heap_chunks.emplace_back(cluster->m_chunks.begin(), cluster.get());
         }
     }
-
     std::make_heap(heap_chunks.begin(), heap_chunks.end(), ChunkCompare);
 }
 
@@ -1125,6 +1124,25 @@ TxGraphChangeSet::TxGraphChangeSet(TxGraph *tx_graph, GraphLimits limits, const 
             }
         }
     }
+}
+
+FeeFrac TxGraphChangeSet::GetChunkFeerate(const TxEntry& tx)
+{
+    if (m_sort_new_clusters) SortNewClusters();
+
+    if (m_tx_to_cluster_map.find(tx.unique_id) != m_tx_to_cluster_map.end()) {
+        TxGraphCluster* cluster = m_tx_to_cluster_map.at(tx.unique_id);
+        for (auto &chunk : cluster->m_chunks) {
+            for (auto& txentry : chunk.txs) {
+                if (&(txentry.get()) == &tx) {
+                    return chunk.feerate;
+                }
+            }
+        }
+        Assume(false);
+        return FeeFrac{};
+    }
+    return m_tx_graph->GetChunkFeerate(tx);
 }
 
 TxGraphChangeSet::~TxGraphChangeSet()

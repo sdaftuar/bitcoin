@@ -493,12 +493,6 @@ private:
 public:
     bool HasDescendants(const Txid& txid) const;
 
-    /** Collect the entire cluster of connected transactions for each transaction in txids.
-     * All txids must correspond to transaction entries in the mempool, otherwise this returns an
-     * empty vector. This call will also exit early and return an empty vector if it collects 500 or
-     * more transactions as a DoS protection. */
-    std::vector<txiter> GatherClusters(const std::vector<uint256>& txids) const EXCLUSIVE_LOCKS_REQUIRED(cs);
-
     /** Calculate all in-mempool ancestors of a set of transactions not already in the mempool and
      * check ancestor and descendant limits. Heuristics are used to estimate the ancestor and
      * descendant count of all entries if the package were to be added to the mempool.  The limits
@@ -655,6 +649,8 @@ public:
      * direct conflict may be in a separate cluster.
      */
     std::optional<std::string> CheckConflictTopology(const setEntries& direct_conflicts);
+
+    std::map<Txid, FeeFrac> GetMiningScores(setEntries txs, setEntries to_be_replaced);
 
 private:
     /** Before calling removeUnchecked for a given transaction,

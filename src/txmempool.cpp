@@ -1003,31 +1003,6 @@ void CTxMemPool::SetLoadTried(bool load_tried)
     m_load_tried = load_tried;
 }
 
-std::vector<CTxMemPool::txiter> CTxMemPool::GatherClusters(const std::vector<uint256>& txids) const
-{
-    AssertLockHeld(cs);
-
-    std::vector<CTxMemPool::txiter> ret;
-    std::vector<TxEntry::TxEntryRef> txs;
-    for (auto txid : txids) {
-        auto it = mapTx.find(txid);
-        if (it != mapTx.end()) {
-            txs.emplace_back(*it);
-        }
-    }
-
-    std::vector<TxEntry::TxEntryRef> all_txs = txgraph.GatherAllClusterTransactions(txs);
-
-    if (all_txs.size() > 500) {
-        return {};
-    }
-    ret.reserve(all_txs.size());
-    for (auto tx : all_txs) {
-        ret.emplace_back(mapTx.iterator_to(dynamic_cast<const CTxMemPoolEntry&>(tx.get())));
-    }
-    return ret;
-}
-
 util::Result<std::pair<std::vector<FeeFrac>, std::vector<FeeFrac>>> CTxMemPool::CalculateChunksForRBF(std::vector<std::pair<CTxMemPoolEntry*, CAmount>> new_entries, const setEntries& direct_conflicts, const setEntries& all_conflicts)
 {
     std::vector<FeeFrac> old_diagram;
@@ -1095,6 +1070,23 @@ std::vector<FeeFrac> CTxMemPool::GetFeerateDiagram() const
         ret.emplace_back(last_selection);
         txselector.Success();
         last_selection = txselector.SelectNextChunk(dummy);
+    }
+    return ret;
+}
+
+std::map<Txid, FeeFrac> CTxMemPool::GetMiningScores(setEntries txs, setEntries to_be_replaced)
+{
+    LOCK(cs);
+    std::map<Txid, FeeFrac> ret;
+
+    std::vector<TxEntry::TxEntryRef> to_remove;
+    to_remove.reserve(to_be_replaced.size());
+    for (auto& entry : to_be_replaced) {
+        to_remove.emplace_back(*entry);
+    }
+    TxGraphChangeSet changeset(&txgraph, m_limits, to_remove);
+    for (auto it : txs) {
+        ret.insert({it->GetTx().GetHash(), changeset.GetChunkFeerate(*it)});
     }
     return ret;
 }

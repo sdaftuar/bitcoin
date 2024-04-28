@@ -683,7 +683,7 @@ public:
             }
             return bump_fees;
         }
-        return MiniMiner(*m_node.mempool, outpoints).CalculateBumpFees(target_feerate);
+        return FeeBumpCalculator::CalculateBumpFees(*m_node.mempool, outpoints, target_feerate);
     }
 
     std::optional<CAmount> calculateCombinedBumpFee(const std::vector<COutPoint>& outpoints, const CFeeRate& target_feerate) override
@@ -691,7 +691,7 @@ public:
         if (!m_node.mempool) {
             return 0;
         }
-        return MiniMiner(*m_node.mempool, outpoints).CalculateTotalBumpFees(target_feerate);
+        return FeeBumpCalculator::CalculateTotalBumpFees(*m_node.mempool, outpoints, target_feerate);
     }
     void getPackageLimits(unsigned int& limit_ancestor_count, unsigned int& limit_descendant_count) override
     {
