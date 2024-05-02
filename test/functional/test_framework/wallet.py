@@ -292,6 +292,7 @@ class MiniWallet:
         fee_per_output=1000,
         target_weight=0,
         confirmed_only=False,
+        target_feerate=None
     ):
         """
         Create and return a transaction that spends the given UTXOs and creates a
@@ -321,6 +322,20 @@ class MiniWallet:
 
         if target_weight:
             self._bulk_tx(tx, target_weight)
+
+        # If a certain feerate is required, use the size we just calculated to
+        # adjust the outputs, so that we achieve the target feerate.
+        if target_feerate:
+            additional_fee = target_feerate * tx.get_vsize() - fee
+            if (additional_fee > 0):
+                reduce_amount = additional_fee // num_outputs
+                outputs_value_total = 0
+                for i in range(num_outputs):
+                    tx.vout[i].nValue -= int(reduce_amount)
+                    assert tx.vout[i].nValue > 0
+                    outputs_value_total += tx.vout[i].nValue
+                self.sign_tx(tx)
+                fee = Decimal(inputs_value_total - outputs_value_total) / COIN
 
         txid = tx.rehash()
         return {

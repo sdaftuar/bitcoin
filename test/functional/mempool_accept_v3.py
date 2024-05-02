@@ -533,13 +533,25 @@ class MempoolAcceptV3(BitcoinTestFramework):
         tx_unrelated_replacee = self.wallet.send_self_transfer(from_node=node, utxo_to_spend=utxo_unrelated_conflict)
         assert tx_unrelated_replacee["txid"] in node.getrawmempool()
 
-        fee_to_beat = max(int(tx_v3_child_2["fee"] * COIN), int(tx_unrelated_replacee["fee"]*COIN))
+        def get_ancestor_feerate(txid):
+            entry = node.getmempoolentry(txid)
+            return entry["fees"]["ancestor"]*COIN // entry["ancestorsize"]
 
+        # For RBF to succeed, we should have a greater total fee and a greater
+        # feerate than what we're replacing.
+        # Use 500 vbytes as an upper bound on how big the new transaction might be.
+        fee_to_beat = int(tx_v3_child_2["fee"]*COIN) + int(tx_unrelated_replacee["fee"]*COIN) + 500
+        feerate_to_beat = max(get_ancestor_feerate(tx_v3_child_2["txid"]),
+                    get_ancestor_feerate(tx_unrelated_replacee["txid"]))
+
+        # Since this transaction has a parent, double the target feerate so
+        # that we'll pay for the parent (assuming comparable sizes).
         tx_v3_child_3 = self.wallet.create_self_transfer_multi(
-            utxos_to_spend=[tx_v3_parent["new_utxos"][0], utxo_unrelated_conflict], fee_per_output=fee_to_beat*2, version=3
+            utxos_to_spend=[tx_v3_parent["new_utxos"][0], utxo_unrelated_conflict], fee_per_output=fee_to_beat, version=3, target_feerate=2*feerate_to_beat
         )
         node.sendrawtransaction(tx_v3_child_3["hex"])
         self.check_mempool(txids_v2_100 + [tx_v3_parent["txid"], tx_v3_child_3["txid"]])
+        assert get_ancestor_feerate(tx_v3_child_3["txid"]) > feerate_to_beat
 
     @cleanup(extra_args=["-acceptnonstdtxn=1"])
     def test_reorg_sibling_eviction_1p2c(self):
