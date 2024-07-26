@@ -142,6 +142,7 @@ public:
     std::vector<Chunk> m_chunks;
     int64_t m_tx_count{0};
     int64_t m_tx_size{0};
+    bool m_optimal{true}; // set to true when the cluster is known to be optimally sorted
 
     const int64_t m_id;
     mutable Epoch::Marker m_epoch_marker; //!< epoch when last touched

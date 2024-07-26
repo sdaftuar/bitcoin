@@ -257,6 +257,7 @@ static std::vector<RPCResult> ClusterDescription()
         RPCResult{RPCResult::Type::NUM, "vsize", "virtual transaction size as defined in BIP 141. This is different from actual serialized size for witness transactions as witness data is discounted."},
         RPCResult{RPCResult::Type::NUM, "txcount", "number of transactions (including this one)"},
         RPCResult{RPCResult::Type::NUM, "clusterid", "id of the cluster containing this tx"},
+        RPCResult{RPCResult::Type::BOOL, "optimal", "Whether this cluster is optimal"},
         RPCResult{RPCResult::Type::ARR, "chunks", "the cluster's chunks",
             {RPCResult{RPCResult::Type::OBJ, "chunkentry", "",
                 {
@@ -308,6 +309,7 @@ static void clusterToJSON(const CTxMemPool& pool, UniValue& info, const TxGraphC
     info.pushKV("vsize", (int)c.m_tx_size);
     info.pushKV("txcount", (int)c.m_tx_count);
     info.pushKV("clusterid", (int)c.m_id);
+    info.pushKV("optimal", c.m_optimal);
     UniValue chunks(UniValue::VARR);
     for (auto &chunk : c.m_chunks) {
         UniValue chunkdata(UniValue::VOBJ);

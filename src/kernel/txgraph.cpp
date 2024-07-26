@@ -133,7 +133,7 @@ bool TxGraphCluster::CheckTopo() const
 namespace {
 
 template <typename SetType>
-std::vector<TxEntry::TxEntryRef> InvokeSort(size_t tx_count, const std::vector<TxGraphCluster::Chunk>& chunks)
+std::vector<TxEntry::TxEntryRef> InvokeSort(size_t tx_count, const std::vector<TxGraphCluster::Chunk>& chunks, bool &is_optimal)
 {
     std::vector<TxEntry::TxEntryRef> txs;
     cluster_linearize::Cluster<SetType> cluster;
@@ -170,21 +170,25 @@ std::vector<TxEntry::TxEntryRef> InvokeSort(size_t tx_count, const std::vector<T
     for (unsigned int i=0; i<cluster.size(); ++i) {
         orig_linearization.push_back(i);
     }
+    const auto time_2{SteadyClock::now()};
     cluster_linearize::DepGraph dep_graph(cluster);
     auto result = cluster_linearize::Linearize(dep_graph, iterations, 0, orig_linearization, &iterations_done);
     if (!result.second) {
         // We want to postlinearize non-optimal clusters, to ensure that chunks
         // are connected and to perform "easy" improvements.
         cluster_linearize::PostLinearize(dep_graph, result.first);
+        is_optimal = false;
+    } else {
+        is_optimal = true;
     }
+    const auto time_3{SteadyClock::now()};
     txs.clear();
     for (auto index : result.first) {
         txs.push_back(orig_txs[index]);
     }
 
-    const auto time_2{SteadyClock::now()};
     if (tx_count >= 10) {
-        double time_millis = Ticks<MillisecondsDouble>(time_2-time_1);
+        double time_millis = Ticks<MillisecondsDouble>(time_3-time_2);
 
         LogDebug(BCLog::BENCH, "InvokeSort linearize cluster: %zu txs, %.4fms, %u iter, %.1fns/iter\n",
                 tx_count,
@@ -201,21 +205,21 @@ void TxGraphCluster::Sort(bool reassign_locations)
 {
     std::vector<TxEntry::TxEntryRef> txs;
     if (m_tx_count <= 32) {
-        txs = InvokeSort<BitSet<32>>(m_tx_count, m_chunks);
+        txs = InvokeSort<BitSet<32>>(m_tx_count, m_chunks, m_optimal);
     } else if (m_tx_count <= 64) {
-        txs = InvokeSort<BitSet<64>>(m_tx_count, m_chunks);
+        txs = InvokeSort<BitSet<64>>(m_tx_count, m_chunks, m_optimal);
     } else if (m_tx_count <= 128) {
-        txs = InvokeSort<BitSet<128>>(m_tx_count, m_chunks);
+        txs = InvokeSort<BitSet<128>>(m_tx_count, m_chunks, m_optimal);
     } else if (m_tx_count <= 192) {
-        txs = InvokeSort<BitSet<192>>(m_tx_count, m_chunks);
+        txs = InvokeSort<BitSet<192>>(m_tx_count, m_chunks, m_optimal);
     } else if (m_tx_count <= 256) {
-        txs = InvokeSort<BitSet<256>>(m_tx_count, m_chunks);
+        txs = InvokeSort<BitSet<256>>(m_tx_count, m_chunks, m_optimal);
     } else if (m_tx_count <= 320) {
-        txs = InvokeSort<BitSet<320>>(m_tx_count, m_chunks);
+        txs = InvokeSort<BitSet<320>>(m_tx_count, m_chunks, m_optimal);
     } else if (m_tx_count <= 384) {
-        txs = InvokeSort<BitSet<384>>(m_tx_count, m_chunks);
+        txs = InvokeSort<BitSet<384>>(m_tx_count, m_chunks, m_optimal);
     } else if (m_tx_count <= 1280) {
-        txs = InvokeSort<BitSet<1280>>(m_tx_count, m_chunks);
+        txs = InvokeSort<BitSet<1280>>(m_tx_count, m_chunks, m_optimal);
     } else {
         // Only do the topological sort for big clusters
         for (auto &chunk : m_chunks) {
@@ -224,6 +228,7 @@ void TxGraphCluster::Sort(bool reassign_locations)
             }
         }
         m_tx_graph->TopoSort(txs);
+        m_optimal = false;
     }
     RechunkFromLinearization(txs, reassign_locations);
 }
