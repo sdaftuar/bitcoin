@@ -816,6 +816,40 @@ public:
         assert(m_epoch.guarded()); // verify guard even when it==nullopt
         return !it || visited(*it);
     }
+
+    class CTxMemPoolChangeSet {
+    public:
+        explicit CTxMemPoolChangeSet(CTxMemPool* pool) : m_pool(pool) {}
+        ~CTxMemPoolChangeSet() = default;
+
+        CTxMemPoolChangeSet(const CTxMemPoolChangeSet&) = delete;
+        CTxMemPoolChangeSet& operator=(const CTxMemPoolChangeSet&) = delete;
+
+        using TxHandle = CTxMemPool::txiter;
+
+        TxHandle AddTx(const CTransactionRef& tx, const CAmount fee, int64_t time, unsigned int entry_height, uint64_t entry_sequence, bool spends_coinbase, int64_t sigops_cost, LockPoints lp);
+        void RemoveTx(CTxMemPool::txiter it) { m_all_conflicts.insert(it); }
+
+        util::Result<CTxMemPool::setEntries> CalculateMemPoolAncestors(TxHandle tx, const Limits& limits) {
+            LOCK(m_pool->cs);
+            auto ret = m_pool->CalculateMemPoolAncestors(*tx, limits);
+            if (ret) m_ancestors.insert({tx, *ret});
+            else m_ancestors.erase(tx);
+            return ret;
+        }
+
+        void Apply() EXCLUSIVE_LOCKS_REQUIRED(cs_main);
+
+    private:
+        CTxMemPool* m_pool;
+        CTxMemPool::indexed_transaction_set m_stage_tx;
+        std::vector<CTxMemPool::txiter> m_entry_vec; // track the added transactions' insertion order
+        // map from the stage_tx index to the ancestors for the transaction
+        std::map<CTxMemPool::txiter, CTxMemPool::setEntries, CompareIteratorByHash> m_ancestors;
+        CTxMemPool::setEntries m_all_conflicts;
+    };
+
+    std::unique_ptr<CTxMemPoolChangeSet> GetChangeSet() EXCLUSIVE_LOCKS_REQUIRED(cs) { return std::make_unique<CTxMemPoolChangeSet>(this); }
 };
 
 /**
