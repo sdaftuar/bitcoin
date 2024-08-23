@@ -326,7 +326,6 @@ protected:
     CFeeRate GetMinFee(size_t sizelimit) const;
 
 public:
-
     static const int ROLLING_FEE_HALFLIFE = 60 * 60 * 12; // public only for testing
 
     struct CTxMemPoolEntry_Indices final : boost::multi_index::indexed_by<
@@ -816,6 +815,42 @@ public:
         assert(m_epoch.guarded()); // verify guard even when it==nullopt
         return !it || visited(*it);
     }
+
+    class CTxMemPoolChangeSet {
+    public:
+        CTxMemPoolChangeSet(CTxMemPool* pool) : m_pool(pool) {}
+        ~CTxMemPoolChangeSet() = default;
+
+        CTxMemPoolChangeSet(const CTxMemPoolChangeSet&) = delete;
+        CTxMemPoolChangeSet& operator=(const CTxMemPoolChangeSet&) = delete;
+
+        void AddTx(const CTransactionRef& tx, const CAmount fee, int64_t time, unsigned int entry_height, uint64_t entry_sequence, bool spends_coinbase, int64_t sigops_cost, LockPoints lp);
+        void RemoveTx(CTxMemPool::txiter it) { m_all_conflicts.insert(it); }
+
+        bool CheckMemPoolPolicyLimits();
+
+        // Return the size of the nth transaction AddTx()ed to the change set
+        int32_t GetTxSize(int index) { return m_entry_vec.at(index)->GetTxSize(); }
+        CAmount GetFee(int index) { return m_entry_vec.at(index)->GetFee(); }
+
+        util::Result<CTxMemPool::setEntries> CalculateMemPoolAncestors(int
+                index, const Limits& limits) {
+            LOCK(m_pool->cs);
+            auto ret = m_pool->CalculateMemPoolAncestors(*m_entry_vec.at(index), limits);
+            if (ret) m_ancestors[index] = {true, *ret};
+            return ret;
+        }
+
+        void Apply() EXCLUSIVE_LOCKS_REQUIRED(cs_main);
+
+    private:
+        CTxMemPool* m_pool;
+        std::vector<std::unique_ptr<CTxMemPoolEntry>> m_entry_vec;
+        std::vector<std::pair<bool, CTxMemPool::setEntries> > m_ancestors;
+        CTxMemPool::setEntries m_all_conflicts;
+    };
+
+    std::unique_ptr<CTxMemPoolChangeSet> GetChangeSet() EXCLUSIVE_LOCKS_REQUIRED(cs) { return std::make_unique<CTxMemPoolChangeSet>(this); }
 };
 
 /**
