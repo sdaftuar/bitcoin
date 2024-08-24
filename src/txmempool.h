@@ -841,6 +841,10 @@ public:
             return ret;
         }
 
+        size_t GetTxCount() const { return m_entry_vec.size(); }
+        FeeFrac GetAggregateFeeRate() const { return feerate; }
+        const CTransaction& GetTx(size_t index) const { return m_entry_vec.at(index)->GetTx(); }
+
         void Apply() EXCLUSIVE_LOCKS_REQUIRED(cs_main);
 
     private:
@@ -848,6 +852,7 @@ public:
         std::vector<std::unique_ptr<CTxMemPoolEntry>> m_entry_vec;
         std::vector<std::pair<bool, CTxMemPool::setEntries> > m_ancestors;
         CTxMemPool::setEntries m_all_conflicts;
+        FeeFrac feerate;
     };
 
     std::unique_ptr<CTxMemPoolChangeSet> GetChangeSet() EXCLUSIVE_LOCKS_REQUIRED(cs) { return std::make_unique<CTxMemPoolChangeSet>(this); }

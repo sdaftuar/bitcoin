@@ -1371,6 +1371,7 @@ util::Result<std::pair<std::vector<FeeFrac>, std::vector<FeeFrac>>> CTxMemPool::
 size_t CTxMemPool::CTxMemPoolChangeSet::AddTx(const CTransactionRef& tx, const CAmount fee, int64_t time, unsigned int entry_height, uint64_t entry_sequence, bool spends_coinbase, int64_t sigops_cost, LockPoints lp)
 {
     m_entry_vec.emplace_back(new CTxMemPoolEntry(tx, fee, time, entry_height, entry_sequence, spends_coinbase, sigops_cost, lp));
+    feerate += FeeFrac(fee, tx->GetTotalSize());
     CTxMemPool::setEntries dummy;
     m_ancestors.emplace_back(false, dummy);
     return m_entry_vec.size() - 1;
@@ -1392,4 +1393,5 @@ void CTxMemPool::CTxMemPoolChangeSet::Apply()
     m_all_conflicts.clear();
     m_entry_vec.clear();
     m_ancestors.clear();
+    feerate = FeeFrac(0, 0);
 }
