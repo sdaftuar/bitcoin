@@ -824,14 +824,14 @@ public:
         CTxMemPoolChangeSet(const CTxMemPoolChangeSet&) = delete;
         CTxMemPoolChangeSet& operator=(const CTxMemPoolChangeSet&) = delete;
 
-        void AddTx(const CTransactionRef& tx, const CAmount fee, int64_t time, unsigned int entry_height, uint64_t entry_sequence, bool spends_coinbase, int64_t sigops_cost, LockPoints lp);
+        size_t AddTx(const CTransactionRef& tx, const CAmount fee, int64_t time, unsigned int entry_height, uint64_t entry_sequence, bool spends_coinbase, int64_t sigops_cost, LockPoints lp);
         void RemoveTx(CTxMemPool::txiter it) { m_all_conflicts.insert(it); }
 
         bool CheckMemPoolPolicyLimits();
 
         // Return the size of the nth transaction AddTx()ed to the change set
-        int32_t GetTxSize(int index) { return m_entry_vec.at(index)->GetTxSize(); }
-        CAmount GetFee(int index) { return m_entry_vec.at(index)->GetFee(); }
+        int32_t GetTxSize(size_t index) { return m_entry_vec.at(index)->GetTxSize(); }
+        CAmount GetFee(size_t index) { return m_entry_vec.at(index)->GetFee(); }
 
         util::Result<CTxMemPool::setEntries> CalculateMemPoolAncestors(int
                 index, const Limits& limits) {

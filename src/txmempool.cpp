@@ -1368,11 +1368,12 @@ util::Result<std::pair<std::vector<FeeFrac>, std::vector<FeeFrac>>> CTxMemPool::
     return std::make_pair(old_chunks, new_chunks);
 }
 
-void CTxMemPool::CTxMemPoolChangeSet::AddTx(const CTransactionRef& tx, const CAmount fee, int64_t time, unsigned int entry_height, uint64_t entry_sequence, bool spends_coinbase, int64_t sigops_cost, LockPoints lp)
+size_t CTxMemPool::CTxMemPoolChangeSet::AddTx(const CTransactionRef& tx, const CAmount fee, int64_t time, unsigned int entry_height, uint64_t entry_sequence, bool spends_coinbase, int64_t sigops_cost, LockPoints lp)
 {
     m_entry_vec.emplace_back(new CTxMemPoolEntry(tx, fee, time, entry_height, entry_sequence, spends_coinbase, sigops_cost, lp));
     CTxMemPool::setEntries dummy;
     m_ancestors.emplace_back(false, dummy);
+    return m_entry_vec.size() - 1;
 }
 
 void CTxMemPool::CTxMemPoolChangeSet::Apply()
@@ -1380,9 +1381,11 @@ void CTxMemPool::CTxMemPoolChangeSet::Apply()
     LOCK(m_pool->cs);
     m_pool->RemoveStaged(m_all_conflicts, false, MemPoolRemovalReason::REPLACED);
     for (size_t i=0; i<m_entry_vec.size(); ++i) {
-        if (m_ancestors[i].first) {
+        if (m_ancestors[i].first && i == 0) {
             m_pool->addUnchecked(*m_entry_vec[i], m_ancestors[i].second);
         } else {
+            // We always recalculate ancestors from scratch if we're dealing
+            // with transactions which may have parents in the same package.
             m_pool->addUnchecked(*m_entry_vec[i]);
         }
     }
