@@ -688,7 +688,7 @@ private:
     // Try to add the transaction to the mempool, removing any conflicts first.
     // Returns true if the transaction is in the mempool after any size
     // limiting is performed, false otherwise.
-    bool FinalizeSubpackage(const ATMPArgs& args, std::vector<Workspace>& ws) EXCLUSIVE_LOCKS_REQUIRED(cs_main, m_pool.cs);
+    void FinalizeSubpackage(const ATMPArgs& args) EXCLUSIVE_LOCKS_REQUIRED(cs_main, m_pool.cs);
 
     // Submit all transactions to the mempool and call ConsensusScriptChecks to add to the script
     // cache - should only be called after successful validation of all transactions in the package.
@@ -1295,36 +1295,41 @@ bool MemPoolAccept::ConsensusScriptChecks(const ATMPArgs& args, Workspace& ws)
     return true;
 }
 
-bool MemPoolAccept::FinalizeSubpackage(const ATMPArgs& args, std::vector<Workspace>& workspaces)
+void MemPoolAccept::FinalizeSubpackage(const ATMPArgs& args)
 {
     AssertLockHeld(cs_main);
     AssertLockHeld(m_pool.cs);
-    const CTransaction& tx = *workspaces.front().m_ptx;
-    const uint256& hash = workspaces.front().m_hash;
-    TxValidationState& state = workspaces.front().m_state;
-    const bool bypass_limits = args.m_bypass_limits;
 
     if (!m_subpackage.m_all_conflicts.empty()) Assume(args.m_allow_replacement);
     // Remove conflicting transactions from the mempool
     for (CTxMemPool::txiter it : m_subpackage.m_all_conflicts)
     {
-        LogDebug(BCLog::MEMPOOL, "replacing mempool tx %s (wtxid=%s, fees=%s, vsize=%s). New tx %s (wtxid=%s, fees=%s, vsize=%s)\n",
+        LogDebug(BCLog::MEMPOOL, "replacing mempool tx %s (wtxid=%s, fees=%s, vsize=%s). ",
                 it->GetTx().GetHash().ToString(),
                 it->GetTx().GetWitnessHash().ToString(),
                 it->GetFee(),
-                it->GetTxSize(),
-                hash.ToString(),
-                tx.GetWitnessHash().ToString(),
-                workspaces[0].m_tx_handle->GetFee(),
-                workspaces[0].m_tx_handle->GetTxSize());
+                it->GetTxSize());
+        FeeFrac feerate{m_subpackage.m_total_modified_fees, int32_t(m_subpackage.m_total_vsize)};
+        if (m_subpackage.m_changeset->GetTxCount() == 1) {
+            const CTransaction& tx = m_subpackage.m_changeset->GetTx(0);
+            LogDebug(BCLog::MEMPOOL, "New tx %s (wtxid=%s, fees=%s, vsize=%s)\n",
+                    tx.GetHash().ToString(),
+                    tx.GetWitnessHash().ToString(),
+                    feerate.fee, feerate.size);
+        } else {
+            LogDebug(BCLog::MEMPOOL, "New package with %lu txs, fees=%s, vsize=%s\n",
+                    m_subpackage.m_changeset->GetTxCount(),
+                    feerate.fee,
+                    feerate.size);
+        }
         TRACE7(mempool, replaced,
                 it->GetTx().GetHash().data(),
                 it->GetTxSize(),
                 it->GetFee(),
                 std::chrono::duration_cast<std::chrono::duration<std::uint64_t>>(it->GetTime()).count(),
-                hash.data(),
-                workspaces[0].m_tx_handle->GetTxSize(),
-                workspaces[0].m_tx_handle->GetFee()
+                m_subpackage.m_changeset->GetTx(0).GetHash().data(),
+                feerate.size,
+                feerate.fee
         );
         m_subpackage.m_replaced_transactions.push_back(it->GetSharedTx());
     }
@@ -1334,17 +1339,7 @@ bool MemPoolAccept::FinalizeSubpackage(const ATMPArgs& args, std::vector<Workspa
     // they no longer exist on subsequent calls to Finalize() post-RemoveStaged
     m_subpackage.m_all_conflicts.clear();
 
-    // trim mempool and check if tx was trimmed
-    // If we are validating a package, don't trim here because we could evict a previous transaction
-    // in the package. LimitMempoolSize() should be called at the very end to make sure the mempool
-    // is still within limits and package submission happens atomically.
-    if (!args.m_package_submission && !bypass_limits) {
-        LimitMempoolSize(m_pool, m_active_chainstate.CoinsTip());
-        if (!m_pool.exists(GenTxid::Txid(hash)))
-            // The tx no longer meets our (new) mempool minimum feerate but could be reconsidered in a package.
-            return state.Invalid(TxValidationResult::TX_RECONSIDERABLE, "mempool full");
-    }
-    return true;
+    return;
 }
 
 bool MemPoolAccept::SubmitPackage(const ATMPArgs& args, std::vector<Workspace>& workspaces,
@@ -1359,7 +1354,7 @@ bool MemPoolAccept::SubmitPackage(const ATMPArgs& args, std::vector<Workspace>& 
         return !m_pool.exists(GenTxid::Txid(ws.m_ptx->GetHash())); }));
 
     bool all_submitted = true;
-    FinalizeSubpackage(args, workspaces);
+    FinalizeSubpackage(args);
     // ConsensusScriptChecks adds to the script cache and is therefore consensus-critical;
     // CheckInputsFromMempoolAndCache asserts that transactions only spend coins available from the
     // mempool or UTXO set. Submit each transaction to the mempool immediately after calling
@@ -1427,8 +1422,7 @@ MempoolAcceptResult MemPoolAccept::AcceptSingleTransaction(const CTransactionRef
     AssertLockHeld(cs_main);
     LOCK(m_pool.cs); // mempool "read lock" (held through m_pool.m_opts.signals->TransactionAddedToMempool())
 
-    std::vector<Workspace> workspaces{Workspace(ptx)};
-    Workspace &ws = workspaces.front();
+    Workspace ws(ptx);
     const std::vector<Wtxid> single_wtxid{ws.m_ptx->GetWitnessHash()};
 
     if (!PreChecks(args, ws)) {
@@ -1438,6 +1432,9 @@ MempoolAcceptResult MemPoolAccept::AcceptSingleTransaction(const CTransactionRef
         }
         return MempoolAcceptResult::Failure(ws.m_state);
     }
+
+    m_subpackage.m_total_vsize = ws.m_vsize;
+    m_subpackage.m_total_modified_fees = ws.m_modified_fees;
 
     // Individual modified feerate exceeded caller-defined max; abort
     if (args.m_client_maxfeerate && CFeeRate(ws.m_modified_fees, ws.m_vsize) > args.m_client_maxfeerate.value()) {
@@ -1466,11 +1463,16 @@ MempoolAcceptResult MemPoolAccept::AcceptSingleTransaction(const CTransactionRef
                                             ws.m_base_fees, effective_feerate, single_wtxid);
     }
 
-    if (!FinalizeSubpackage(args, workspaces)) {
-        // The only possible failure reason is fee-related (mempool full).
-        // Failed for fee reasons. Provide the effective feerate and which txns were included.
-        Assume(ws.m_state.GetResult() == TxValidationResult::TX_RECONSIDERABLE);
-        return MempoolAcceptResult::FeeFailure(ws.m_state, CFeeRate(ws.m_modified_fees, ws.m_vsize), {ws.m_ptx->GetWitnessHash()});
+    FinalizeSubpackage(args);
+
+    // Limit the mempool, if appropriate.
+    if (!args.m_bypass_limits) {
+        LimitMempoolSize(m_pool, m_active_chainstate.CoinsTip());
+        if (!m_pool.exists(GenTxid::Txid(ws.m_hash))) {
+            // The tx no longer meets our (new) mempool minimum feerate but could be reconsidered in a package.
+            ws.m_state.Invalid(TxValidationResult::TX_RECONSIDERABLE, "mempool full");
+            return MempoolAcceptResult::FeeFailure(ws.m_state, CFeeRate(ws.m_modified_fees, ws.m_vsize), {ws.m_ptx->GetWitnessHash()});
+        }
     }
 
     if (m_pool.m_opts.signals) {
