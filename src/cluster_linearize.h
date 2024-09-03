@@ -202,6 +202,36 @@ public:
         return ret;
     }
 
+    // TOdo: remind myself what a mermaid diagram looks like
+    // assign labels based on the ordering in lin
+    // make sure we reduce the ancestors to minimum (see code in making a tree)
+    void ToMermaid(Span<ClusterIndex> lin) {
+        printf("```mermaid\n");
+        printf("graph BT\n");
+        // Print the transactions in the linearization order.
+        for (ClusterIndex idx=0; idx < lin.size(); ++idx) {
+            printf("  T%.2d[\"T%.2d: %ld/%d\"];", lin[idx], lin[idx], entries[lin[idx]].feerate.fee, entries[lin[idx]].feerate.size);
+            if ((idx+1)%5 == 0) printf("\n");
+        }
+        int counter=0;
+        for (ClusterIndex idx=0; idx < lin.size(); ++idx) {
+            auto parents = Ancestors(lin[idx]);
+            parents -= SetType::Singleton(lin[idx]);
+            // Construct a reduced set of parents, to make the graph less crazy.
+            //for (auto j : parents) {
+            //    if (!parents[j]) continue;
+            //    parents -= Ancestors(j);
+            //    parents.Set(j);
+           // }
+            for (auto j : parents) {
+                printf("T%.2d --> T%.2d;", lin[idx], j);
+                ++counter;
+                if (counter%10 == 0) printf("\n");
+            }
+        }
+        printf("```\n");
+    }
+
     /** Determine if a subset is connected.
      *
      * Complexity: O(subset.Count()).
