@@ -245,7 +245,7 @@ void BenchSerializedCluster(const std::string& hexenc, benchmark::Bench& bench)
     depgraph_read.AppendTopo(orig_lin, all);
     bench.run([&] {
         auto res = Linearize(depgraph_read, /*max_iterations=*/1000000, rng_seed++);
-        //assert(res.second);
+        assert(res.second);
     });
 }
 
