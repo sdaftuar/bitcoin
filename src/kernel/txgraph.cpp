@@ -4,8 +4,9 @@
 #include <logging.h>
 #include <util/strencodings.h>
 #include <util/bitset.h>
+#include <test/util/cluster_linearize.h>
 
-const uint64_t MAX_ITERATIONS = 1000;
+const uint64_t MAX_ITERATIONS = 1000000;
 
 void TxGraphCluster::AddTransaction(const TxEntry& entry, bool sort)
 {
@@ -172,7 +173,9 @@ std::vector<TxEntry::TxEntryRef> InvokeSort(size_t tx_count, const std::vector<T
     }
     const auto time_2{SteadyClock::now()};
     cluster_linearize::DepGraph dep_graph(cluster);
-    auto result = cluster_linearize::Linearize(dep_graph, iterations, 0, orig_linearization, &iterations_done);
+    // Drop LIMO for this test.
+    //auto result = cluster_linearize::Linearize(dep_graph, iterations, 0, orig_linearization, &iterations_done);
+    auto result = cluster_linearize::Linearize(dep_graph, iterations, 0, {}, &iterations_done);
     if (!result.second) {
         // We want to postlinearize non-optimal clusters, to ensure that chunks
         // are connected and to perform "easy" improvements.
@@ -196,6 +199,14 @@ std::vector<TxEntry::TxEntryRef> InvokeSort(size_t tx_count, const std::vector<T
                 iterations_done,
                 time_millis * 1000000.0 / (iterations_done > 0 ? iterations_done : iterations_done+1));
     }
+
+    if (is_optimal && iterations_done > 100000) {
+        std::vector<unsigned char> encoding;
+        VectorWriter writer(encoding, 0);
+        writer << Using<DepGraphFormatter>(dep_graph);
+        LogDebug(BCLog::BENCH, "slowcluster(txs,iters,serialized): %zu, %u, %s\n", tx_count, iterations_done, HexStr(encoding));
+    }
+
     return txs;
 }
 
