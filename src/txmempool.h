@@ -260,7 +260,7 @@ struct TxMempoolInfo
  *
  * Usually when a new transaction is added to the mempool, it has no in-mempool
  * children (because any such children would be an orphan).  So in
- * addUnchecked(), we:
+ * addNewTransaction(), we:
  * - update a new entry's setMemPoolParents to include all in-mempool parents
  * - update the new entry's direct parents to include the new tx as a child
  * - update all ancestors of the transaction to include the new tx's size/fee
@@ -283,7 +283,7 @@ struct TxMempoolInfo
  * unreachable from just looking at transactions in the mempool (the linking
  * transactions may also be in the disconnected block, waiting to be added).
  * Because of this, there's not much benefit in trying to search for in-mempool
- * children in addUnchecked().  Instead, in the special case of transactions
+ * children in addNewTransaction().  Instead, in the special case of transactions
  * being added from a disconnected block, we require the caller to clean up the
  * state, to account for in-mempool, out-of-block descendants for all the
  * in-block transactions by calling UpdateTransactionsFromBlock().  Note that
@@ -453,15 +453,6 @@ public:
      */
     void check(const CCoinsViewCache& active_coins_tip, int64_t spendheight) const EXCLUSIVE_LOCKS_REQUIRED(::cs_main);
 
-    // addUnchecked must updated state for all ancestors of a given transaction,
-    // to track size/count of descendant transactions.  First version of
-    // addUnchecked can be used to have it call CalculateMemPoolAncestors(), and
-    // then invoke the second version.
-    // Note that addUnchecked is ONLY called from ATMP outside of tests
-    // and any other callers may break wallet's in-mempool tracking (due to
-    // lack of CValidationInterface::TransactionAddedToMempool callbacks).
-    void addUnchecked(const CTxMemPoolEntry& entry) EXCLUSIVE_LOCKS_REQUIRED(cs, cs_main);
-    void addUnchecked(const CTxMemPoolEntry& entry, setEntries& setAncestors) EXCLUSIVE_LOCKS_REQUIRED(cs, cs_main);
 
     void removeRecursive(const CTransaction& tx, MemPoolRemovalReason reason) EXCLUSIVE_LOCKS_REQUIRED(cs);
     /** After reorg, filter the entries that would no longer be valid in the next block, and update
@@ -850,9 +841,25 @@ public:
         // map from the stage_tx index to the ancestors for the transaction
         std::map<CTxMemPool::txiter, CTxMemPool::setEntries, CompareIteratorByHash> m_ancestors;
         CTxMemPool::setEntries m_to_remove;
+
+        friend class CTxMemPool;
     };
 
     std::unique_ptr<CTxMemPoolChangeSet> GetChangeSet() EXCLUSIVE_LOCKS_REQUIRED(cs) { return std::make_unique<CTxMemPoolChangeSet>(this); }
+
+    friend class CTxMemPool::CTxMemPoolChangeSet;
+
+private:
+    // addNewTransaction must updated state for all ancestors of a given transaction,
+    // to track size/count of descendant transactions.  First version of
+    // addNewTransaction can be used to have it call CalculateMemPoolAncestors(), and
+    // then invoke the second version.
+    // Note that addNewTransaction is ONLY called from ATMP outside of tests
+    // and any other callers may break wallet's in-mempool tracking (due to
+    // lack of CValidationInterface::TransactionAddedToMempool callbacks).
+    void Apply(CTxMemPool::CTxMemPoolChangeSet* changeset) EXCLUSIVE_LOCKS_REQUIRED(cs);
+    void addNewTransaction(CTxMemPool::txiter it) EXCLUSIVE_LOCKS_REQUIRED(cs);
+    void addNewTransaction(CTxMemPool::txiter it, CTxMemPool::setEntries& setAncestors) EXCLUSIVE_LOCKS_REQUIRED(cs);
 };
 
 /**
