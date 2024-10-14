@@ -811,7 +811,7 @@ public:
     class CTxMemPoolChangeSet {
     public:
         explicit CTxMemPoolChangeSet(CTxMemPool* pool) : m_pool(pool) {}
-        ~CTxMemPoolChangeSet() = default;
+        ~CTxMemPoolChangeSet() EXCLUSIVE_LOCKS_REQUIRED(m_pool->cs) { m_pool->m_changeset = nullptr; }
 
         CTxMemPoolChangeSet(const CTxMemPoolChangeSet&) = delete;
         CTxMemPoolChangeSet& operator=(const CTxMemPoolChangeSet&) = delete;
@@ -845,7 +845,14 @@ public:
         friend class CTxMemPool;
     };
 
-    std::unique_ptr<CTxMemPoolChangeSet> GetChangeSet() EXCLUSIVE_LOCKS_REQUIRED(cs) { return std::make_unique<CTxMemPoolChangeSet>(this); }
+    std::unique_ptr<CTxMemPoolChangeSet> GetChangeSet() EXCLUSIVE_LOCKS_REQUIRED(cs) {
+        Assume(m_changeset == nullptr);
+        auto ret = std::make_unique<CTxMemPoolChangeSet>(this);
+        m_changeset = ret.get();
+        return ret;
+    }
+
+    CTxMemPoolChangeSet* m_changeset GUARDED_BY(cs){nullptr};
 
     friend class CTxMemPool::CTxMemPoolChangeSet;
 
