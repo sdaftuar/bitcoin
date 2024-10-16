@@ -362,7 +362,7 @@ BOOST_FIXTURE_TEST_CASE(improves_feerate, TestChain100Setup)
     const CAmount normal_fee{CENT/10};
 
     // low feerate parent with normal feerate child
-    const auto tx1 = make_tx(/*inputs=*/ {m_coinbase_txns[0]}, /*output_values=*/ {10 * COIN});
+    const auto tx1 = make_tx(/*inputs=*/ {m_coinbase_txns[0], m_coinbase_txns[1]}, /*output_values=*/ {10 * COIN});
     AddToMempool(pool, entry.Fee(low_fee).FromTx(tx1));
     const auto tx2 = make_tx(/*inputs=*/ {tx1}, /*output_values=*/ {995 * CENT});
     AddToMempool(pool, entry.Fee(normal_fee).FromTx(tx2));
@@ -373,7 +373,7 @@ BOOST_FIXTURE_TEST_CASE(improves_feerate, TestChain100Setup)
     const auto tx2_fee = entry2->GetModifiedFee();
 
     // conflicting transactions
-    const auto tx1_conflict = make_tx(/*inputs=*/ {m_coinbase_txns[0]}, /*output_values=*/ {10 * COIN});
+    const auto tx1_conflict = make_tx(/*inputs=*/ {m_coinbase_txns[0], m_coinbase_txns[2]}, /*output_values=*/ {10 * COIN});
     auto entry1_conflict = entry.FromTx(tx1_conflict);
     const auto tx3 = make_tx(/*inputs=*/ {tx1_conflict}, /*output_values=*/ {995 * CENT});
     auto entry3 = entry.FromTx(tx3);
