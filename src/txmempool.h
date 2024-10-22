@@ -828,7 +828,7 @@ public:
         using TxHandle = CTxMemPool::txiter;
 
         TxHandle StageAddition(const CTransactionRef& tx, const CAmount fee, int64_t time, unsigned int entry_height, uint64_t entry_sequence, bool spends_coinbase, int64_t sigops_cost, LockPoints lp);
-        void StageRemoval(CTxMemPool::txiter it) { m_all_conflicts.insert(it); }
+        void StageRemoval(CTxMemPool::txiter it) { m_to_remove.insert(it); }
 
         util::Result<CTxMemPool::setEntries> CalculateMemPoolAncestors(TxHandle tx, const Limits& limits) {
             LOCK(m_pool->cs);
@@ -842,11 +842,11 @@ public:
 
     private:
         CTxMemPool* m_pool;
-        CTxMemPool::indexed_transaction_set m_stage_tx;
+        CTxMemPool::indexed_transaction_set m_to_add;
         std::vector<CTxMemPool::txiter> m_entry_vec; // track the added transactions' insertion order
         // map from the stage_tx index to the ancestors for the transaction
         std::map<CTxMemPool::txiter, CTxMemPool::setEntries, CompareIteratorByHash> m_ancestors;
-        CTxMemPool::setEntries m_all_conflicts;
+        CTxMemPool::setEntries m_to_remove;
     };
 
     std::unique_ptr<CTxMemPoolChangeSet> GetChangeSet() EXCLUSIVE_LOCKS_REQUIRED(cs) { return std::make_unique<CTxMemPoolChangeSet>(this); }
