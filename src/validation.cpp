@@ -927,7 +927,7 @@ bool MemPoolAccept::PreChecks(ATMPArgs& args, Workspace& ws)
     // reorg to be marked earlier than any child txs that were already in the mempool.
     const uint64_t entry_sequence = bypass_limits ? 0 : m_pool.GetSequence();
     ws.m_changeset = m_pool.GetChangeSet();
-    ws.m_tx_handle = ws.m_changeset->AddTx(ptx, ws.m_base_fees, nAcceptTime, m_active_chainstate.m_chain.Height(), entry_sequence, fSpendsCoinbase, nSigOpsCost, lock_points.value());
+    ws.m_tx_handle = ws.m_changeset->StageAddition(ptx, ws.m_base_fees, nAcceptTime, m_active_chainstate.m_chain.Height(), entry_sequence, fSpendsCoinbase, nSigOpsCost, lock_points.value());
 
     ws.m_vsize = ws.m_tx_handle->GetTxSize();
 
@@ -1128,7 +1128,7 @@ bool MemPoolAccept::ReplacementChecks(Workspace& ws)
 
     // Add all the to-be-removed transactions to the changeset.
     for (auto it : m_subpackage.m_all_conflicts) {
-        ws.m_changeset->RemoveTx(it);
+        ws.m_changeset->StageRemoval(it);
     }
     return true;
 }
@@ -1191,7 +1191,7 @@ bool MemPoolAccept::PackageMempoolChecks(const std::vector<CTransactionRef>& txn
 
 
     for (CTxMemPool::txiter it : m_subpackage.m_all_conflicts) {
-        parent_ws.m_changeset->RemoveTx(it);
+        parent_ws.m_changeset->StageRemoval(it);
         m_subpackage.m_conflicting_fees += it->GetModifiedFee();
         m_subpackage.m_conflicting_size += it->GetTxSize();
     }

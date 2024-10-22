@@ -827,8 +827,8 @@ public:
 
         using TxHandle = CTxMemPool::txiter;
 
-        TxHandle AddTx(const CTransactionRef& tx, const CAmount fee, int64_t time, unsigned int entry_height, uint64_t entry_sequence, bool spends_coinbase, int64_t sigops_cost, LockPoints lp);
-        void RemoveTx(CTxMemPool::txiter it) { m_all_conflicts.insert(it); }
+        TxHandle StageAddition(const CTransactionRef& tx, const CAmount fee, int64_t time, unsigned int entry_height, uint64_t entry_sequence, bool spends_coinbase, int64_t sigops_cost, LockPoints lp);
+        void StageRemoval(CTxMemPool::txiter it) { m_all_conflicts.insert(it); }
 
         util::Result<CTxMemPool::setEntries> CalculateMemPoolAncestors(TxHandle tx, const Limits& limits) {
             LOCK(m_pool->cs);
