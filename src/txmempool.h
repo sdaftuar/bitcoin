@@ -791,6 +791,23 @@ public:
         return !it || visited(*it);
     }
 
+    /*
+     * CTxMemPoolChangeSet:
+     *
+     * This class is used for all mempool additions and associated removals (eg due to rbf).
+     * Callers can invoke StageAddition()/StageRemoval() of transactions in any order.
+     *
+     * CalculateChunksForRBF() can be used to calculate the feerate diagram of the proposed
+     * set of new transactions and comare with the existing mempool.
+     *
+     * CalculateMemPoolAncestors() calculates the in-mempool (not including
+     * what is in the change set itself) ancestors of a given transacion.
+     *
+     * Apply() will apply the removals and additions that are staged into the* mempool.
+     *
+     * Only one changeset may exist at a time. While a changeset is outstanding, no removals
+     * or additions may be made directly to the mempool.
+     */
     class CTxMemPoolChangeSet {
     public:
         explicit CTxMemPoolChangeSet(CTxMemPool* pool) : m_pool(pool) {}
