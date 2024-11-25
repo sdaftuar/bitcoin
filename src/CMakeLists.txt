@@ -58,6 +58,14 @@ if(ENABLE_IPC)
   add_subdirectory(ipc)
 endif()
 
+set(ZLIB OFF CACHE BOOL "" FORCE)
+set(BUILD_TESTING OFF CACHE BOOL "" FORCE)
+set(BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+set(BUILD_CXX_EXAMPLES OFF CACHE BOOL "" FORCE)
+set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+set(USE_DOTNET_STD_21 OFF CACHE BOOL "" FORCE)
+add_subdirectory(HiGHS EXCLUDE_FROM_ALL)
+
 add_library(bitcoin_consensus STATIC EXCLUDE_FROM_ALL
   arith_uint256.cpp
   consensus/merkle.cpp
