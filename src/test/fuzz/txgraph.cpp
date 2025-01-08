@@ -696,6 +696,28 @@ FUZZ_TARGET(txgraph)
                     builder_data.done = new_done;
                 }
                 break;
+            } else if (!main_sim.IsOversized() && command-- == 0) {
+                // GetWorstMainChunk.
+                auto worst_chunk = real->GetWorstMainChunk();
+                // Just do some sanity checks here. Consistency with GetBlockBuilder is checked
+                // below.
+                if (main_sim.GetTransactionCount() == 0) {
+                    assert(worst_chunk.empty());
+                } else {
+                    assert(!worst_chunk.empty());
+                    SimTxGraph::SetType done;
+                    for (TxGraph::Ref* ref : worst_chunk) {
+                        // Each transaction in the chunk must exist in the main graph.
+                        auto simpos = main_sim.Find(*ref);
+                        assert(simpos != SimTxGraph::MISSING);
+                        // Make sure the chunk contains no duplicate transactions.
+                        assert(!done[simpos]);
+                        done.Set(simpos);
+                        // All elements are preceded by all their descendants.
+                        assert(main_sim.graph.Descendants(simpos).IsSubsetOf(done));
+                    }
+                }
+                break;
             }
         }
     }
@@ -753,9 +775,12 @@ FUZZ_TARGET(txgraph)
         // The same order should be obtained through a BlockBuilder, if nothing is skipped.
         auto builder = real->GetBlockBuilder();
         std::vector<SimTxGraph::Pos> vec_builder;
+        std::vector<TxGraph::Ref*> chunk;
         while (*builder) {
             FeeFrac sum;
-            for (TxGraph::Ref* ref : builder->GetCurrentChunk()) {
+            auto chunk_span = builder->GetCurrentChunk();
+            chunk.assign(chunk_span.begin(), chunk_span.end());
+            for (TxGraph::Ref* ref : chunk_span) {
                 // The reported chunk feerate must match the chunk feerate obtained by asking
                 // it for each of the chunk's transactions individually.
                 assert(real->GetMainChunkFeerate(*ref) == builder->GetCurrentChunkFeerate());
@@ -770,6 +795,10 @@ FUZZ_TARGET(txgraph)
             builder->Include();
         }
         assert(vec_builder == vec1);
+
+        // The last chunk returned by the BlockBuilder must match GetWorstMainChunk, in reverse.
+        std::reverse(chunk.begin(), chunk.end());
+        assert(chunk == real->GetWorstMainChunk());
 
         // Check that the implied ordering gives rise to a combined diagram that matches the
         // diagram constructed from the individual cluster linearization chunkings.
