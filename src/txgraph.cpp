@@ -339,6 +339,8 @@ public:
     void ApplyDependencies() noexcept;
     /** Make a specified Cluster have quality ACCEPTABLE or OPTIMAL. */
     void MakeAcceptable(Cluster& cluster) noexcept;
+    /** Make all Clusters at the specified level have quality ACCEPTABLE or OPTIMAL. */
+    void MakeAllAcceptable(int level) noexcept;
 
     // Implementations for the public TxGraph interface.
 
@@ -347,6 +349,8 @@ public:
     void AddDependency(const Ref& parent, const Ref& child) noexcept final;
     void SetTransactionFee(const Ref&, int64_t fee) noexcept final;
     std::vector<Ref*> Cleanup() noexcept final;
+
+    void DoWork() noexcept final;
 
     void StartStaging() noexcept final;
     void CommitStaging() noexcept final;
@@ -1264,6 +1268,15 @@ void TxGraphImpl::MakeAcceptable(Cluster& cluster) noexcept
     }
 }
 
+void TxGraphImpl::MakeAllAcceptable(int level) noexcept
+{
+    if (size_t(level) == m_clustersets.size() - 1) ApplyDependencies();
+    auto& queue = m_clustersets[level].m_clusters[int(QualityLevel::NEEDS_RELINEARIZE)];
+    while (!queue.empty()) {
+        MakeAcceptable(*queue.back().get());
+    }
+}
+
 Cluster::Cluster(TxGraphImpl& graph, const FeeFrac& feerate, GraphIndex graph_index) noexcept
 {
     // Create a new transaction in the DepGraph, and remember its position in m_mapping.
@@ -1790,6 +1803,13 @@ void TxGraphImpl::SanityCheck() const
     // Verify that the contents of m_wiped matches what was expected based on the Entry vector.
     std::set<GraphIndex> actual_wiped(m_wiped.begin(), m_wiped.end());
     assert(actual_wiped == expected_wiped);
+}
+
+void TxGraphImpl::DoWork() noexcept
+{
+    for (int level = 0; level < int(m_clustersets.size()); ++level) {
+        MakeAllAcceptable(level);
+    }
 }
 
 } // namespace

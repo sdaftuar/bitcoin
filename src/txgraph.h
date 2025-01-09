@@ -102,6 +102,10 @@ public:
      *  Cleanup(). Afterwards, all Refs will be empty. */
     [[nodiscard]] virtual std::vector<Ref*> Cleanup() noexcept = 0;
 
+    /** TxGraph is internally lazy, and will not compute many things until they are needed.
+     *  Calling DoWork will compute everything now, so that future operations are fast. */
+    virtual void DoWork() noexcept = 0;
+
     /** Create a staging graph (which cannot exist already). This acts as if a full copy of
      *  the transaction graph is made, upon which further modifications are made. This copy can
      *  be inspected, and then either discarded, or the main graph can be replaced by it by
