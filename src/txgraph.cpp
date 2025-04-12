@@ -3,15 +3,19 @@
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 #include <txgraph.h>
+#include <test/util/cluster_linearize.h>
+#include <logging.h>
 
 #include <cluster_linearize.h>
 #include <random.h>
 #include <util/bitset.h>
 #include <util/check.h>
 #include <util/feefrac.h>
+#include <util/time.h>
 #include <util/vector.h>
 
 #include <compare>
+#include <map>
 #include <memory>
 #include <set>
 #include <span>
@@ -1640,6 +1644,9 @@ void TxGraphImpl::ApplyDependencies(int level) noexcept
     clusterset.m_group_data = GroupData{};
 }
 
+std::map<uint64_t, int64_t> slowest_clusters_by_size_from_scratch;
+std::map<uint64_t, int64_t> slowest_clusters_by_size_from_optimal;
+
 void Cluster::Relinearize(TxGraphImpl& graph, uint64_t max_iters) noexcept
 {
     // We can only relinearize Clusters that do not need splitting.
@@ -1647,8 +1654,50 @@ void Cluster::Relinearize(TxGraphImpl& graph, uint64_t max_iters) noexcept
     // No work is required for Clusters which are already optimally linearized.
     if (IsOptimal()) return;
     // Invoke the actual linearization algorithm (passing in the existing one).
-    uint64_t rng_seed = graph.m_rng.rand64();
-    auto [linearization, optimal, _steps] = Linearize(m_depgraph, max_iters, rng_seed, m_linearization);
+    std::vector<DepGraphIndex> linearization;
+    bool optimal{false};
+    uint64_t steps;
+    uint64_t total_steps{0};
+    const auto time_1{SteadyClock::now()};
+    for (int i=0; i<10; ++i) {
+        //uint64_t rng_seed = graph.m_rng.rand64();
+        uint64_t rng_seed = i;
+        //auto [linearization, optimal, _steps] = Linearize(m_depgraph, max_iters, rng_seed, m_linearization);
+        std::tie(linearization, optimal, steps) = Linearize(m_depgraph, max_iters, rng_seed, {});
+        total_steps += steps;
+        assert(optimal);
+    }
+    const auto time_2{SteadyClock::now()};
+    auto duration = std::chrono::duration_cast<std::chrono::nanoseconds>(time_2 - time_1).count();
+    LogPrintf("Relinearize from scratch: cluster size %d, %f us, %f avg steps\n", linearization.size(), duration/10000.0, total_steps/10.0);
+    auto it = slowest_clusters_by_size_from_scratch.find(linearization.size());
+    if (it == slowest_clusters_by_size_from_scratch.end() || it->second < duration) {
+        slowest_clusters_by_size_from_scratch[linearization.size()] = duration;
+        std::vector<unsigned char> encoding;
+        VectorWriter writer(encoding, 0);
+        writer << Using<DepGraphFormatter>(m_depgraph);
+        LogPrintf("Relinearize from scratch: NEW SLOWEST cluster size %d took %f us, avg steps = %f, %s\n", linearization.size(), duration/10000.0, total_steps/10.0, HexStr(encoding).c_str());
+    }
+    total_steps = 0;
+    const auto time_3{SteadyClock::now()};
+    for (int i=0; i<10; ++i) {
+        uint64_t rng_seed = i;
+        std::tie(linearization, optimal, steps) = Linearize(m_depgraph, max_iters, rng_seed, linearization);
+        total_steps += steps;
+        assert(optimal);
+    }
+    const auto time_4{SteadyClock::now()};
+    duration = std::chrono::duration_cast<std::chrono::nanoseconds>(time_4 - time_3).count();
+    LogPrintf("Relinearize from optimal: cluster size %d, %f us, %f avg steps\n", linearization.size(), duration/10000.0, total_steps/10.0);
+    it = slowest_clusters_by_size_from_optimal.find(linearization.size());
+    if (it == slowest_clusters_by_size_from_optimal.end() || it->second < duration) {
+        slowest_clusters_by_size_from_optimal[linearization.size()] = duration;
+        std::vector<unsigned char> encoding;
+        VectorWriter writer(encoding, 0);
+        writer << Using<DepGraphFormatter>(m_depgraph);
+        LogPrintf("Relinearize from optimal: NEW SLOWEST cluster size %d took %f us, avg steps = %f, %s\n", linearization.size(), duration/10000.0, total_steps/10.0, HexStr(encoding).c_str());
+    }
+
     // Postlinearize if the result isn't optimal already. This guarantees (among other things)
     // that the chunks of the resulting linearization are all connected.
     if (!optimal) PostLinearize(m_depgraph, linearization);
@@ -1665,7 +1714,7 @@ void TxGraphImpl::MakeAcceptable(Cluster& cluster) noexcept
 {
     // Relinearize the Cluster if needed.
     if (!cluster.NeedsSplitting() && !cluster.IsAcceptable() && !cluster.IsOversized()) {
-        cluster.Relinearize(*this, 10000);
+        cluster.Relinearize(*this, 100000000);
     }
 }
 
