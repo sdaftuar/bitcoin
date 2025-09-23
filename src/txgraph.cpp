@@ -5,10 +5,13 @@
 #include <txgraph.h>
 
 #include <cluster_linearize.h>
+#include <crypto/siphash.h>
+#include <logging.h>
 #include <random.h>
 #include <util/bitset.h>
 #include <util/check.h>
 #include <util/feefrac.h>
+#include <util/time.h>
 #include <util/vector.h>
 
 #include <compare>
@@ -17,6 +20,7 @@
 #include <set>
 #include <span>
 #include <utility>
+
 
 namespace {
 
@@ -772,6 +776,7 @@ public:
 
     std::unique_ptr<BlockBuilder> GetBlockBuilder() noexcept final;
     std::pair<std::vector<Ref*>, FeePerWeight> GetWorstMainChunk() noexcept final;
+    std::tuple<std::vector<Ref*>, FeePerWeight, bool> BuildTemplate(uint32_t weight_limit, uint64_t iter_limit) noexcept final;
 
     size_t GetMainMemoryUsage() noexcept final;
 
@@ -3422,6 +3427,135 @@ size_t TxGraphImpl::GetMainMemoryUsage() noexcept
                    /* From the chunk index. */
                    memusage::DynamicUsage(m_main_chunkindex);
     return usage;
+}
+
+std::tuple<std::vector<TxGraph::Ref*>, FeePerWeight, bool> TxGraphImpl::BuildTemplate(uint32_t weight_limit, uint64_t iter_limit) noexcept
+{
+    MakeAllAcceptable(0);
+    Assume(m_main_clusterset.m_deps_to_add.empty());
+
+    FeePerWeight aim_point(0, weight_limit);
+
+    std::vector<ChunkIndex::iterator> best_sol;
+    FeePerWeight best_sol_res;
+
+    std::vector<std::pair<ChunkIndex::iterator, bool>> cur_sol;
+    FeePerWeight cur_res;
+    std::unordered_set<Cluster*> excluded;
+    ChunkIndex::iterator next = m_main_chunkindex.begin();
+
+    auto start = NodeClock::now();
+    
+    uint64_t iter_done = 0;
+    bool optimal = false;
+
+//    std::cerr << "BuildTemplate(weight_limit=" << weight_limit << " iter_limit=" << iter_limit << "\n";
+    while (iter_done < iter_limit) {
+//        std::cerr << "- iter_done=" << iter_done << "\n";
+        if (next != m_main_chunkindex.end()) {
+            const auto& chunk_data = *next;
+            const auto& entry = m_entries[chunk_data.m_graph_index];
+//            std::cerr << "  - consider: gi=" << chunk_data.m_graph_index << " fee=" << entry.m_main_chunk_feerate.fee << " size=" << entry.m_main_chunk_feerate.size << "\n";
+            ++iter_done;
+            if (excluded.count(entry.m_locator[0].cluster)) {
+//                std::cerr << "    - skip because excluded cluster=" << entry.m_locator[0].cluster << "\n";
+                // Skip if in an excluded cluster.
+                ++next;
+                continue;
+            }
+            if (entry.m_main_chunk_feerate >> (aim_point - cur_res)) {
+                if (cur_res.size + entry.m_main_chunk_feerate.size > aim_point.size) {
+//                    std::cerr << "    - exclude because no fit\n";
+                    // Feerate is high enough, but chunk does not fit. Exclude.
+                    if (chunk_data.m_chunk_count != LinearizationIndex(-1)) {
+                        excluded.insert(entry.m_locator[0].cluster);
+                    }
+                    cur_sol.emplace_back(next, false);
+                    ++next;
+                    continue;
+                }
+                // Feerate is high enough, and transaction fits. Include.
+                cur_res += entry.m_main_chunk_feerate;
+//                std::cerr << "    - include. cur_fee=" << cur_res.fee << " cur_size=" << cur_res.size << "\n";
+                if (cur_res.fee > aim_point.fee) aim_point.fee = cur_res.fee;
+                cur_sol.emplace_back(next, true);
+                ++next;
+                continue;
+            }
+        }
+        // The next chunk's feerate is too low, or there is no next chunk anymore.
+        if (cur_res.fee > best_sol_res.fee) {
+//            std::cerr << "  - new best\n";
+            // We are about to remove an included transaction from the solution. Check if this
+            // isn't a new best that should be remembered.
+            best_sol.clear();
+            for (const auto& [it, inc] : cur_sol) {
+                if (inc) best_sol.push_back(it);
+            }
+            best_sol_res = cur_res;
+        }
+        // Backtrack to last inclusion, or empty.
+        while (!cur_sol.empty() && !cur_sol.back().second) {
+            auto it = cur_sol.back().first;
+            const auto& chunk_data = *it;
+            const auto& entry = m_entries[chunk_data.m_graph_index];
+            ++iter_done;
+            excluded.erase(entry.m_locator[0].cluster);
+            cur_sol.pop_back();
+        }
+        if (cur_sol.empty()) {
+//            std::cerr << "  - optimal\n";
+            optimal = true;
+            break;
+        }
+        // Flip from included to excluded.
+        Assume(cur_sol.back().second == true);
+        next = cur_sol.back().first;
+        const auto& chunk_data = *next;
+        const auto& entry = m_entries[chunk_data.m_graph_index];
+//        std::cerr << "  - flip: gi=" << chunk_data.m_graph_index << " fee=" << entry.m_main_chunk_feerate.fee << " size=" << entry.m_main_chunk_feerate.size << "\n";
+        cur_res -= entry.m_main_chunk_feerate;
+//        std::cerr << "    - exclude. cur_fee=" << cur_res.fee << " cur_size=" << cur_res.size << "\n";
+        cur_sol.back().second = false;
+        if (chunk_data.m_chunk_count != LinearizationIndex(-1)) {
+            excluded.insert(entry.m_locator[0].cluster);
+        }
+        ++iter_done;
+        ++next;
+    }
+
+//    std::cerr << "- done\n";
+
+    if (cur_res.fee > best_sol_res.fee) {
+//        std::cerr << "  - new best\n";
+        best_sol.clear();
+        for (const auto& [it, inc] : cur_sol) {
+            if (inc) best_sol.push_back(it);
+        }
+        best_sol_res = cur_res;
+    }
+
+    auto stop = NodeClock::now();
+
+    std::vector<Ref*> ret;
+    for (auto it : best_sol) {
+        const auto& chunk_data = *it;
+        const auto& chunk_end_entry = m_entries[chunk_data.m_graph_index];
+        if (chunk_data.m_chunk_count == LinearizationIndex(-1)) {
+            Assume(chunk_end_entry.m_ref != nullptr);
+            ret.push_back(chunk_end_entry.m_ref);
+        } else {
+            auto old_size = ret.size();
+            ret.resize(old_size + chunk_data.m_chunk_count);
+            auto start_pos = chunk_end_entry.m_main_lin_index + 1 - chunk_data.m_chunk_count;
+            auto cluster = chunk_end_entry.m_locator[0].cluster;
+            cluster->GetClusterRefs(*this, std::span{ret}.last(chunk_data.m_chunk_count), start_pos);
+        }
+    }
+
+
+    LogPrintf("BuildTemplate: weight_limit=%u iter_limit=%u iter_done=%u time=%uus optimal=%i weight=%u fees=%u\n", weight_limit, iter_limit, iter_done, std::chrono::duration_cast<std::chrono::microseconds>(stop - start).count(), optimal, best_sol_res.size, best_sol_res.fee);
+    return {std::move(ret), best_sol_res, optimal};
 }
 
 } // namespace
