@@ -1024,6 +1024,7 @@ static RPCHelpMan getblocktemplate()
     fee_range.push_back(ValueFromAmount(range[0]));
     fee_range.push_back(ValueFromAmount(range[1]));
     fee_range.push_back(ValueFromAmount(range[2]));
+    fee_range.push_back(ValueFromAmount(range[3]));
     result.pushKV("fee_range", std::move(fee_range));
 
     return result;

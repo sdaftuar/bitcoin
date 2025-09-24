@@ -910,7 +910,7 @@ public:
 
     std::vector<CAmount> getFeeRange() override
     {
-        return {m_block_template->fee_lower_bound, m_block_template->fee_achieved, m_block_template->fee_upper_bound};
+        return {m_block_template->fee_lower_bound, m_block_template->fee_achieved, m_block_template->fee_bnb, m_block_template->fee_upper_bound};
     }
 
     std::vector<uint256> getCoinbaseMerklePath() override

@@ -53,6 +53,7 @@ struct CBlockTemplate
 
     CAmount fee_lower_bound;
     CAmount fee_achieved;
+    CAmount fee_bnb;
     CAmount fee_upper_bound;
 };
 

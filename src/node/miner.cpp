@@ -152,8 +152,10 @@ std::unique_ptr<CBlockTemplate> BlockAssembler::CreateNewBlock()
     pblock->nTime = TicksSinceEpoch<std::chrono::seconds>(NodeClock::now());
     m_lock_time_cutoff = pindexPrev->GetMedianTimePast();
 
+
     if (m_mempool) {
         LOCK(m_mempool->cs);
+        pblocktemplate->fee_bnb = m_mempool->GetBNBTemplate(m_options.nBlockMaxWeight - nBlockWeight).fee;
         m_mempool->StartBlockBuilding();
         addChunks();
         m_mempool->StopBlockBuilding();
@@ -265,6 +267,7 @@ void BlockAssembler::addChunks()
 
     chunk_feerate = m_mempool->GetBlockBuilderChunk(selected_transactions);
     FeePerVSize chunk_feerate_vsize = ToFeePerVSize(chunk_feerate);
+
 
     std::vector<const CTxMemPoolEntry*> chunk_txs;
     // We'll add at most one chunk per iteration below, and chunk count is bounded by
