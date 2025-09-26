@@ -777,6 +777,7 @@ public:
     std::unique_ptr<BlockBuilder> GetBlockBuilder() noexcept final;
     std::pair<std::vector<Ref*>, FeePerWeight> GetWorstMainChunk() noexcept final;
     std::tuple<std::vector<Ref*>, FeePerWeight, bool> BuildTemplate(uint32_t weight_limit, uint64_t iter_limit) noexcept final;
+    FeePerWeight MaxFee(uint32_t weight_limit) noexcept final;
 
     size_t GetMainMemoryUsage() noexcept final;
 
@@ -3456,7 +3457,6 @@ std::tuple<std::vector<TxGraph::Ref*>, FeePerWeight, bool> TxGraphImpl::BuildTem
             const auto& chunk_data = *next;
             const auto& entry = m_entries[chunk_data.m_graph_index];
 //            std::cerr << "  - consider: gi=" << chunk_data.m_graph_index << " fee=" << entry.m_main_chunk_feerate.fee << " size=" << entry.m_main_chunk_feerate.size << "\n";
-            ++iter_done;
             if (excluded.count(entry.m_locator[0].cluster)) {
 //                std::cerr << "    - skip because excluded cluster=" << entry.m_locator[0].cluster << "\n";
                 // Skip if in an excluded cluster.
@@ -3464,10 +3464,25 @@ std::tuple<std::vector<TxGraph::Ref*>, FeePerWeight, bool> TxGraphImpl::BuildTem
                 continue;
             }
             if (entry.m_main_chunk_feerate >> (aim_point - cur_res)) {
-                if (cur_res.size + entry.m_main_chunk_feerate.size > aim_point.size) {
+                bool good = cur_res.size + entry.m_main_chunk_feerate.size <= aim_point.size;
+/*                if (good) {
+                    for (unsigned i = 0; i < 10; ++i) {
+                        if (cur_sol.size() <= i) break;
+                        auto csi = cur_sol.rbegin() + i;
+                        if (!csi->second) {
+                            const auto& cse = m_entries[cur_sol.back().first->m_graph_index].m_main_chunk_feerate;
+                            if (cse.fee <= entry.m_main_chunk_feerate.fee && cse.size >= entry.m_main_chunk_feerate.size) {
+                                good = false;
+                                break;
+                            }
+                        }
+                    }
+                }*/
+                if (!good) {
 //                    std::cerr << "    - exclude because no fit\n";
                     // Feerate is high enough, but chunk does not fit. Exclude.
                     if (chunk_data.m_chunk_count != LinearizationIndex(-1)) {
+                        ++iter_done;
                         excluded.insert(entry.m_locator[0].cluster);
                     }
                     cur_sol.emplace_back(next, false);
@@ -3519,8 +3534,8 @@ std::tuple<std::vector<TxGraph::Ref*>, FeePerWeight, bool> TxGraphImpl::BuildTem
         cur_sol.back().second = false;
         if (chunk_data.m_chunk_count != LinearizationIndex(-1)) {
             excluded.insert(entry.m_locator[0].cluster);
+            ++iter_done;
         }
-        ++iter_done;
         ++next;
     }
 
@@ -3556,6 +3571,141 @@ std::tuple<std::vector<TxGraph::Ref*>, FeePerWeight, bool> TxGraphImpl::BuildTem
 
     LogPrintf("BuildTemplate: weight_limit=%u iter_limit=%u iter_done=%u time=%uus optimal=%i weight=%u fees=%u\n", weight_limit, iter_limit, iter_done, std::chrono::duration_cast<std::chrono::microseconds>(stop - start).count(), optimal, best_sol_res.size, best_sol_res.fee);
     return {std::move(ret), best_sol_res, optimal};
+}
+
+template<typename ValueType>
+class Frontier
+{
+    std::vector<ValueType> m_data;
+    uint64_t m_updates{0};
+
+public:
+    Frontier(size_t reserve, ValueType init) noexcept
+    {
+        m_data.reserve(reserve + 1);
+        m_data.push_back(init);
+    }
+
+    bool Set(size_t key, ValueType value) noexcept
+    {
+        if (key >= m_data.size()) [[unlikely]] {
+            if (m_data.back() > value) return false;
+            while (key > m_data.size()) {
+                m_data.push_back(m_data.back());
+                ++m_updates;
+            }
+            m_data.push_back(value);
+            ++m_updates;
+            return true;
+        } else {
+            if (value <= m_data[key]) return false;
+            do {
+                m_data[key] = value;
+                ++key;
+                ++m_updates;
+            } while (key < m_data.size() && value > m_data[key]);
+            return true;
+        }
+    }
+
+    bool Test(size_t key, ValueType value) const noexcept
+    {
+        if (key < m_data.size()) [[likely]] {
+            return m_data[key] >= value;
+        } else {
+            return m_data.back() >= value;
+        }
+    }
+
+    std::pair<size_t, ValueType> Last() const noexcept { return {m_data.size() - 1, m_data.back()}; }
+    bool PreviousTick(std::pair<size_t, ValueType>& cur) const noexcept
+    {
+        if (cur.first == 0) return false;
+        --cur.first;
+        cur.second = m_data[cur.first];
+        while (cur.first > 0 && cur.second == m_data[cur.first - 1]) --cur.first;
+        return true;
+    }
+
+    uint64_t Updates() const noexcept { return m_updates; }
+};
+
+FeePerWeight TxGraphImpl::MaxFee(uint32_t weight_limit) noexcept
+{
+    MakeAllAcceptable(0);
+    Assume(m_main_clusterset.m_deps_to_add.empty());
+    std::set<Cluster*> clusters_done;
+    std::vector<FeeFrac> cluster_chunks;
+    Frontier<int64_t> best(weight_limit, 0);
+    Frontier<int64_t> no_effect(weight_limit, 0);
+    uint64_t chunks_proc = 0;
+    uint64_t chunks_total = 0;
+    uint64_t clusters_proc = 0;
+    unsigned no_updated_graph = 0;
+    unsigned no_updated_best = 0;
+    int64_t old_best = 0;
+
+    auto start = NodeClock::now();
+    LogPrintf("MaxFee(%u)\n", weight_limit);
+    for (const auto& chunk_data : m_main_chunkindex) {
+        bool updated = false;
+        const auto& entry = m_entries[chunk_data.m_graph_index];
+        auto [it, inserted] = clusters_done.insert(entry.m_locator[0].cluster);
+        if (inserted) {
+            cluster_chunks.clear();
+            entry.m_locator[0].cluster->AppendChunkFeerates(cluster_chunks);
+            FeeFrac cluster_so_far;
+            for (auto& chunk_feerate : cluster_chunks) {
+                cluster_so_far += chunk_feerate;
+                chunk_feerate = cluster_so_far;
+            }
+            chunks_total += cluster_chunks.size();
+            while (!cluster_chunks.empty()) {
+                if (!no_effect.Test(cluster_chunks.back().size, cluster_chunks.back().fee)) break;
+                cluster_chunks.pop_back();
+            }
+            if (cluster_chunks.empty()) continue;
+            chunks_proc += cluster_chunks.size();
+            clusters_proc += 1;
+
+            auto old = best.Last();
+            do {
+                for (size_t c = 0; c < cluster_chunks.size(); ++c) {
+                    const auto& chunks_feerate = cluster_chunks[c];
+                    auto new_size = old.first + chunks_feerate.size;
+                    if (new_size <= weight_limit) {
+                        if (best.Set(new_size, old.second + chunks_feerate.fee)) {
+                            updated = true;
+                        }
+                    }
+                }
+            } while(best.PreviousTick(old));
+
+            if (updated) {
+                no_updated_graph = 0;
+            } else {
+                ++no_updated_graph;
+                for (size_t c = 0; c < cluster_chunks.size(); ++c) {
+                    const auto& chunk_feerate = cluster_chunks[c];
+                    no_effect.Set(chunk_feerate.size, chunk_feerate.fee);
+                }
+            }
+            auto new_best = best.Last();
+            if (new_best.second > old_best) {
+                old_best = new_best.second;
+                no_updated_best = 0;
+            } else {
+                ++no_updated_best;
+            }
+//            if (no_updated_best >= 300 && no_updated_graph >= 200) break;
+            if ((clusters_proc % 100) == 0) {
+                LogPrintf("- Done:  clusters=%u/%u, chunks=%u/%u, best=%u/%u, no_graph_change=%u, no_best_change=%u, nupd=%u, bupd=%u\n", clusters_proc, clusters_done.size(), chunks_proc, chunks_total, best.Last().second, best.Last().first, no_updated_graph, no_updated_best, no_effect.Updates(), best.Updates());
+            }
+        }
+    }
+    auto stop = NodeClock::now();
+    LogPrintf("- Final: clusters=%u/%u, chunks=%u/%u, best=%u/%u, no_graph_change=%u, no_best_change=%u, nupd=%u, bupd=%u, time=%ums\n", clusters_proc, clusters_done.size(), chunks_proc, chunks_total, best.Last().second, best.Last().first, no_updated_graph, no_updated_best, no_effect.Updates(), best.Updates(), std::chrono::duration_cast<std::chrono::milliseconds>(stop - start).count());
+    return FeePerWeight(best.Last().second, best.Last().first);
 }
 
 } // namespace

@@ -751,7 +751,8 @@ public:
     void StopBlockBuilding() const EXCLUSIVE_LOCKS_REQUIRED(cs) { m_builder.reset(); }
     FeePerWeight GetBNBTemplate(uint32_t size) const EXCLUSIVE_LOCKS_REQUIRED(cs)
     {
-        return std::get<1>(m_txgraph->BuildTemplate(size, 10000000));
+//        return std::get<1>(m_txgraph->BuildTemplate(size, 40000000));
+        return m_txgraph->MaxFee(size);
     }
 };
 
