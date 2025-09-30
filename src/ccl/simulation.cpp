@@ -11,6 +11,7 @@
 #include <interfaces/node.h>
 #include <node/context.h>
 #include <util/signalinterrupt.h>
+#include <node/miner.h>
 
 #include <string>
 #include <boost/interprocess/sync/file_lock.hpp>
@@ -66,6 +67,11 @@ void Simulation::InitAutoFile(unique_ptr<AutoFile> &which, std::string fileprefi
     }
 }
 
+void Simulation::RunCNB(NodeContext& node)
+{
+    // Run the block assembler CreateNewBlock and output statistics
+    auto pblocktemplate = node::BlockAssembler(node.chainman->ActiveChainstate(), &*node.mempool, node::BlockAssembler::Options()).CreateNewBlock();
+}
 
 void Simulation::RunSim(NodeContext& node)
 {
@@ -122,6 +128,7 @@ void Simulation::RunSim(NodeContext& node)
                 ProcessTransaction(txEvent.obj, *node.chainman, *node.mempool);
                 txEvent.reset();
             } else if (nextEvent == &blockEvent) {
+                RunCNB(node);
                 node.chainman->ProcessNewBlock(blockEvent.obj, true, true, NULL);
                 blockEvent.reset();
             } else if (nextEvent == &headersEvent) {
