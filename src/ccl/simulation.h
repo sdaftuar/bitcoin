@@ -94,6 +94,8 @@ public:
 
     template<class T> static bool ReadEvent(AutoFile &input, T *event);
 
+    void RunCNB(NodeContext& node);
+
 private:
     void LoadFiles(date d);
     void InitAutoFile(unique_ptr<AutoFile> &which, std::string fileprefix, date d);
