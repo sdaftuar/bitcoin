@@ -109,6 +109,8 @@ private:
     */
     void addChunks() EXCLUSIVE_LOCKS_REQUIRED(m_mempool->cs);
 
+    int64_t OptimizeMempoolSelection(std::vector<CTransactionRef>& selected_txs);
+
     // helper functions for addPackageTxs()
     /** Test if a new package would "fit" in the block */
     bool TestPackage(FeePerWeight package_feerate, int64_t packageSigOpsCost) const;

@@ -5,6 +5,15 @@
 
 #include <node/miner.h>
 
+#include <Highs.h>
+#include <txmempool.h>
+#include <primitives/transaction.h>
+#include <util/check.h>  // For Assume
+#include <set>
+#include <vector>
+#include <map>
+#include <string>
+
 #include <chain.h>
 #include <chainparams.h>
 #include <coins.h>
@@ -169,7 +178,11 @@ std::unique_ptr<CBlockTemplate> BlockAssembler::CreateNewBlock()
     pblock->vtx[0] = MakeTransactionRef(std::move(coinbaseTx));
     pblocktemplate->vchCoinbaseCommitment = m_chainstate.m_chainman.GenerateCoinbaseCommitment(*pblock, pindexPrev);
 
-    LogPrintf("CreateNewBlock(): block weight: %u txs: %u fees: %ld sigops %d\n", GetBlockWeight(*pblock), nBlockTx, nFees, nBlockSigOpsCost);
+    std::vector<CTransactionRef> dummy;
+    auto max_fees = OptimizeMempoolSelection(dummy);
+    assert(max_fees >= nFees);
+
+    LogPrintf("CreateNewBlock(): block weight: %u txs: %u fees: %ld sigops %d max_fees: %ld\n", GetBlockWeight(*pblock), nBlockTx, nFees, nBlockSigOpsCost, max_fees);
 
     // Fill in header
     pblock->hashPrevBlock  = pindexPrev->GetBlockHash();
@@ -292,6 +305,101 @@ void BlockAssembler::addChunks()
         chunk_feerate = m_mempool->GetBlockBuilderChunk(selected_transactions);
         chunk_feerate_vsize = ToFeePerVSize(chunk_feerate);
     }
+}
+
+// Function to select an optimal subset of mempool transactions to maximize fees
+// subject to block weight limit and ancestor dependencies using HiGHS MIP solver.
+int64_t BlockAssembler::OptimizeMempoolSelection(std::vector<CTransactionRef>& selected_txs) 
+{
+    auto &mempool{*m_mempool};
+    LOCK(mempool.cs);
+    selected_txs.clear();
+
+    // Collect all transactions
+    auto txs = mempool.entryAll();
+    int n = txs.size();
+    if (n == 0) {
+        return 0;
+    }
+
+    // Map Txid to index
+    std::map<Txid, int> tx_index;
+    for (int i = 0; i < n; ++i) {
+        tx_index[txs[i].get().GetTx().GetHash()] = i;
+    }
+
+    // Initialize HiGHS
+    Highs highs;
+    highs.setOptionValue("output_flag", false);  // Suppress output for brevity
+
+    // Add binary variables (0 or 1) for each transaction
+    std::vector<int> integer_vars(n);
+    for (int i = 0; i < n; ++i) {
+        highs.addVar(0.0, 1.0);  // Lower bound 0, upper bound 1
+        integer_vars[i] = i;     // Track indices for integer variables
+    }
+    // Set variables as integer (binary)
+    highs.changeColsIntegrality(0, n - 1, std::vector<HighsVarType>(n, HighsVarType::kInteger).data());
+
+    // Set objective: maximize sum of fees
+    std::vector<double> obj_coeffs(n, 0.0);
+    for (int i = 0; i < n; ++i) {
+        obj_coeffs[i] = static_cast<double>(txs[i].get().GetFee());
+    }
+    highs.changeObjectiveSense(ObjSense::kMaximize);
+    highs.changeColsCost(0, n - 1, obj_coeffs.data());
+
+    // Weight constraint: sum(weight_i * x_i) <= 4,000,000
+    std::vector<int> weight_indices(n);
+    std::vector<double> weight_values(n);
+    for (int i = 0; i < n; ++i) {
+        weight_indices[i] = i;
+        weight_values[i] = static_cast<double>(txs[i].get().GetTxWeight());
+    }
+    highs.addRow(0.0, m_options.nBlockMaxWeight, n, weight_indices.data(), weight_values.data());
+
+    // Build direct parent relationships (ancestors)
+    for (int i = 0; i < n; ++i) {
+        // Get the ancestors of each transaction
+        auto ancestors = mempool.CalculateMemPoolAncestors(txs[i].get());
+        for (auto parent : ancestors) {
+            Txid parent_id = parent->GetTx().GetHash();
+            auto it = tx_index.find(parent_id);
+            assert(it != tx_index.end());  // Ancestor must be in the mempool
+           // Add dependency constraints: for each parent-child pair, x_parent >= x_child (i.e., x_parent - x_child >= 0)
+            std::vector<int> dep_indices = {it->second, i};
+            std::vector<double> dep_values = {1.0, -1.0};
+            highs.addRow(0.0, kHighsInf, 2, dep_indices.data(), dep_values.data());
+        }
+    }
+
+    // Solve the MIP
+    HighsStatus solve_status = highs.run();
+    if (solve_status != HighsStatus::kOk) {
+        LogPrintf("HiGHS solve failed with status %d\n", static_cast<int>(solve_status));
+        return 0;
+    }
+
+    // Extract solution
+    const HighsSolution& solution = highs.getSolution();
+    HighsModelStatus sol_status = highs.getModelStatus();
+    if (sol_status != HighsModelStatus::kOptimal) {
+        LogPrintf("HiGHS did not find an optimal solution: %d\n", static_cast<int>(sol_status));
+        return 0;
+    }
+
+    int64_t total_fees = 0;
+
+    // Collect selected transactions (integer solution, threshold 0.5)
+    for (int i = 0; i < n; ++i) {
+        if (solution.col_value[i] > 0.5) {
+            selected_txs.push_back(txs[i].get().GetSharedTx());
+            total_fees += txs[i].get().GetFee();
+        }
+    }
+    return total_fees;
+    // Note: selected_txs may need topological sorting before inclusion in a block.
+    // Use CTxMemPool::GetSortedDepthAndScore or implement topo sort if needed.
 }
 
 void AddMerkleRootAndCoinbase(CBlock& block, CTransactionRef coinbase, uint32_t version, uint32_t timestamp, uint32_t nonce)
