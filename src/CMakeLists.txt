@@ -49,6 +49,7 @@ add_library(bitcoin_clientversion STATIC EXCLUDE_FROM_ALL
 target_link_libraries(bitcoin_clientversion
   PRIVATE
     core_interface
+    highs
 )
 add_dependencies(bitcoin_clientversion generate_build_info)
 
@@ -84,6 +85,7 @@ target_link_libraries(bitcoin_consensus
     core_interface
     bitcoin_crypto
     secp256k1
+    highs
 )
 
 if(WITH_ZMQ)
@@ -176,6 +178,7 @@ if(ENABLE_WALLET)
       bitcoin_wallet
       bitcoin_common
       bitcoin_util
+      highs
       Boost::headers
     )
     install_binary_component(bitcoin-wallet HAS_MANPAGE)
@@ -290,6 +293,7 @@ target_link_libraries(bitcoin_node
     minisketch
     univalue
     Boost::headers
+    highs
     $<TARGET_NAME_IF_EXISTS:libevent::core>
     $<TARGET_NAME_IF_EXISTS:libevent::extra>
     $<TARGET_NAME_IF_EXISTS:libevent::pthreads>
