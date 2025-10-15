@@ -4543,7 +4543,11 @@ bool ChainstateManager::ProcessNewBlock(const std::shared_ptr<const CBlock>& blo
 
 MempoolAcceptResult ChainstateManager::ProcessTransaction(const CTransactionRef& tx, bool test_accept)
 {
+    // Benchmark how long this function takes, by getting steady clock time at beginning and end.
     AssertLockHeld(cs_main);
+    static SteadyClock::duration total_time{};
+    static int64_t total_txs{0};
+    const auto time1{SteadyClock::now()};
     Chainstate& active_chainstate = ActiveChainstate();
     if (!active_chainstate.GetMempool()) {
         TxValidationState state;
@@ -4552,6 +4556,13 @@ MempoolAcceptResult ChainstateManager::ProcessTransaction(const CTransactionRef&
     }
     auto result = AcceptToMemoryPool(active_chainstate, tx, GetTime(), /*bypass_limits=*/ false, test_accept);
     active_chainstate.GetMempool()->check(active_chainstate.CoinsTip(), active_chainstate.m_chain.Height() + 1);
+    const auto time2{SteadyClock::now()};
+    total_time += time2 - time1;
+    ++total_txs;
+    LogDebug(BCLog::BENCH, "ProcessTransaction took %.3fms [%.3fs (%.3fms/tx)]\n",
+            Ticks<MillisecondsDouble>(time2 - time1),
+            Ticks<SecondsDouble>(total_time),
+            Ticks<MillisecondsDouble>(total_time) / total_txs);
     return result;
 }
 
