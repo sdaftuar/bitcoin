@@ -682,6 +682,7 @@ void CTxMemPool::removeForBlock(const std::vector<CTransactionRef>& vtx, unsigne
             ClearPrioritisation(tx->GetHash());
         }
     }
+    LogPrintf("removeForBlock: removed %zu transactions, %zu txs were in block\n", txs_removed_for_block.size(), vtx.size());
     if (m_opts.signals) {
         m_opts.signals->MempoolTransactionsRemovedForBlock(txs_removed_for_block, nBlockHeight);
     }
