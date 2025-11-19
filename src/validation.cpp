@@ -4545,8 +4545,9 @@ MempoolAcceptResult ChainstateManager::ProcessTransaction(const CTransactionRef&
 {
     // Benchmark how long this function takes, by getting steady clock time at beginning and end.
     AssertLockHeld(cs_main);
-    static SteadyClock::duration total_time{};
-    static int64_t total_txs{0};
+    static SteadyClock::duration total_time_valid{};
+    static SteadyClock::duration total_time_invalid{};
+    static int64_t total_txs_valid{0}, total_txs_invalid{0};
     const auto time1{SteadyClock::now()};
     Chainstate& active_chainstate = ActiveChainstate();
     if (!active_chainstate.GetMempool()) {
@@ -4557,12 +4558,21 @@ MempoolAcceptResult ChainstateManager::ProcessTransaction(const CTransactionRef&
     auto result = AcceptToMemoryPool(active_chainstate, tx, GetTime(), /*bypass_limits=*/ false, test_accept);
     active_chainstate.GetMempool()->check(active_chainstate.CoinsTip(), active_chainstate.m_chain.Height() + 1);
     const auto time2{SteadyClock::now()};
-    total_time += time2 - time1;
-    ++total_txs;
-    LogDebug(BCLog::BENCH, "ProcessTransaction took %.3fms [%.3fs (%.3fms/tx)]\n",
-            Ticks<MillisecondsDouble>(time2 - time1),
-            Ticks<SecondsDouble>(total_time),
-            Ticks<MillisecondsDouble>(total_time) / total_txs);
+    if (result.m_result_type == MempoolAcceptResult::ResultType::VALID) {
+        total_time_valid += time2 - time1;
+        ++total_txs_valid;
+        LogDebug(BCLog::BENCH, "ProcessTransaction(valid) took %.3fms [%.3fs (%.3fms/tx)]\n", 
+                Ticks<MillisecondsDouble>(time2 - time1),
+                Ticks<SecondsDouble>(total_time_valid),
+                Ticks<MillisecondsDouble>(total_time_valid) / total_txs_valid);
+    } else if (result.m_result_type == MempoolAcceptResult::ResultType::INVALID) {
+        total_time_invalid += time2 - time1;
+        ++total_txs_invalid;
+        LogDebug(BCLog::BENCH, "ProcessTransaction(invalid) took %.3fms [%.3fs (%.3fms/tx)]\n", 
+                Ticks<MillisecondsDouble>(time2 - time1),
+                Ticks<SecondsDouble>(total_time_invalid),
+                Ticks<MillisecondsDouble>(total_time_invalid) / total_txs_invalid);
+    }
     return result;
 }
 
