@@ -56,6 +56,22 @@ bool TestLockPointValidity(CChain& active_chain, const LockPoints& lp)
 
 std::vector<CTxMemPoolEntry::CTxMemPoolEntryRef> CTxMemPool::GetChildren(const CTxMemPoolEntry& entry) const
 {
+    setEntries children;
+    {
+        LOCK(cs);
+        auto iter = mapNextTx.lower_bound(COutPoint(entry.GetTx().GetHash(), 0));
+        for (; iter != mapNextTx.end() && iter->first->hash == entry.GetTx().GetHash(); ++iter) {
+            children.insert(iter->second);
+        }
+    }
+    std::vector<CTxMemPoolEntry::CTxMemPoolEntryRef> ret;
+    for (auto child : children) {
+        ret.emplace_back(*child);
+    }
+    return ret;
+}
+/*
+{
     LOCK(cs);
     std::vector<CTxMemPoolEntry::CTxMemPoolEntryRef> ret;
     WITH_FRESH_EPOCH(m_epoch);
@@ -66,7 +82,7 @@ std::vector<CTxMemPoolEntry::CTxMemPoolEntryRef> CTxMemPool::GetChildren(const C
         }
     }
     return ret;
-}
+}*/
 
 std::vector<CTxMemPoolEntry::CTxMemPoolEntryRef> CTxMemPool::GetParents(const CTxMemPoolEntry& entry) const
 {
